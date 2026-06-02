@@ -1,0 +1,24 @@
+# secrets — never commit
+.env
+.env.*
+!.env.example
+
+# runtime
+node_modules/
+dist/
+*.log
+logs/
+
+# research output (data, not code) — decide later if you want it tracked
+research/*.md
+!research/.gitkeep
+
+# voice model weights / audio samples (large)
+voice/models/
+voice/samples/
+*.wav
+*.mp3
+
+# os / editor
+.DS_Store
+Thumbs.db
