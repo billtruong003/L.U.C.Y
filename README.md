@@ -1,7 +1,11 @@
-# Lucy — Personal AI
+# L.U.C.Y — Personal AI
 
+> **L.U.C.Y** — *Literally Understands Crypto, Y'know.* 😎
+>
 > Con personal AI luôn-bật của Bill — giúp ra quyết định tài chính (coin/vàng/macro/alpha) và làm content,
-> nói chuyện bằng **giọng anime girl** qua Discord voice + Telegram. Chạy trên VPS Ubuntu, não là **Hermes Agent** + Claude.
+> nói chuyện bằng **giọng anime girl** qua Telegram. Chạy trên VPS Ubuntu, não là **Hermes Agent** + Claude.
+
+> _"Tôi á? Literally Understand Crypto, Y'know. Còn sếp thì mua đỉnh bán đáy."_ — Lucy
 
 **Status:** Prep / scoping — chưa code. Đây là folder dự án; docs neo trong `docs/`.
 
