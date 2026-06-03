@@ -11,7 +11,7 @@
 |---|---|---|
 | 🔐 | **Telegram bot token** | @BotFather → `/newbot` → đặt tên + username kết thúc `bot` → nhận token `123…:ABC…` |
 | 🔐 | **Telegram user ID của Bill** | nhắn @userinfobot → lấy số ID (để khóa chỉ mình Bill dùng) |
-| | **Model provider** | P1 khuyến nghị **Nous Portal** (`hermes setup --portal`) — 1 lần OAuth, gồm cả tool gateway, nhanh nhất. Anthropic/OpenRouter routing để sau. |
+| | **Model provider** | **Đã chốt: `grok-4.1-fast-reasoning` qua xAI thẳng** (`provider: custom`, `base_url: https://api.x.ai/v1`, `OPENAI_API_KEY`=xAI key) — xem [../hermes/config.yaml](../hermes/config.yaml). Dùng ngay ở P1. (Nous Portal chỉ là phương án thay thế nếu muốn thử nhanh.) |
 | | **VPS** | Vietnix `14.225.255.73` (chung radiant-bot) đủ cho P1 (chat nhẹ). Tách box sau nếu cần. |
 
 ---
@@ -35,11 +35,13 @@ curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scri
 hermes --version
 ```
 
-## 4. 🔐 Cấu hình model (Bill tự làm — interactive, không paste ra ngoài)
+## 4. 🔐 Cấu hình model — grok-4.1-fast qua xAI (Bill tự nhập key)
 ```bash
-hermes setup --portal      # mở OAuth Nous Portal: login bằng trình duyệt, KHÔNG gõ key vào chat
+nano ~/.hermes/.env        # set OPENAI_API_KEY=<xAI key>   (đừng cat, đừng paste vào chat)
+# config.yaml đã set provider: custom + base_url: https://api.x.ai/v1 + model: grok-4-1-fast-reasoning
 ```
-> Hoặc nếu muốn Anthropic/OpenRouter ngay: sửa `~/.hermes/.env` bằng `nano` (đừng `cat`).
+> Copy [../hermes/config.yaml](../hermes/config.yaml) → `~/.hermes/config.yaml`. KHÔNG set ANTHROPIC_* (xem [BRIDGE_CLAUDE_CODE.md](BRIDGE_CLAUDE_CODE.md)).
+> (Phương án thay thế nếu muốn thử nhanh: `hermes setup --portal`.)
 
 ## 5. 🔐 Cấu hình Telegram (Bill tự làm)
 **Cách A — interactive (khuyến nghị):**

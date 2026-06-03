@@ -2,6 +2,10 @@
 
 > **Scope (chốt 2026-06-02): voice CHỈ ở Telegram.** Discord không có voice — Discord chỉ nhận **text của Aki**.
 > Telegram voice = **voice note bất đồng bộ** (không phải live call) → đơn giản hơn nhiều, **không** áp lực latency realtime.
+>
+> **Cập nhật 2026-06-03:** Hermes có **Edge TTS FREE built-in** (toolset `tts`, no-GPU no-key) + STT
+> faster-whisper local → **bắt đầu bằng cái này, gần như 0 setup**. MeloTTS/VieNeu bên dưới = **nâng cấp**
+> khi muốn giọng Lucy riêng/cute. Đừng tự host MeloTTS ngay nếu chỉ cần voice chạy trước.
 
 ---
 

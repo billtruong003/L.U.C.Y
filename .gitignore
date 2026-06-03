@@ -9,6 +9,9 @@ dist/
 *.log
 logs/
 
+# upstream Hermes Agent source (cloned for reference, not Bill's code — cài thật trên VPS qua installer)
+hermes-agent/
+
 # research output (data, not code) — decide later if you want it tracked
 research/*.md
 !research/.gitkeep

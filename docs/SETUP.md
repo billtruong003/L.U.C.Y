@@ -9,7 +9,7 @@
 
 - [ ] VPS Ubuntu — quyết định: Vietnix `14.225.255.73` (chung radiant-bot, không GPU) **hay** box riêng (cân nhắc GPU nếu local voice).
 - [ ] Telegram bot token (tạo qua @BotFather).
-- [ ] Model provider key cho Hermes (Anthropic / OpenRouter / Nous Portal) — chọn 1 chính.
+- [ ] **xAI API key** cho Hermes body (`grok-4.1-fast-reasoning`, provider=custom → `https://api.x.ai/v1`). Não code = Claude Code qua `!c` (OAuth riêng). Xem [BRIDGE_CLAUDE_CODE.md](BRIDGE_CLAUDE_CODE.md).
 - [ ] (Voice) Quyết GPU? → TTS engine (ElevenLabs cloud / GPT-SoVITS local). Xem VOICE.md §6.
 - [ ] HMAC secret dùng chung với radiant-bot control API.
 
@@ -22,7 +22,7 @@
    hermes gateway    # bật messaging (Telegram)
    ```
    Deps: Python 3.11+, Node, ripgrep, ffmpeg.
-2. **Cấu hình model + gateway** trong `lucy/hermes/` (routing Claude vs rẻ, Telegram token qua env).
+2. **Cấu hình model + gateway** trong `lucy/hermes/` (provider=custom → xAI grok-4.1-fast; Telegram token qua env; KHÔNG ANTHROPIC_*).
 3. **Skills** — cài research skills vào Hermes skill dir (+ vet community: awesome-finance-skills, last30days).
 4. **Voice (`lucy/voice/`)** — **Telegram only**: Hermes transcribe voice note (STT) + TTS anime-voice reply gửi `sendVoice`. Dep: `ffmpeg` (convert sang OGG/Opus). KHÔNG cần @discordjs/voice.
 5. **Bridge** (`lucy/bridge/`) — HMAC client → radiant-bot `/api/agent/*` (cần thêm endpoint phía radiant-bot).
