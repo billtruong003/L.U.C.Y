@@ -22,12 +22,35 @@ Máy local chạy `hermes dashboard` (mở rộng bằng plugin). Bill vào qua 
 
 ## 1. Sections (field) trong hub
 
-| Section | Nội dung | Nguồn / độ khó |
+| Section | Nội dung | Nguồn / độ khó | Phase |
+|---|---|---|---|
+| **Chat** | Hội thoại Lucy + ra lệnh, `!c` delegate Claude | Hermes dashboard Chat tab có sẵn (PTY/WS) — dễ | H1 |
+| **Running tasks / Agents** | Task đang chạy live: delegate_task, cron, Kanban lanes (prompt, trạng thái, kill) | REST `/api/sessions` + `/agents` + Kanban — vừa | H2 |
+| **Projects** | Mỗi project: **board** Kanban + info + **source tree** (code xem được, ảnh = node) | custom plugin tab — vừa | H2 |
+| **Research / Money** | Render đẹp `research/<date>.md` + `TREND.md` (vàng/crypto/CK) — đọc brief ngày, so xu hướng | custom tab đọc file markdown — dễ-vừa | H2 |
+| **Delegate console** | Bắn `!c <task>` từ hub, xem output Claude Code live + file markdown nó tạo (như luồng cat.moe) | REST + stream stdout — vừa | H2 |
+| **Logs** | Xem agent/gateway/error/cron log, filter + live tail (xem §1b) | Hermes Logs tab/`/api/logs` có sẵn — dễ | H1 |
+| **Cost / Usage** | Token + chi phí: grok ($) + Claude (rate-limit quota) — canh budget $10/năm + né cháy quota | Hermes Analytics `/api/analytics` — dễ | H2 |
+| **Memory** | Xem/sửa `MEMORY.md` + `USER.md` (Lucy biết gì về Bill) | Hermes Memory API — dễ | H2 |
+| **Artifacts / Files** | Kho output: research, blog/doc Claude tạo, file upload (cat.moe…) | custom tab + file API — vừa | H2 |
+| **Brain-viz** | Cục năng lượng + dây nối LLM chạy khi active (Iron Man) | three.js + telemetry stream | H3 ⭐ QUAN TRỌNG, KHÔNG drop |
+
+## 1b. Logging — log lủng thế nào
+
+Hermes sẵn có: `~/.hermes/logs/{agent,gateway,errors}.log` + session trajectories `~/.hermes/sessions/*.json`.
+Lucy bổ sung **structured log** để hub đọc + canh tiền/quota:
+
+| Log | Ghi gì | Dùng để |
 |---|---|---|
-| **Chat** | Ra lệnh Claude, hội thoại | Hermes dashboard **Chat tab có sẵn** (PTY/WebSocket) — dễ |
-| **Running tasks** | Task đang chạy (agent sessions + Kanban lanes) live | Hermes REST `/api/sessions` + Kanban state — vừa |
-| **Projects** | Mỗi project: **board** (Kanban) + info + **source tree** | custom plugin tab — vừa |
-| **Brain-viz** | Cục năng lượng + dây nối LLM chạy khi active (Iron Man) | three.js + telemetry stream — khó, làm **phase cuối** nhưng ⭐ **Bill nhấn QUAN TRỌNG, KHÔNG drop** |
+| **activity** | mỗi tương tác Telegram / cron run / delegate: timestamp · ai · prompt tóm tắt · kết quả | dòng thời gian "Lucy làm gì hôm nay" |
+| **delegate/claude** | mỗi `!c`/delegate: prompt · `session_id` Claude · cost_usd · duration · file output | truy vết việc nặng + chi phí Claude |
+| **research** | mỗi brief ngày: date · nguồn · model · cost · path file | nhật ký research, so ngày qua ngày |
+| **cost** | gộp theo ngày: token+$ grok · quota Claude đã dùng | canh **$10/năm** + né cháy rate-limit |
+| **errors** | lỗi API/tool kèm context (như 400 out-of-extra-usage đã gặp) | debug |
+
+Nguyên tắc: **1 dòng = 1 sự kiện, có timestamp + level + component** (gateway/agent/cron/delegate). Hub tab **Logs**
+= filter theo component/level + live tail; tab **Cost** đọc từ log cost. Prune log cũ (xem [VPS_CLEANUP.md](VPS_CLEANUP.md) §4).
+Cách rẻ để có structured log: **shell hook `post_tool_call` / `on_session_end`** của Hermes ghi 1 dòng JSON vào `~/.hermes/logs/lucy-activity.jsonl`.
 
 ### Source tree (trong Projects) — visualize, KHÔNG show hết
 - Cây file/folder của project (tree), click để xem.
