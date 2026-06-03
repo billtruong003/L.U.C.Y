@@ -1,0 +1,40 @@
+# Lucy — Hermes Agent profile (model routing qua OmniRoute)
+# ---------------------------------------------------------------------------
+# Não của Lucy = Hermes Agent + Claude. Thay vì gọi thẳng api.anthropic.com
+# (bị chặn billing "extra usage" trên token Claude Max — xem ../docs + memory),
+# Lucy route toàn bộ LLM call qua OmniRoute self-host (Docker, port 20128).
+# OmniRoute giữ Claude OAuth và forward sang Anthropic giúp.
+#
+# Cách dùng: merge block này vào ~/.hermes/config.yaml của instance Lucy,
+# hoặc copy file này làm config home riêng cho Lucy.
+# Endpoint + secret: xem ./.env.example  (KHÔNG commit secret thật).
+
+model:
+  # provider=anthropic => Hermes nói anthropic_messages tới OmniRoute;
+  # OmniRoute convert sang OpenAI-format cho xAI. Hermes gửi nguyên model string.
+  provider: anthropic
+  # Brain hiện tại = Grok-4.3 qua xAI API key (billed by API, không dính
+  # giới hạn subscription). Connection xai đã add trong OmniRoute.
+  default: xai/grok-4.3
+  # Trỏ về OmniRoute self-host (router) thay vì gọi provider trực tiếp
+  base_url: http://localhost:20128
+  # LƯU Ý: cc/claude-opus-4-8 (Claude Max OAuth) KHÔNG dùng được cho bot —
+  # Anthropic meter traffic bot thật => 400 "out of extra usage". Xem README.
+
+# Giữ tính năng Claude qua OmniRoute
+prompt_caching:
+  cache_ttl: 5m
+
+compression:
+  enabled: true
+  threshold: 0.5
+  target_ratio: 0.2
+  protect_last_n: 20
+  protect_first_n: 3
+
+agent:
+  reasoning_effort: medium
+  max_turns: 60
+
+# Gateway Telegram (line riêng của Bill) — token nằm trong .env, không để đây.
+# platform_toolsets / stt / display ... kế thừa từ Hermes default hoặc thêm sau.
