@@ -1,55 +1,50 @@
-# Lucy — Hermes Agent profile (BODY của Lucy)
+# Lucy — Hermes Agent profile (BODY = CẦU NỐI, không execute)
 # ---------------------------------------------------------------------------
-# Kiến trúc (chốt 2026-06-03):
-#   • THÂN (body)  = Hermes chạy model RẺ + THÔNG MINH: xai/grok-4.1-fast-reasoning,
-#                    gọi THẲNG xAI (OpenAI-compatible). Luôn-bật, lo Telegram/voice/cron/máy.
-#   • NÃO (brain)  = Claude Code, triệu hồi bằng command `!c <task>` → `claude -p ...`
-#                    (auth OAuth riêng của Claude Code, KHÔNG phải model của Hermes).
+# Kiến trúc: body chỉ DISPATCH → Claude Code (qua `!c`/skill claude-code) mới thực thi.
+#   • Brain body = MISTRAL FREE (1B token/tháng) để body ~$0. Đủ cho việc cầu nối.
+#   • Fallback (nếu Mistral yếu/rate-limit): grok-4-1-fast-reasoning qua provider=xai + XAI_API_KEY.
+#   • Đã TRIM tool + tắt reasoning + nén mạnh → cắt token (trước đó 33 tool = ~13K token/lượt → cháy tiền).
 #
-#   → Đã BỎ OmniRoute (trước dùng để route Claude-OAuth; giờ Claude vào bằng subprocess
-#     nên không cần router). provider=xai ⇒ Hermes KHÔNG bao giờ đi đường native Anthropic
-#     ⇒ landmine credential `~/.claude` biến mất. Xem ../docs/BRIDGE_CLAUDE_CODE.md.
-#
-# Endpoint + key: xem ./.env.example. KHÔNG commit secret thật.
+# 🔑 KEY: Mistral = provider=custom, mà custom KHÔNG đọc env key → đặt model.api_key TRÊN BOX:
+#     hermes config set model.api_key <mistral-key>     (ghi vào ~/.hermes/config.yaml, KHÔNG commit)
+#   Lấy key free: https://console.mistral.ai (La Plateforme, free tier 1B token/tháng).
 
 model:
-  # provider=xai NATIVE (đã validate trên Windows 2026-06-03) — đọc thẳng XAI_API_KEY từ .env,
-  # KHÔNG để key trong file này (repo-safe). _is_native_anthropic=False ⇒ không đụng ~/.claude.
-  provider: xai
-  # Brain của THÂN = grok 4.1 fast reasoning: $0.20/$0.50 per 1M, cached $0.05/M, context 2M.
-  # ⚠️ Model id xAI = dấu GẠCH NGANG hết: grok-4-1-fast-reasoning (KHÔNG phải 4.1 có dấu chấm).
-  # Ref: https://docs.x.ai/developers/models/grok-4-1-fast-reasoning
-  default: grok-4-1-fast-reasoning
-  base_url: https://api.x.ai/v1
-  # Key: đặt XAI_API_KEY trong .env (xem ./.env.example). KHÔNG để api_key ở đây.
+  provider: custom
+  default: mistral-small-latest          # free-tier, có tool-calling — đủ cho dispatcher
+  base_url: https://api.mistral.ai/v1
+  # api_key: <set trên box bằng `hermes config set model.api_key ...`, KHÔNG để đây>
   #
-  # LƯU Ý (đã học khi test): provider=custom KHÔNG đọc OPENAI_API_KEY (tự điền "not-needed" → xAI 400).
-  # Dùng provider=xai (đọc XAI_API_KEY) HOẶC provider=custom + model.api_key đặt thẳng (lộ vào file).
+  # Fallback grok: provider=xai · default=grok-4-1-fast-reasoning · base_url=https://api.x.ai/v1 · key=XAI_API_KEY (.env)
 
-# Bật prompt caching để giữ chi phí ~$10/năm (persona/system prompt cache còn $0.05/M).
 prompt_caching:
   cache_ttl: 5m
 
+# Nén sớm để history không phình (tiết kiệm token)
 compression:
   enabled: true
-  threshold: 0.5
+  threshold: 0.4
   target_ratio: 0.2
-  protect_last_n: 20
-  protect_first_n: 3
+  protect_last_n: 16
+  protect_first_n: 2
 
-# Auxiliary (vision/compress/web_extract/session_search): GHIM về "main" (= chính endpoint
-# xAI ở trên) để KHÔNG rơi xuống native Anthropic (đường đó đọc ~/.claude → cướp OAuth Claude
-# Code → 400 out of extra usage). Đừng để "auto".
+# Auxiliary ghim "main" (chính endpoint trên) — KHÔNG để auto (né rơi xuống anthropic đọc ~/.claude)
 auxiliary:
   compression:    { provider: main }
   web_extract:    { provider: main }
   session_search: { provider: main }
-  # vision: cần model multimodal. grok fast có thể không nhận ảnh → thêm key gemini/openrouter
-  # sau nếu muốn phân tích ảnh. Tạm để trống (chỉ kích hoạt khi có ảnh).
 
 agent:
-  reasoning_effort: medium
-  max_turns: 60
+  reasoning_effort: low    # dispatcher KHÔNG cần nghĩ sâu (Claude mới nghĩ) → cắt output token
+  max_turns: 40
 
-# Gateway Telegram (line riêng Bill) — token nằm trong .env, không để đây.
-# Web dashboard (hermes dashboard --host 0.0.0.0 + OAuth) cấu hình ở dashboard: / .env khi dựng.
+# TRIM TOOL — Lucy cầu nối chỉ cần đủ để dispatch, KHÔNG vác 33 tool
+platform_toolsets:
+  telegram: [terminal, web, file, skills, cronjob, send_message]
+  cli: [terminal, web, file, skills, cronjob]
+
+# Reset phiên hằng ngày để context không tích lũy vô hạn
+session_reset:
+  mode: both
+
+# Gateway Telegram (line riêng) — token trong .env, không để đây.
