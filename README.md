@@ -41,6 +41,7 @@ line riêng, và là "bộ não kiếm tiền" always-on. (Discord chỉ nhận 
 | [docs/BRIDGE_CLAUDE_CODE.md](docs/BRIDGE_CLAUDE_CODE.md) | **Kiến trúc não**: thân grok-4.1-fast + `!c` triệu hồi Claude Code (giá, tiered, isolation) |
 | [docs/LOCAL_HUB.md](docs/LOCAL_HUB.md) | **Local web hub** (tầng nặng): cổng web bảo mật 2FA + sections Chat/Tasks/Projects + brain-viz, ra lệnh Claude |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | **Host: LOCAL vs VPS chạy gì, chạy sao** — 2 tầng, process, tunnel, secrets |
+| [docs/VPS_CLEANUP.md](docs/VPS_CLEANUP.md) | **Dọn VPS** — audit cái thừa, xóa OmniRoute/Docker/session cũ, giữ radiant-bot + Lucy |
 | [docs/VOICE.md](docs/VOICE.md) | Voice stack chi tiết: activation + STT + TTS giọng anime + Ubuntu |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Hermes + bridge radiant-bot + skills + dashboard |
 | [docs/SETUP.md](docs/SETUP.md) | Deploy VPS Ubuntu (outline, prerequisites) |
