@@ -1,0 +1,38 @@
+name: lucy-cockpit
+label: Lucy Cockpit
+description: Sci-fi netrunner cockpit cho Lucy Hub (Edgerunners vibe)
+
+palette:
+  background: "#04060f"
+  midground: "#3fd3ff"
+  foreground:
+    hex: "#ffffff"
+    alpha: 0.0
+  warmGlow: "rgba(63, 211, 255, 0.18)"
+  noiseOpacity: 0.6
+
+typography:
+  fontSans: '"Orbitron", "Eurostile", system-ui, sans-serif'
+  fontMono: '"Share Tech Mono", ui-monospace, monospace'
+  fontUrl: "https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700&family=Share+Tech+Mono&display=swap"
+  baseSize: "14px"
+  letterSpacing: "0.03em"
+
+layout:
+  radius: "0"
+  density: compact
+
+layoutVariant: cockpit
+
+colorOverrides:
+  primary: "#3fd3ff"
+  accent: "#ff2d7e"
+  ring: "#3fd3ff"
+  border: "rgba(63, 211, 255, 0.25)"
+
+customCSS: |
+  :root[data-layout-variant="cockpit"] body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 100;
+    background: repeating-linear-gradient(to bottom, transparent 0 2px, rgba(63,211,255,0.045) 3px 4px);
+    mix-blend-mode: screen;
+  }

@@ -1,0 +1,10 @@
+{
+  "name": "lucy-hub",
+  "label": "Lucy Hub",
+  "description": "Lucy command center — ingest data theo field từ app/game ngoài + cockpit",
+  "icon": "Zap",
+  "version": "0.1.0",
+  "tab": { "path": "/lucy-hub", "position": "before:sessions" },
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}
