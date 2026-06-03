@@ -16,7 +16,7 @@
 | **Bridge → Aki** | POST radiant-bot `/api/agent/*` (HMAC) → Aki báo cáo Discord *(endpoint chưa có — phải thêm)* |
 | **Tunnel endpoint** | nhận reverse-SSH từ local: sshd `GatewayPorts yes`; nginx TLS `:8443` → hub local |
 | **KHÔNG chạy** | coding nặng / kanban / build / dashboard hub (đẩy hết về local) |
-| **Secrets (~/.hermes/.env)** | `OPENAI_API_KEY`=xAI key · Telegram token + allowed user · **KHÔNG** ANTHROPIC_* |
+| **Secrets (~/.hermes/.env)** | `XAI_API_KEY`=xAI key (provider=xai native) · Telegram token + allowed user · **KHÔNG** ANTHROPIC_* |
 
 Smoke: `hermes gateway status` · nhắn Telegram → Lucy trả lời · cron chạy ra 2 file.
 
@@ -43,8 +43,16 @@ Smoke: mở hub localhost → 2FA → Chat → ra lệnh `claude` chạy 1 task 
 Cả VPS (brief 1×/ngày) lẫn local (code) đều xài **Claude subscription** chung → rate-limit **dùng chung quota**.
 Brief 1 call/ngày không đáng kể; coding local mới là phần ăn quota. Mỗi máy `claude login` riêng, auth nằm `~/.claude` của máy đó.
 
+## E. ✅ Đã validate LOCAL (2026-06-03) + Windows gotchas
+
+- ✅ **grok-4-1-fast-reasoning qua `provider: xai` native** trả lời OK trên Windows (`hermes chat -q`). Không đụng anthropic, landmine sạch.
+- **Gotcha 1 — provider=custom KHÔNG đọc OPENAI_API_KEY** → tự điền "not-needed" → xAI 400. **Dùng `provider: xai` + `XAI_API_KEY`.**
+- **Gotcha 2 — dashboard `--host` ghi đè (migrate) config.yaml về default `anthropic/claude-opus-4-8`** → rồi cướp OAuth Claude Code (`~/.claude`) → 400 out of extra usage. Trên Windows này có `~/.claude` (máy chạy Claude Code). **Khi dựng hub H1: khóa không cho dashboard reset model.**
+- **Gotcha 3 — MIME**: Python trên Windows trả `.js` = `text/plain` → dashboard trắng. Fix: HKCU `Software\Classes\.js Content Type = text/javascript` (+ .mjs/.css/.wasm) rồi restart.
+- **Gotcha 4 — 2 HERMES_HOME**: installer set `%LOCALAPPDATA%\hermes` nhưng dashboard/CLI mặc định dùng `C:\Users\<u>\.hermes`. **Ép `HERMES_HOME` rõ ràng.** VPS Linux = `~/.hermes` sạch, không vướng.
+
 ## D. Thứ tự dựng
-1. **Test LOCAL** (validate grok-via-xAI bằng `hermes chat`) — đang làm.
+1. **Test LOCAL** (validate grok-via-xAI bằng `hermes chat`) — ✅ XONG.
 2. **VPS P1** Hermes + Telegram (bám [P1_RUNBOOK.md](P1_RUNBOOK.md) / [VPS_KICKOFF.md](VPS_KICKOFF.md)).
 3. **VPS P2** cron research → 2 file → Telegram. **P3** đẩy Aki.
 4. **LOCAL hub** H1 tunnel+2FA+Chat → H2 Tasks/Projects → H3 brain-viz.

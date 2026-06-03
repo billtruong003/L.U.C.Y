@@ -11,7 +11,7 @@
 |---|---|---|
 | 🔐 | **Telegram bot token** | @BotFather → `/newbot` → đặt tên + username kết thúc `bot` → nhận token `123…:ABC…` |
 | 🔐 | **Telegram user ID của Bill** | nhắn @userinfobot → lấy số ID (để khóa chỉ mình Bill dùng) |
-| | **Model provider** | **Đã chốt: `grok-4.1-fast-reasoning` qua xAI thẳng** (`provider: custom`, `base_url: https://api.x.ai/v1`, `OPENAI_API_KEY`=xAI key) — xem [../hermes/config.yaml](../hermes/config.yaml). Dùng ngay ở P1. (Nous Portal chỉ là phương án thay thế nếu muốn thử nhanh.) |
+| | **Model provider** | **Đã chốt + validate: `grok-4-1-fast-reasoning` qua `provider: xai` native** (`base_url: https://api.x.ai/v1`, `XAI_API_KEY`=xAI key) — xem [../hermes/config.yaml](../hermes/config.yaml). Dùng ngay ở P1. |
 | | **VPS** | Vietnix `14.225.255.73` (chung radiant-bot) đủ cho P1 (chat nhẹ). Tách box sau nếu cần. |
 
 ---
@@ -37,8 +37,8 @@ hermes --version
 
 ## 4. 🔐 Cấu hình model — grok-4.1-fast qua xAI (Bill tự nhập key)
 ```bash
-nano ~/.hermes/.env        # set OPENAI_API_KEY=<xAI key>   (đừng cat, đừng paste vào chat)
-# config.yaml đã set provider: custom + base_url: https://api.x.ai/v1 + model: grok-4-1-fast-reasoning
+nano ~/.hermes/.env        # set XAI_API_KEY=<xAI key>   (đừng cat, đừng paste vào chat)
+# config.yaml đã set provider: xai + base_url: https://api.x.ai/v1 + model: grok-4-1-fast-reasoning
 ```
 > Copy [../hermes/config.yaml](../hermes/config.yaml) → `~/.hermes/config.yaml`. KHÔNG set ANTHROPIC_* (xem [BRIDGE_CLAUDE_CODE.md](BRIDGE_CLAUDE_CODE.md)).
 > (Phương án thay thế nếu muốn thử nhanh: `hermes setup --portal`.)

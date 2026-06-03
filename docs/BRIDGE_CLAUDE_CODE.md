@@ -37,17 +37,18 @@ Dùng-Claude-mọi-lượt chỉ tốt hơn tí ở việc dễ nhưng **đốt 
 
 ---
 
-## 2. Vì sao "không đụng tầng link" — đã giản lược nhờ provider=custom
+## 2. Vì sao "không đụng tầng link" — đã giản lược nhờ provider=xai (native, non-anthropic)
 
 Lo gốc: nếu Hermes route model qua **native Anthropic**, nó đọc `~/.claude/.credentials.json` của
 Claude Code ([anthropic_adapter.py:1102-1143](../hermes-agent/agent/anthropic_adapter.py#L1102)) → cướp
 OAuth → `400 out of extra usage`. Cơ chế: `_is_native_anthropic = provider=="anthropic"`
 ([agent_init.py:607](../hermes-agent/agent/agent_init.py#L607)).
 
-**Cách chặt nhất (đang dùng):** đặt **`provider: custom`** (trỏ xAI). Khi đó `_is_native_anthropic=False`
-→ `resolve_anthropic_token()` **không bao giờ** chạy → Hermes **không bao giờ** đọc `~/.claude`. Landmine
-biến mất, không cần "luật cách ly dummy-key" như bản cũ. Chỉ còn 1 việc: **ghim auxiliary về `main`**
-(đừng `auto`) để vision/compress không lén rơi xuống native Anthropic — đã set trong [../hermes/config.yaml](../hermes/config.yaml).
+**Cách chặt nhất (đang dùng, đã validate 2026-06-03):** đặt **`provider: xai`** (native, đọc `XAI_API_KEY`).
+Bất kỳ provider ≠ "anthropic" ⇒ `_is_native_anthropic=False` → `resolve_anthropic_token()` **không bao giờ**
+chạy → Hermes **không bao giờ** đọc `~/.claude`. Landmine biến mất, không cần "luật cách ly dummy-key" bản cũ.
+Còn 1 việc: **ghim auxiliary về `main`** (đừng `auto`) để vision/compress không lén rơi xuống native Anthropic.
+> ⚠️ Đừng dùng `provider: custom` — nó KHÔNG đọc `OPENAI_API_KEY` (tự điền "not-needed" → xAI 400). Dùng `xai`.
 
 > Claude Code khi bị Hermes spawn `claude -p` thì tự đọc OAuth của nó; Hermes scrub env nên không lẫn key.
 
@@ -77,7 +78,7 @@ terminal(command="claude -p '<task>' --output-format json --allowedTools 'Read,E
 - [ ] `hermes gateway status` → body sống (grok).
 - [ ] `claude auth status` → não có OAuth riêng.
 - [ ] Gửi `!c echo hi` qua Telegram → trả về JSON từ `claude -p`.
-- [ ] `config.yaml` provider=custom + auxiliary ghim `main` (không `auto`) + KHÔNG có ANTHROPIC_* trong .env.
+- [ ] `config.yaml` provider=xai + auxiliary ghim `main` (không `auto`) + key = `XAI_API_KEY` + KHÔNG có ANTHROPIC_* trong .env.
 - [ ] grep log Hermes: 0 request tới `api.anthropic.com`.
 
 ## 6. Bị loại (ghi để khỏi quay lại)

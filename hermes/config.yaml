@@ -7,22 +7,24 @@
 #                    (auth OAuth riêng của Claude Code, KHÔNG phải model của Hermes).
 #
 #   → Đã BỎ OmniRoute (trước dùng để route Claude-OAuth; giờ Claude vào bằng subprocess
-#     nên không cần router). provider=custom ⇒ Hermes KHÔNG bao giờ đi đường native Anthropic
+#     nên không cần router). provider=xai ⇒ Hermes KHÔNG bao giờ đi đường native Anthropic
 #     ⇒ landmine credential `~/.claude` biến mất. Xem ../docs/BRIDGE_CLAUDE_CODE.md.
 #
 # Endpoint + key: xem ./.env.example. KHÔNG commit secret thật.
 
 model:
-  # custom = endpoint OpenAI-compatible bất kỳ. xAI nói OpenAI-wire.
-  provider: custom
-  # Brain của THÂN = grok 4.1 fast reasoning: $0.20/$0.50 per 1M, cached $0.05/M,
-  # context 2M — "frontier-adjacent rẻ nhất" (5/2026). Đủ khôn làm body + dispatch.
+  # provider=xai NATIVE (đã validate trên Windows 2026-06-03) — đọc thẳng XAI_API_KEY từ .env,
+  # KHÔNG để key trong file này (repo-safe). _is_native_anthropic=False ⇒ không đụng ~/.claude.
+  provider: xai
+  # Brain của THÂN = grok 4.1 fast reasoning: $0.20/$0.50 per 1M, cached $0.05/M, context 2M.
   # ⚠️ Model id xAI = dấu GẠCH NGANG hết: grok-4-1-fast-reasoning (KHÔNG phải 4.1 có dấu chấm).
   # Ref: https://docs.x.ai/developers/models/grok-4-1-fast-reasoning
   default: grok-4-1-fast-reasoning
-  # Gọi thẳng xAI, không qua OmniRoute.
   base_url: https://api.x.ai/v1
-  # api_key: lấy từ OPENAI_API_KEY trong .env (đặt = xAI key). KHÔNG để đây.
+  # Key: đặt XAI_API_KEY trong .env (xem ./.env.example). KHÔNG để api_key ở đây.
+  #
+  # LƯU Ý (đã học khi test): provider=custom KHÔNG đọc OPENAI_API_KEY (tự điền "not-needed" → xAI 400).
+  # Dùng provider=xai (đọc XAI_API_KEY) HOẶC provider=custom + model.api_key đặt thẳng (lộ vào file).
 
 # Bật prompt caching để giữ chi phí ~$10/năm (persona/system prompt cache còn $0.05/M).
 prompt_caching:

@@ -43,15 +43,15 @@ LUẬT SECRET (bắt buộc):
 
 CHIA VIỆC:
 - BẠN chạy: system deps, cài Hermes, start gateway, dựng pm2, đọc log debug.
-- TÔI tự làm (báo done sau): (1) `nano ~/.hermes/.env` set OPENAI_API_KEY=<xAI key> (model body =
-  grok-4-1-fast-reasoning, provider=custom → https://api.x.ai/v1; KHÔNG set ANTHROPIC_*);
+- TÔI tự làm (báo done sau): (1) `nano ~/.hermes/.env` set XAI_API_KEY=<xAI key> (model body =
+  grok-4-1-fast-reasoning, provider=xai native → https://api.x.ai/v1; KHÔNG set ANTHROPIC_*);
   (2) Telegram — tạo bot @BotFather, lấy user ID @userinfobot, rồi `hermes gateway setup` HOẶC
   `nano ~/.hermes/.env` set TELEGRAM_BOT_TOKEN + TELEGRAM_ALLOWED_USERS=<user-id-tôi> (khóa chỉ mình tôi).
 
 CÁC BƯỚC P1:
 1. System deps: sudo apt update && sudo apt install -y python3.11 python3.11-venv nodejs npm ripgrep ffmpeg git curl
 2. Cài Hermes: curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash  (rồi `hermes --version`)
-3. [TÔI] set OPENAI_API_KEY=<xAI key> + copy hermes/config.yaml (provider=custom, grok-4.1-fast) → tôi báo done
+3. [TÔI] set XAI_API_KEY=<xAI key> + copy hermes/config.yaml (provider=xai, grok-4-1-fast) → tôi báo done
 4. [TÔI] cấu hình Telegram (token + TELEGRAM_ALLOWED_USERS) → tôi báo done
 5. Start: hermes gateway  → tôi nhắn bot trên Telegram để test Lucy trả lời
 6. Chạy nền: pm2 start "hermes gateway" --name lucy-hermes && pm2 save

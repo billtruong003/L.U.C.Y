@@ -10,7 +10,7 @@ Claude Code, triệu hồi bằng `!c`. Chi tiết kiến trúc: [../docs/BRIDGE
 | Body model | **`grok-4-1-fast-reasoning`** qua xAI API (OpenAI-compatible) — id dấu gạch ngang, [docs.x.ai](https://docs.x.ai/developers/models/grok-4-1-fast-reasoning) |
 | Giá | $0.20/M in · $0.50/M out · cached $0.05/M · context 2M — "frontier-adjacent rẻ nhất" (5/2026) |
 | Mục tiêu chi phí | ~**$10/năm** ở mức cá nhân (bật prompt caching + cron batch) |
-| Cách wire | `config.yaml`: `provider: custom`, `base_url: https://api.x.ai/v1`. `.env`: `OPENAI_API_KEY=<xAI key>` |
+| Cách wire | `config.yaml`: `provider: xai` (native), `base_url: https://api.x.ai/v1`. `.env`: `XAI_API_KEY=<xAI key>`. **Đã validate 2026-06-03.** |
 
 Vì sao grok 4.1 fast (không phải grok-4.3 cũ): 4.3 mắc; 4.1-fast vừa rẻ vừa đủ khôn làm body +
 dispatch. groq/Mistral yếu hơn; Gemini free đã bị siết (4/2026: Pro paywall, prepaid bắt buộc).
@@ -22,7 +22,7 @@ né lỗi `400 out of extra usage` khi dùng Claude Max OAuth làm model bot. **
 Claude không còn là model của Hermes; nó vào bằng `claude -p` subprocess (auth riêng). Nên:
 
 - Gỡ container `omniroute`, free RAM trên VPS 2GB.
-- `provider: custom` ⇒ `_is_native_anthropic=False` ⇒ Hermes **không bao giờ** đọc `~/.claude`
+- `provider: xai` ⇒ `_is_native_anthropic=False` ⇒ Hermes **không bao giờ** đọc `~/.claude`
   ⇒ **landmine credential biến mất** (xem BRIDGE doc §isolation, đã giản lược).
 
 ## Não = Claude Code (qua `!c`)
