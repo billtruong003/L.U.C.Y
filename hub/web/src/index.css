@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  background: #04060f;
+  color: #cfe9ff;
+  font-family: "Share Tech Mono", ui-monospace, monospace;
+  /* scanline sci-fi nhẹ */
+  background-image: repeating-linear-gradient(transparent 0 2px, rgba(63, 211, 255, 0.03) 3px 4px);
+}
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-thumb { background: rgba(63, 211, 255, 0.25); }
