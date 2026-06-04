@@ -10,7 +10,9 @@ Always-on: pm2 start lucy_bridge.py --name lucy-bridge --interpreter python3
 import os
 import json
 import time
+import threading
 import subprocess
+import concurrent.futures
 import requests
 
 TOKEN   = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -115,6 +117,25 @@ def run_claude(prompt, session_id, model="sonnet"):
         return None, (r.stdout or "(không parse được output)")[:3500]
 
 
+def _fan_lane(task, model):
+    try:
+        _, res = run_claude(task, None, model)          # mỗi lane độc lập, KHÔNG resume
+        return res
+    except Exception as e:
+        return f"❌ lane lỗi: {e}"
+
+
+def fan_out(chat_id, tasks, model="sonnet"):
+    """Multi-agent: chạy nhiều claude -p SONG SONG (mỗi lane = 1 Claude agent thật, độc lập)."""
+    send(chat_id, f"🚀 Fan-out {len(tasks)} lane song song ({model})…")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(tasks))) as ex:
+        futs = {ex.submit(_fan_lane, t, model): (i, t) for i, t in enumerate(tasks)}
+        for fut in concurrent.futures.as_completed(futs):
+            i, t = futs[fut]
+            reply(chat_id, f"🔹 Lane {i + 1} — {t[:50]}\n\n{fut.result()}")
+    send(chat_id, "✅ Xong tất cả lane.")
+
+
 def handle(msg, sessions):
     chat_id = msg["chat"]["id"]
     uid = str(msg.get("from", {}).get("id", ""))
@@ -144,6 +165,13 @@ def handle(msg, sessions):
              f"• Persona: {'có' if os.path.exists(PERSONA) else 'KHÔNG'} ({PERSONA})\n"
              f"• Timeout: {TIMEOUT}s\n"
              f"• Phiên hiện tại: {sid or 'mới (chưa có)'}")
+        return
+    if text.startswith("/fan"):
+        tasks = [l.strip() for l in text[4:].splitlines() if l.strip()]
+        if len(tasks) < 2:
+            send(chat_id, "Cú pháp: /fan rồi MỖI DÒNG 1 task (>=2). Vd:\n/fan\nphân tích BTC\nphân tích ETH\ncheck vàng XAU")
+            return
+        threading.Thread(target=fan_out, args=(chat_id, tasks, "sonnet"), daemon=True).start()
         return
 
     model = "sonnet"                                    # mặc định NHANH
