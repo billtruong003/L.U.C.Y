@@ -8,6 +8,7 @@ Chạy: pip install requests ; cp .env.example .env ; (điền .env) ; set -a; .
 Always-on: pm2 start lucy_bridge.py --name lucy-bridge --interpreter python3
 """
 import os
+import re
 import json
 import time
 import threading
@@ -188,6 +189,57 @@ def auto_run(chat_id, goal, model="sonnet", max_iters=8):
         stop.set()
 
 
+def _parse_json_list(raw):
+    """Rút JSON array các subtask từ output claude (có thể kèm ```json hay text)."""
+    if not raw:
+        return []
+    m = re.search(r"\[.*\]", raw, re.S)
+    if not m:
+        return []
+    try:
+        arr = json.loads(m.group(0))
+        return [str(x).strip() for x in arr if str(x).strip()][:6]
+    except Exception:
+        return []
+
+
+def orch_run(chat_id, goal, model="sonnet"):
+    """Orchestrator HIỆN RÕ: plan (1 agent) -> sub-agent SONG SONG -> synthesis (1 agent)."""
+    mid = send_id(chat_id, "🧠 Orchestrator: đang lập kế hoạch…")
+    stop = threading.Event()
+    threading.Thread(target=_heartbeat, args=(chat_id, mid, stop, "orch"), daemon=True).start()
+    try:
+        # 1) PLAN — chia subtask độc lập
+        plan_prompt = (f"Mục tiêu: {goal}\n\nChia thành 2-5 subtask ĐỘC LẬP (chạy song song được). "
+                       "CHỈ trả về JSON array các chuỗi subtask, KHÔNG giải thích. "
+                       'Vd: ["phân tích BTC","phân tích ETH","check vàng"]')
+        _, plan_raw = run_claude(plan_prompt, None, "sonnet")
+        subtasks = _parse_json_list(plan_raw)
+        if not subtasks:
+            stop.set(); edit(chat_id, mid, "⚠️ Không lập được plan → chạy thẳng goal.")
+            _, r = run_claude(goal, None, model); reply(chat_id, r); return
+        send(chat_id, "📋 Plan:\n" + "\n".join(f"  {i+1}. {t}" for i, t in enumerate(subtasks)))
+
+        # 2) SUB-AGENT song song
+        send(chat_id, f"🔧 {len(subtasks)} sub-agent chạy song song…")
+        done = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(subtasks))) as ex:
+            futs = {ex.submit(_fan_lane, t, model): (i, t) for i, t in enumerate(subtasks)}
+            for fut in concurrent.futures.as_completed(futs):
+                i, t = futs[fut]; done[i] = (t, fut.result())
+        results = [done[i] for i in sorted(done)]
+
+        # 3) SYNTHESIS — gộp thành báo cáo hoàn chỉnh
+        combined = "\n\n".join(f"### Subtask {i+1}: {t}\n{r}" for i, (t, r) in enumerate(results))
+        synth_prompt = (f"Mục tiêu gốc: {goal}\n\nKết quả các sub-agent:\n{combined}\n\n"
+                        "Tổng hợp thành 1 báo cáo HOÀN CHỈNH, gọn rõ, cho mục tiêu trên.")
+        _, final = run_claude(synth_prompt, None, model)
+        stop.set(); edit(chat_id, mid, f"✅ Orchestrator xong ({len(subtasks)} sub-agent).")
+        reply(chat_id, "🧩 TỔNG HỢP:\n\n" + final)
+    finally:
+        stop.set()
+
+
 def handle(msg, sessions):
     chat_id = msg["chat"]["id"]
     uid = str(msg.get("from", {}).get("id", ""))
@@ -232,6 +284,14 @@ def handle(msg, sessions):
             return
         m = "opus" if "opus" in goal.lower()[:12] else "sonnet"
         threading.Thread(target=auto_run, args=(chat_id, goal, m), daemon=True).start()
+        return
+    if text.startswith("/orch"):
+        goal = text[5:].strip()
+        if not goal:
+            send(chat_id, "Cú pháp: /orch <mục tiêu>. Em: lập plan → nhiều sub-agent song song → tổng hợp. (thêm 'opus' đầu goal cho việc khó)")
+            return
+        m = "opus" if "opus" in goal.lower()[:12] else "sonnet"
+        threading.Thread(target=orch_run, args=(chat_id, goal, m), daemon=True).start()
         return
 
     model = "sonnet"                                    # mặc định NHANH

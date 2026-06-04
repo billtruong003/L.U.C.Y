@@ -35,6 +35,7 @@ pm2 start lucy_bridge.py --name lucy-bridge --interpreter python3 \
 | (nhắn thường) | chat với Lucy — mặc định **Sonnet** (nhanh) |
 | `!o <task>` | dùng **Opus** cho việc khó/sâu |
 | `/fan` + mỗi dòng 1 task | **multi-agent song song** — nhiều task độc lập, mỗi lane 1 Claude agent |
+| `/orch <mục tiêu>` | **orchestrator** — 1 agent lập plan → nhiều sub-agent song song → 1 agent tổng hợp (hiện rõ từng bước) |
 | `/auto <mục tiêu>` | **autonomous** — chạy lặp tới khi Claude báo XONG (cap 8 vòng). Thêm "opus" đầu goal để dùng Opus |
 | `/new` | quên ngữ cảnh, phiên mới |
 | `/info` | xem engine/model/quyền/workdir |
