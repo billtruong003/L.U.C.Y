@@ -7,7 +7,7 @@
  */
 import express, { type Request } from 'express'
 import cookieParser from 'cookie-parser'
-import { execFile } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import os from 'node:os'
@@ -34,19 +34,25 @@ function runClaude(prompt: string, sessionId: string | null, model: string): Pro
   if (fs.existsSync(PERSONA)) args.push('--append-system-prompt-file', PERSONA)
   if (sessionId) args.push('--resume', sessionId)
   return new Promise((resolve) => {
-    execFile(
-      CLAUDE, args,
-      { cwd: WORKDIR, timeout: TIMEOUT, maxBuffer: 20 * 1024 * 1024, env: { ...process.env, IS_SANDBOX: '1' } },
-      (err, stdout, stderr) => {
-        if (err && !stdout) return resolve({ sid: null, text: `❌ Claude lỗi: ${String(stderr || err).slice(0, 600)}` })
-        try {
-          const d = JSON.parse(stdout)
-          resolve({ sid: d.session_id || null, text: d.result || '(rỗng)' })
-        } catch {
-          resolve({ sid: null, text: (stdout || '(parse err)').slice(0, 3500) })
-        }
-      },
-    )
+    // stdio stdin='ignore' → claude khỏi chờ stdin 3s. CLAUDE phải là exe thật (win: ...\bin\claude.exe).
+    const child = spawn(CLAUDE, args, {
+      cwd: WORKDIR, env: { ...process.env, IS_SANDBOX: '1' }, stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let out = '', errb = ''
+    const timer = setTimeout(() => child.kill(), TIMEOUT)
+    child.stdout.on('data', (d) => (out += d))
+    child.stderr.on('data', (d) => (errb += d))
+    child.on('error', (e) => { clearTimeout(timer); resolve({ sid: null, text: `❌ spawn lỗi: ${String(e).slice(0, 400)}` }) })
+    child.on('close', (code) => {
+      clearTimeout(timer)
+      if (code !== 0 && !out) return resolve({ sid: null, text: `❌ Claude lỗi (${code}): ${(errb || '').slice(0, 600)}` })
+      try {
+        const d = JSON.parse(out)
+        resolve({ sid: d.session_id || null, text: d.result || '(rỗng)' })
+      } catch {
+        resolve({ sid: null, text: (out || '(parse err)').slice(0, 3500) })
+      }
+    })
   })
 }
 
