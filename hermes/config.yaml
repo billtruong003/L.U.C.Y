@@ -61,4 +61,11 @@ platform_toolsets:
 session_reset:
   mode: both
 
+# ⛓️ HOOK ép luật mỗi turn (vì model yếu lờ SOUL ở đầu context → re-inject vào CUỐI, recency).
+# Deploy: cp hermes/hooks/inject-rules.sh ~/.hermes/agent-hooks/ ; chmod +x nó.
+hooks:
+  pre_llm_call:
+    - command: "~/.hermes/agent-hooks/inject-rules.sh"
+hooks_auto_accept: true   # gateway non-interactive cần cái này để hook tự chạy (không hỏi consent)
+
 # Gateway Telegram (line riêng) — token trong .env, không để đây.
