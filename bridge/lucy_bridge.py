@@ -90,9 +90,10 @@ def reply(chat_id, text):
     send_document(chat_id, path, caption="Lucy")
 
 
-def run_claude(prompt, session_id):
-    """Chạy claude -p, trả (session_id_mới, text). bypassPermissions để autonomous (chỉ chủ nhân gọi được)."""
-    cmd = [CLAUDE, "-p", prompt, "--output-format", "json", "--permission-mode", "bypassPermissions"]
+def run_claude(prompt, session_id, model="sonnet"):
+    """Chạy claude -p, trả (session_id_mới, text). model: sonnet (nhanh, mặc định) | opus (sâu, chậm)."""
+    cmd = [CLAUDE, "-p", prompt, "--output-format", "json",
+           "--permission-mode", "bypassPermissions", "--model", model]
     if os.path.exists(PERSONA):
         cmd += ["--append-system-prompt-file", PERSONA]
     if session_id:
@@ -145,8 +146,15 @@ def handle(msg, sessions):
              f"• Phiên hiện tại: {sid or 'mới (chưa có)'}")
         return
 
-    send(chat_id, "🤔 Em xử lý ạ…")
-    new_sid, result = run_claude(text, sessions.get(str(chat_id)))
+    model = "sonnet"                                    # mặc định NHANH
+    low = text.lower()
+    if low.startswith("!o ") or low.startswith("!opus "):
+        model = "opus"                                   # việc sâu/khó → Opus (chậm hơn)
+        text = text.split(" ", 1)[1].strip() if " " in text else ""
+    if not text:
+        return
+    send(chat_id, f"🤔 Em xử lý ạ… ({model})")
+    new_sid, result = run_claude(text, sessions.get(str(chat_id)), model)
     if new_sid:
         sessions[str(chat_id)] = new_sid; _save(sessions)
     reply(chat_id, result)
