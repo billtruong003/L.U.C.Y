@@ -41,10 +41,21 @@ agent:
   reasoning_effort: low    # dispatcher KHÔNG cần nghĩ sâu (Claude mới nghĩ) → cắt output token
   max_turns: 10            # dispatcher chỉ cần ~vài turn (phân loại + spawn claude + tóm tắt). 40 = dễ loop cháy token.
 
-# TRIM TOOL — Lucy cầu nối chỉ cần đủ để dispatch, KHÔNG vác 33 tool
+# ⛓️ ÉP CỨNG ở tầng harness — KHÔNG trông cậy SOUL (model yếu hallucinate sẽ bỏ qua SOUL).
+# Hermes TỰ ngắt mạch sau N lần fail → chặn retry-loop cháy token dù model cố retry.
+tool_loop_guardrails:
+  warnings_enabled: true
+  hard_stop_enabled: true
+  hard_stop_after:
+    exact_failure: 3
+    same_tool_failure: 4
+    idempotent_no_progress: 4
+
+# TRIM TOOL — ép cứng: bỏ `web` để Lucy KHÔNG thể tự research → BUỘC dispatch qua claude -p.
+# (claude -p có WebSearch/WebFetch riêng. Model hallucinate cũng không có tool web để lạm dụng.)
 platform_toolsets:
-  telegram: [terminal, web, file, skills, cronjob, send_message]
-  cli: [terminal, web, file, skills, cronjob]
+  telegram: [terminal, file, skills, cronjob, send_message]
+  cli: [terminal, file, skills, cronjob]
 
 # Reset phiên hằng ngày để context không tích lũy vô hạn
 session_reset:
