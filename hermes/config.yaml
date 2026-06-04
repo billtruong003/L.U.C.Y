@@ -11,10 +11,10 @@
 
 model:
   provider: custom
-  # Experiment free cho dùng MỌI model (1B token/tháng · 2 RPM). Chọn theo adherence+tốc độ, không theo giá.
-  # Medium = sweet spot cho DISPATCHER: bám SOUL + tool-call ổn, nhanh hơn Large (đỡ nghẹt 2 RPM).
-  # Lú persona → lên mistral-large-latest. Cần nhanh hơn → mistral-small-latest (Small 4).
-  default: mistral-medium-latest
+  # Experiment free cho dùng MỌI model (1B token/tháng · 2 RPM). Chọn theo adherence, không theo giá.
+  # LARGE = ít hallucinate nhất (medium bịa nguyên nhân lỗi + chế lệnh hermes không tồn tại).
+  # Đánh đổi: chậm hơn (2 RPM). Cần nhanh → medium. Vẫn ngu → route deterministic (script cố định).
+  default: mistral-large-latest
   base_url: https://api.mistral.ai/v1
   # api_key: <set trên box bằng `hermes config set model.api_key ...`, KHÔNG để đây>
   #
