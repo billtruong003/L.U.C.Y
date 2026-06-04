@@ -5,6 +5,7 @@
  * Dev:  npm install ; (đặt env) ; npm run dev      (web: cd ../web && npm run dev, proxy /api)
  * Prod: cd ../web && npm run build ; rồi  npm start
  */
+import 'dotenv/config'   // auto-load .env (cùng thư mục chạy) → pm2 khỏi cần set env tay
 import express, { type Request } from 'express'
 import cookieParser from 'cookie-parser'
 import { spawn } from 'node:child_process'
@@ -17,6 +18,7 @@ const home = (p: string) => p.replace(/^~/, os.homedir())
 
 const PASSWORD = process.env.LUCY_HUB_PASSWORD || ''
 const PORT = Number(process.env.LUCY_HUB_PORT || 8800)
+const HOST = process.env.LUCY_HUB_HOST || '0.0.0.0'   // nginx setup: đặt 127.0.0.1 (chỉ nginx proxy vào)
 const WORKDIR = home(process.env.LUCY_WORKDIR || '~/lucy/workspace')
 const CLAUDE = process.env.CLAUDE_BIN || 'claude'
 const PERSONA = home(process.env.LUCY_PERSONA || '~/lucy/bridge/persona.md')
@@ -104,7 +106,7 @@ if (fs.existsSync(DIST)) {
   app.get('*', (_req, res) => res.sendFile(path.join(DIST, 'index.html')))
 }
 
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, HOST, () => {
   if (!PASSWORD) console.log('⚠️  CHƯA đặt LUCY_HUB_PASSWORD — không đăng nhập được. Đặt env!')
-  console.log(`Lucy Hub: http://0.0.0.0:${PORT}`)
+  console.log(`Lucy Hub: http://${HOST}:${PORT}`)
 })
