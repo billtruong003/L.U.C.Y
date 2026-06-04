@@ -39,7 +39,7 @@ auxiliary:
 
 agent:
   reasoning_effort: low    # dispatcher KHÔNG cần nghĩ sâu (Claude mới nghĩ) → cắt output token
-  max_turns: 40
+  max_turns: 10            # dispatcher chỉ cần ~vài turn (phân loại + spawn claude + tóm tắt). 40 = dễ loop cháy token.
 
 # TRIM TOOL — Lucy cầu nối chỉ cần đủ để dispatch, KHÔNG vác 33 tool
 platform_toolsets:
