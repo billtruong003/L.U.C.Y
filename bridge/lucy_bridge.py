@@ -56,6 +56,40 @@ def send(chat_id, text):
             print("send err:", e)
 
 
+def send_document(chat_id, path, caption=""):
+    try:
+        with open(path, "rb") as f:
+            requests.post(f"{API}/sendDocument",
+                          data={"chat_id": chat_id, "caption": caption[:1000]},
+                          files={"document": f}, timeout=90)
+    except Exception as e:
+        print("doc err:", e)
+
+
+def _is_richdoc(t):
+    # markdown nặng / dài → không hợp gửi raw vào chat Telegram
+    return len(t) > 1600 or t.count("|") >= 6 or t.count("\n#") >= 2
+
+
+def reply(chat_id, text):
+    """Phase transform cho Telegram: dài/có bảng -> ghi file .md + gửi kèm + tóm tắt; ngắn -> text thẳng."""
+    text = text or "(rỗng)"
+    if not _is_richdoc(text):
+        send(chat_id, text)
+        return
+    path = os.path.join(WORKDIR, f"reply-{int(time.time())}.md")
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+    except Exception:
+        send(chat_id, text)            # ghi file fail -> gửi raw
+        return
+    # tóm tắt: bỏ dòng bảng, lấy ~600 ký tự đầu cho chat
+    teaser = "\n".join(l for l in text.splitlines() if not l.strip().startswith("|")).strip()[:600]
+    send(chat_id, "📄 Nội dung dài em gửi file kèm ạ. Tóm tắt:\n\n" + teaser)
+    send_document(chat_id, path, caption="Lucy")
+
+
 def run_claude(prompt, session_id):
     """Chạy claude -p, trả (session_id_mới, text). bypassPermissions để autonomous (chỉ chủ nhân gọi được)."""
     cmd = [CLAUDE, "-p", prompt, "--output-format", "json", "--permission-mode", "bypassPermissions"]
@@ -115,7 +149,7 @@ def handle(msg, sessions):
     new_sid, result = run_claude(text, sessions.get(str(chat_id)))
     if new_sid:
         sessions[str(chat_id)] = new_sid; _save(sessions)
-    send(chat_id, result)
+    reply(chat_id, result)
 
 
 def main():
