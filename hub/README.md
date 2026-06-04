@@ -1,51 +1,51 @@
-# Lucy Hub — web command center (React + Vite + Tailwind / FastAPI)
+# Lucy Hub — web command center (full Node/TS: React + Express)
 
-Web để chủ nhân **login qua IP** → chat với Lucy (claude -p) + (sau) sections sci-fi. Standalone, KHÔNG Hermes.
+Web để chủ nhân **login qua IP** → chat với Lucy (claude -p) + (sau) sections sci-fi. Standalone, KHÔNG Hermes, **toàn JS/TS**.
 
 ```
-Trình duyệt (IP) ──► FastAPI (server.py) ──► claude -p (brain) ──► trả về
-                       login + job nền + poll          + serve SPA (web/dist)
+Trình duyệt (IP) ──► Express (server/) ──► claude -p (brain) ──► trả về
+                       login + job nền + poll       + serve React build (web/dist)
 Frontend: Vite+React+TS+Tailwind (web/) — dev proxy /api -> :8800
 ```
 
 ## Cấu trúc
 ```
 hub/
-├── server.py          # FastAPI: /login /api/me /api/send /api/poll + serve web/dist
-├── requirements.txt   # fastapi, uvicorn
-├── .env.example       # LUCY_HUB_PASSWORD ...
-└── web/               # React app (Vite)
-    ├── package.json   vite.config.ts  tailwind.config.js  index.html
-    └── src/ (App, components/Login, components/Chat, api.ts)
+├── package.json        # script tiện: setup / build / start / dev
+├── server/             # backend Express + TypeScript
+│   └── src/index.ts    #   /login /api/me /api/send /api/poll + serve web/dist  (engine: claude -p)
+└── web/                # frontend Vite + React + TS + Tailwind
+    └── src/ App · components/Login · components/Chat · api.ts
 ```
 
-## Chạy (dev — 2 cửa sổ)
+## Chạy END-TO-END (máy có Node 18+ + claude CLI)
 ```bash
-# 1) backend
-cd ~/lucy/hub && pip install -r requirements.txt
-cp .env.example .env && nano .env          # đặt LUCY_HUB_PASSWORD
-set -a; . .env; set +a
-uvicorn server:app --host 0.0.0.0 --port 8800
-# 2) frontend (dev, hot-reload) — máy có Node
-cd ~/lucy/hub/web && npm install && npm run dev    # mở http://localhost:5173
-```
+cd ~/lucy/hub
+npm run setup                       # cài deps web + server
+cd server && cp .env.example .env || true   # (env đặt ở dưới)
 
-## Chạy (prod — 1 process)
-```bash
-cd ~/lucy/hub/web && npm install && npm run build   # tạo web/dist
-cd ~/lucy/hub && set -a; . .env; set +a
-uvicorn server:app --host 0.0.0.0 --port 8800       # vào http://<IP>:8800
-# always-on:
-pm2 start "uvicorn server:app --host 0.0.0.0 --port 8800" --name lucy-hub --cwd ~/lucy/hub
-```
+# đặt env (cùng shell chạy server):
+export LUCY_HUB_PASSWORD='matkhau-manh'
+# export CLAUDE_BIN=/root/.local/bin/claude   # nếu claude không trong PATH
 
-## 🔐 Bảo mật (đọc kỹ — hub điều khiển claude bypassPermissions)
-- **Bind 0.0.0.0 = ai trong mạng cũng tới được** → cửa duy nhất là `LUCY_HUB_PASSWORD`. Đặt mật khẩu MẠNH.
-- Mở ra Internet → **bắt buộc HTTPS** (nginx/caddy reverse-proxy) + cân nhắc **2FA** (roadmap H1.5: Telegram-approve).
-- Cookie httponly. Token phiên trong RAM (restart = phải login lại).
+# PROD (1 process): build web rồi chạy server serve luôn
+cd ~/lucy/hub && npm run build && npm start    # → http://<IP>:8800
+
+# DEV (hot-reload, 2 cửa sổ):
+#   cửa 1:  cd hub/server && LUCY_HUB_PASSWORD=... npm run dev
+#   cửa 2:  cd hub/web && npm run dev           → http://localhost:5173 (proxy /api)
+```
+Always-on: `pm2 start "npm start" --name lucy-hub --cwd ~/lucy/hub` (nhớ export env trước, hoặc dùng ecosystem file).
+
+## Env (server đọc từ process env)
+- `LUCY_HUB_PASSWORD` (bắt buộc) · `LUCY_HUB_PORT` (8800) · `CLAUDE_BIN` · `LUCY_WORKDIR` · `LUCY_PERSONA` · `LUCY_CLAUDE_TIMEOUT`
+
+## 🔐 Bảo mật
+- Bind `0.0.0.0` = ai trong mạng cũng tới → **mật khẩu MẠNH bắt buộc**. Mở Internet → **HTTPS** (nginx/caddy) + cân nhắc **2FA** (H1.5).
+- Cookie httpOnly; token phiên trong RAM. Hub điều khiển claude bypassPermissions → cửa quan trọng.
 
 ## Roadmap
 - **H1 (giờ):** login + chat + progress. ✅
-- **H1.5:** 2FA Telegram-approve · markdown render · SSE progress (thay poll).
-- **H2:** sections — Running tasks · Projects (board + source tree) · Logs/Cost · Inject-API (app/game POST).
-- **H3:** brain-viz three.js (cục năng lượng + dây LLM, Iron Man).
+- **H1.5:** 2FA Telegram-approve · render markdown · SSE progress.
+- **H2:** sections — Running tasks · Projects (board + source tree) · Logs/Cost · Inject-API.
+- **H3:** brain-viz three.js (Iron Man).
