@@ -30,7 +30,17 @@ pm2 start lucy_bridge.py --name lucy-bridge --interpreter python3 \
 > Chưa biết user id? Chạy bridge, nhắn bot, gõ `/id` — nó in `user_id`. Dán vào `.env` rồi restart.
 
 ## Lệnh trong chat
-`/new` — quên ngữ cảnh, phiên mới. `/id` — xem chat_id/user_id.
+| Lệnh | Tác dụng |
+|---|---|
+| (nhắn thường) | chat với Lucy — mặc định **Sonnet** (nhanh) |
+| `!o <task>` | dùng **Opus** cho việc khó/sâu |
+| `/fan` + mỗi dòng 1 task | **multi-agent song song** — nhiều task độc lập, mỗi lane 1 Claude agent |
+| `/auto <mục tiêu>` | **autonomous** — chạy lặp tới khi Claude báo XONG (cap 8 vòng). Thêm "opus" đầu goal để dùng Opus |
+| `/new` | quên ngữ cảnh, phiên mới |
+| `/info` | xem engine/model/quyền/workdir |
+| `/id` | xem chat_id / user_id |
+
+Việc lớn 1 mục tiêu nhiều phần → cứ nhắn thường, Lucy tự dùng **subagent song song** (CLAUDE.md đã nudge).
 
 ## Daily brief (cron)
 ```bash

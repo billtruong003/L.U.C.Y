@@ -164,6 +164,30 @@ def fan_out(chat_id, tasks, model="sonnet"):
     send(chat_id, "✅ Xong tất cả lane.")
 
 
+def auto_run(chat_id, goal, model="sonnet", max_iters=8):
+    """Autonomous: chạy LẶP (resume) tới khi Claude báo STATUS: DONE, hoặc đạt cap an toàn."""
+    mid = send_id(chat_id, f"🤖 Auto ({model}): chạy tới khi xong (cap {max_iters} vòng)…")
+    stop = threading.Event()
+    threading.Thread(target=_heartbeat, args=(chat_id, mid, stop, model), daemon=True).start()
+    sid = None
+    try:
+        for it in range(1, max_iters + 1):
+            base = goal if it == 1 else "Tiếp tục cho tới khi HOÀN THÀNH mục tiêu trên."
+            prompt = (base + "\n\nLàm tới khi xong. CUỐI trả lời ghi ĐÚNG 1 dòng cuối: "
+                      "'STATUS: DONE' nếu đã xong toàn bộ, hoặc 'STATUS: CONTINUE' nếu còn việc.")
+            new_sid, result = run_claude(prompt, sid, model)
+            if new_sid:
+                sid = new_sid
+            up = (result or "").upper()
+            reply(chat_id, f"🔁 Vòng {it}:\n{result}")
+            if "STATUS: DONE" in up and up.rfind("STATUS: DONE") > up.rfind("STATUS: CONTINUE"):
+                edit(chat_id, mid, f"✅ Auto XONG sau {it} vòng.")
+                return
+        edit(chat_id, mid, f"⏹️ Auto dừng ở cap {max_iters} vòng (an toàn). Gõ /auto lại để tiếp.")
+    finally:
+        stop.set()
+
+
 def handle(msg, sessions):
     chat_id = msg["chat"]["id"]
     uid = str(msg.get("from", {}).get("id", ""))
@@ -200,6 +224,14 @@ def handle(msg, sessions):
             send(chat_id, "Cú pháp: /fan rồi MỖI DÒNG 1 task (>=2). Vd:\n/fan\nphân tích BTC\nphân tích ETH\ncheck vàng XAU")
             return
         threading.Thread(target=fan_out, args=(chat_id, tasks, "sonnet"), daemon=True).start()
+        return
+    if text.startswith("/auto"):
+        goal = text[5:].strip()
+        if not goal:
+            send(chat_id, "Cú pháp: /auto <mục tiêu>. Em chạy LẶP tới khi xong (cap 8 vòng). Việc khó thêm 'opus' vào goal.")
+            return
+        m = "opus" if "opus" in goal.lower()[:12] else "sonnet"
+        threading.Thread(target=auto_run, args=(chat_id, goal, m), daemon=True).start()
         return
 
     model = "sonnet"                                    # mặc định NHANH
