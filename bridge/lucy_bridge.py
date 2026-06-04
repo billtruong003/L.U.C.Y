@@ -58,6 +58,34 @@ def send(chat_id, text):
             print("send err:", e)
 
 
+def send_id(chat_id, text):
+    """Gửi message, trả message_id (để edit làm progress)."""
+    try:
+        r = requests.post(f"{API}/sendMessage", json={"chat_id": chat_id, "text": text}, timeout=30)
+        return r.json().get("result", {}).get("message_id")
+    except Exception:
+        return None
+
+
+def edit(chat_id, mid, text):
+    if not mid:
+        return
+    try:
+        requests.post(f"{API}/editMessageText",
+                      json={"chat_id": chat_id, "message_id": mid, "text": text}, timeout=30)
+    except Exception:
+        pass
+
+
+def _heartbeat(chat_id, mid, stop, model):
+    """Thanh progress: edit message mỗi 15s với thời gian chạy → chủ nhân biết còn sống."""
+    t0 = time.time(); frames = "◐◓◑◒"; i = 0
+    while not stop.wait(15):
+        m, s = divmod(int(time.time() - t0), 60)
+        edit(chat_id, mid, f"{frames[i % 4]} Em đang chạy ({model})… {m}m{s:02d}s")
+        i += 1
+
+
 def send_document(chat_id, path, caption=""):
     try:
         with open(path, "rb") as f:
@@ -181,8 +209,14 @@ def handle(msg, sessions):
         text = text.split(" ", 1)[1].strip() if " " in text else ""
     if not text:
         return
-    send(chat_id, f"🤔 Em xử lý ạ… ({model})")
-    new_sid, result = run_claude(text, sessions.get(str(chat_id)), model)
+    mid = send_id(chat_id, f"🤔 Em xử lý ạ… ({model})")
+    stop = threading.Event()
+    threading.Thread(target=_heartbeat, args=(chat_id, mid, stop, model), daemon=True).start()
+    try:
+        new_sid, result = run_claude(text, sessions.get(str(chat_id)), model)
+    finally:
+        stop.set()
+    edit(chat_id, mid, f"✅ Xong ({model}).")
     if new_sid:
         sessions[str(chat_id)] = new_sid; _save(sessions)
     reply(chat_id, result)
