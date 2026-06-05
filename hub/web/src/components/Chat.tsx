@@ -25,8 +25,13 @@ export default function Chat() {
       const clean = t.replace(/```[\s\S]*?```/g, ' ').replace(/[#*`_>|~]/g, '').replace(/\[(.*?)\]\([^)]*\)/g, '$1').slice(0, 1200)
       const u = new SpeechSynthesisUtterance(clean)
       u.lang = 'vi-VN'
-      const v = speechSynthesis.getVoices().find((x) => x.lang.toLowerCase().startsWith('vi'))
+      const vs = speechSynthesis.getVoices()
+      // ưu tiên giọng VN nữ; fallback giọng VN bất kỳ
+      const v = vs.find((x) => x.lang.toLowerCase().startsWith('vi') && /female|nữ|hoaimy|female/i.test(x.name))
+        || vs.find((x) => x.lang.toLowerCase().startsWith('vi'))
       if (v) u.voice = v
+      u.pitch = 1.45   // cao hơn → girlish hơn (browser TTS, chưa phải anime thật)
+      u.rate = 1.0
       speechSynthesis.cancel(); speechSynthesis.speak(u)
     } catch { /* no tts */ }
   }

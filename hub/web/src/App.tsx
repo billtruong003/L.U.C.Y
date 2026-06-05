@@ -39,11 +39,14 @@ export default function App() {
         ))}
         <div className="mt-auto text-slate-600 text-[10px] px-2">● online</div>
       </nav>
-      <main className="flex-1 min-w-0">
+      <main className="flex-1 min-w-0 relative">
         {tab === 'chat' && <Chat />}
         {tab === 'tasks' && <Tasks />}
         {tab === 'projects' && <Projects />}
-        {tab === 'brain' && <BrainViz />}
+        {/* BrainViz mounted MỘT LẦN (ẩn bằng CSS) → Canvas không remount → hết Context Lost */}
+        <div className={tab === 'brain' ? 'h-full' : 'hidden'}>
+          <BrainViz visible={tab === 'brain'} />
+        </div>
       </main>
     </div>
   )
