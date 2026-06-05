@@ -11,14 +11,14 @@ System cron 7h ──► cron_brief.sh ──► claude -p → báo cáo thị t
 
 ## Cần trước
 - `claude` CLI đã cài + `claude login` (subscription) trên VPS. Kiểm: `claude -p "hi" --output-format json`.
-- Python3 + `pip install requests`.
+- Python3 + `pip install requests telegramify-markdown`.
 - Telegram bot token + user id của chủ nhân.
 
 ## Dựng (trên VPS)
 ```bash
 cd ~/lucy/bridge
 cp .env.example .env && nano .env        # điền TELEGRAM_BOT_TOKEN + LUCY_ALLOWED_USER_ID
-pip install requests
+pip install requests telegramify-markdown
 # chạy thử:
 set -a; . ./.env; set +a
 python3 lucy_bridge.py                    # nhắn bot trên Telegram → Lucy trả lời

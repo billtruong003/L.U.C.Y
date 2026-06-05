@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { send, poll } from '../api'
+import Markdown from './Markdown'
 
 type Msg = { role: 'me' | 'lucy' | 'sys'; text: string }
 
@@ -53,15 +54,15 @@ export default function Chat() {
           <div
             key={i}
             className={
-              'max-w-[90%] px-3 py-2 whitespace-pre-wrap break-words border ' +
+              'max-w-[90%] px-3 py-2 break-words border ' +
               (m.role === 'me'
-                ? 'self-end border-pink/60 text-pink'
+                ? 'self-end border-pink/60 text-pink whitespace-pre-wrap'
                 : m.role === 'sys'
-                ? 'self-center border-0 text-slate-500 text-xs'
+                ? 'self-center border-0 text-slate-500 text-xs whitespace-pre-wrap'
                 : 'self-start border-cyan/20')
             }
           >
-            {m.text}
+            {m.role === 'lucy' ? <Markdown>{m.text}</Markdown> : m.text}
           </div>
         ))}
         <div ref={end} />

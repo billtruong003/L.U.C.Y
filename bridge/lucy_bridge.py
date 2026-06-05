@@ -16,6 +16,12 @@ import subprocess
 import concurrent.futures
 import requests
 
+try:
+    import telegramify_markdown        # convert markdown -> Telegram MarkdownV2 (pip install telegramify-markdown)
+    _HAS_TGMD = True
+except Exception:
+    _HAS_TGMD = False
+
 TOKEN   = os.environ["TELEGRAM_BOT_TOKEN"]
 ALLOWED = str(os.environ.get("LUCY_ALLOWED_USER_ID", "")).strip()   # khóa chỉ chủ nhân
 WORKDIR = os.path.expanduser(os.environ.get("LUCY_WORKDIR", "~/lucy-workspace"))
@@ -51,10 +57,23 @@ def _save(s):
 
 def send(chat_id, text):
     text = text or "(rỗng)"
-    for i in range(0, len(text), 3800):                 # Telegram giới hạn ~4096
+    # Convert markdown -> Telegram MarkdownV2 cho dễ đọc (bold/list/code/bảng→mono). Lỗi → gửi plain.
+    body, parse = text, None
+    if _HAS_TGMD:
         try:
-            requests.post(f"{API}/sendMessage",
-                          json={"chat_id": chat_id, "text": text[i:i + 3800]}, timeout=30)
+            body = telegramify_markdown.markdownify(text); parse = "MarkdownV2"
+        except Exception:
+            body, parse = text, None
+    for i in range(0, len(body), 3800):                 # Telegram giới hạn ~4096
+        chunk = body[i:i + 3800]
+        payload = {"chat_id": chat_id, "text": chunk}
+        if parse:
+            payload["parse_mode"] = parse
+        try:
+            r = requests.post(f"{API}/sendMessage", json=payload, timeout=30)
+            if parse and r.status_code != 200:          # parse lỗi → gửi lại plain
+                requests.post(f"{API}/sendMessage",
+                              json={"chat_id": chat_id, "text": text[i:i + 3800]}, timeout=30)
         except Exception as e:
             print("send err:", e)
 
