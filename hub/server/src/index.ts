@@ -13,6 +13,10 @@ import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
+import { generateSecret, generateSync, verifySync, generateURI } from 'otplib'
+import * as qrcodeNs from 'qrcode'
+const QRCode: any = (qrcodeNs as any).default || qrcodeNs
+const totpOk = (code: string, secret: string) => { try { return verifySync({ token: code, secret }).valid } catch { return false } }
 
 const home = (p: string) => p.replace(/^~/, os.homedir())
 
@@ -25,10 +29,32 @@ const PERSONA = home(process.env.LUCY_PERSONA || '~/lucy/bridge/persona.md')
 const TIMEOUT = Number(process.env.LUCY_CLAUDE_TIMEOUT || 900) * 1000
 const DIST = path.join(__dirname, '..', '..', 'web', 'dist')
 const PROJECTS = home(process.env.LUCY_PROJECTS_ROOT || WORKDIR)   // gốc cho tab Projects (file tree)
-const HF_TOKEN = process.env.HF_TOKEN || ''                        // Hugging Face token (cho TTS)
-const TTS_MODEL = process.env.LUCY_TTS_MODEL || 'nmcuong/MeloTTS-Vietnamese'
-
+// (Voice đã bỏ — VPS 2GB không kham MeloTTS. Chỉ chat.)
+// Brain-viz telemetry: integrations (API/MCP…) khai báo ở file -> mỗi cái = 1 node. Thêm vào file là node hiện.
+const INTEGRATIONS_FILE = home(process.env.LUCY_INTEGRATIONS_FILE || path.join(PROJECTS, 'integrations.json'))
+const TZ_OFFSET = Number(process.env.LUCY_TZ_OFFSET || 7)   // VN = UTC+7 (cho schedule)
+const TG_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ''       // optional: schedule đẩy Telegram
+const TG_CHAT = process.env.LUCY_PUSH_CHAT_ID || process.env.LUCY_ALLOWED_USER_ID || ''
+// STATE dir bền: 2FA secret, schedules, log, lịch sử chat
+const STATE = home(process.env.LUCY_STATE || path.join(os.homedir(), '.lucy-hub'))
+fs.mkdirSync(STATE, { recursive: true })
 fs.mkdirSync(WORKDIR, { recursive: true })
+const SECRET_FILE = path.join(STATE, 'twofa.json')
+const SCHED_FILE = path.join(STATE, 'schedules.json')
+const LOG_FILE = path.join(STATE, 'log.jsonl')
+const CHAT_FILE = path.join(STATE, 'chat.json')
+
+const readJSON = <T>(f: string, dflt: T): T => { try { return JSON.parse(fs.readFileSync(f, 'utf-8')) } catch { return dflt } }
+const writeJSON = (f: string, v: unknown) => { try { fs.writeFileSync(f, JSON.stringify(v, null, 2)) } catch { /* */ } }
+
+// ---- LOG (ring buffer + file jsonl) ----
+type LogEv = { t: number; level: 'info' | 'warn' | 'error'; type: string; msg: string }
+const logBuf: LogEv[] = []
+function logEvent(level: LogEv['level'], type: string, msg: string) {
+  const ev: LogEv = { t: Date.now(), level, type, msg: String(msg).slice(0, 500) }
+  logBuf.push(ev); if (logBuf.length > 800) logBuf.shift()
+  try { fs.appendFileSync(LOG_FILE, JSON.stringify(ev) + '\n') } catch { /* */ }
+}
 
 function safePath(p: string): string | null {
   const base = path.resolve(PROJECTS)
@@ -39,6 +65,11 @@ function safePath(p: string): string | null {
 const tokens = new Set<string>()
 type Job = { status: 'running' | 'done'; result: string | null; model: string; t0: number; session_id: string | null; prompt: string }
 const jobs = new Map<string, Job>()
+
+// Lịch sử chat (bền qua restart) — server tự giữ session_id để --resume
+type ChatMsg = { role: 'me' | 'lucy'; text: string; t: number }
+let chat = readJSON<{ sessionId: string | null; messages: ChatMsg[] }>(CHAT_FILE, { sessionId: null, messages: [] })
+const saveChat = () => { if (chat.messages.length > 400) chat.messages = chat.messages.slice(-400); writeJSON(CHAT_FILE, chat) }
 
 function runClaude(prompt: string, sessionId: string | null, model: string): Promise<{ sid: string | null; text: string }> {
   const args = ['-p', prompt, '--output-format', 'json', '--permission-mode', 'bypassPermissions', '--model', model]
@@ -71,32 +102,86 @@ const app = express()
 app.use(express.json())
 app.use(cookieParser())
 const authed = (req: Request) => tokens.has(req.cookies?.lucy_token)
+function issueToken(res: any) {
+  const tok = randomBytes(24).toString('base64url')
+  tokens.add(tok)
+  res.cookie('lucy_token', tok, { httpOnly: true, sameSite: 'lax', maxAge: 7 * 86400 * 1000 })
+}
+
+// ---- 2FA (TOTP, otplib v13) ----
+let twofa = readJSON<{ secret?: string; enabled?: boolean }>(SECRET_FILE, {})
+let pendingSecret: string | null = null   // secret chờ xác nhận khi setup
+const twofaOn = () => !!(twofa.enabled && twofa.secret)
 
 app.post('/login', (req, res) => {
-  if (PASSWORD && req.body?.password === PASSWORD) {
-    const tok = randomBytes(24).toString('base64url')
-    tokens.add(tok)
-    res.cookie('lucy_token', tok, { httpOnly: true, sameSite: 'lax', maxAge: 7 * 86400 * 1000 })
-    return res.json({ ok: true })
+  const pwOk = PASSWORD && req.body?.password === PASSWORD
+  if (!pwOk) { logEvent('warn', 'auth', 'login sai mật khẩu'); return res.status(401).json({ ok: false }) }
+  if (twofaOn()) {
+    const code = String(req.body?.code || '').trim()
+    if (!code) return res.status(401).json({ ok: false, need_code: true })
+    if (!totpOk(code, twofa.secret!)) { logEvent('warn', 'auth', 'login sai mã 2FA'); return res.status(401).json({ ok: false, need_code: true, bad_code: true }) }
   }
-  res.status(401).json({ ok: false })
+  issueToken(res); logEvent('info', 'auth', 'login thành công')
+  res.json({ ok: true, twofa: twofaOn() })
 })
 
-app.get('/api/me', (req, res) => res.json({ authed: authed(req) }))
+app.get('/api/me', (req, res) => res.json({ authed: authed(req), twofa: twofaOn() }))
+
+// 2FA quản lý (cần đã đăng nhập)
+app.get('/api/2fa/status', (req, res) => { if (!authed(req)) return res.status(401).json({ error: 'unauth' }); res.json({ enabled: twofaOn() }) })
+app.post('/api/2fa/setup', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  pendingSecret = generateSecret()
+  const uri = generateURI({ issuer: 'Lucy Hub', label: 'chủ nhân', secret: pendingSecret })
+  const qr = await QRCode.toDataURL(uri, { margin: 1, color: { dark: '#0a1322', light: '#bff8ff' } })
+  res.json({ secret: pendingSecret, qr })
+})
+app.post('/api/2fa/enable', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  const code = String(req.body?.code || '').trim()
+  if (!pendingSecret || !totpOk(code, pendingSecret)) return res.status(400).json({ error: 'mã sai' })
+  twofa = { secret: pendingSecret, enabled: true }; writeJSON(SECRET_FILE, twofa); pendingSecret = null
+  logEvent('info', 'auth', '2FA đã bật'); res.json({ ok: true })
+})
+app.post('/api/2fa/disable', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  const code = String(req.body?.code || '').trim()
+  if (!twofaOn() || !totpOk(code, twofa.secret!)) return res.status(400).json({ error: 'mã sai' })
+  twofa = {}; writeJSON(SECRET_FILE, twofa); logEvent('warn', 'auth', '2FA đã tắt'); res.json({ ok: true })
+})
+
+app.get('/api/logs', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  res.json({ logs: logBuf.slice(-200).reverse() })
+})
 
 app.post('/api/send', (req, res) => {
   if (!authed(req)) return res.status(401).json({ error: 'unauth' })
   const prompt = (req.body?.prompt || '').trim()
   if (!prompt) return res.status(400).json({ error: 'empty' })
   const model = req.body?.opus ? 'opus' : 'sonnet'
-  const sessionId = req.body?.session_id || null
   const id = randomBytes(8).toString('base64url')
-  jobs.set(id, { status: 'running', result: null, model, t0: Date.now(), session_id: sessionId, prompt: prompt.slice(0, 120) })
-  runClaude(prompt, sessionId, model).then(({ sid, text }) => {
+  chat.messages.push({ role: 'me', text: prompt, t: Date.now() }); saveChat()   // lưu tin của chủ nhân
+  jobs.set(id, { status: 'running', result: null, model, t0: Date.now(), session_id: chat.sessionId, prompt: prompt.slice(0, 120) })
+  logEvent('info', 'job', `▶ ${model}: ${prompt.slice(0, 80)}`)
+  runClaude(prompt, chat.sessionId, model).then(({ sid, text }) => {
     const j = jobs.get(id)
     if (j) { j.result = text; j.session_id = sid || j.session_id; j.status = 'done' }
+    chat.sessionId = sid || chat.sessionId
+    chat.messages.push({ role: 'lucy', text, t: Date.now() }); saveChat()         // lưu trả lời của Lucy
+    logEvent('info', 'job', `✓ ${model} xong (${Math.floor((Date.now() - (j?.t0 || Date.now())) / 1000)}s)`)
   })
   res.json({ job_id: id })
+})
+
+app.get('/api/chat', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  res.json({ messages: chat.messages.slice(-200) })
+})
+app.post('/api/chat/new', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  chat = { sessionId: null, messages: [] }; saveChat(); logEvent('info', 'chat', 'phiên chat mới')
+  res.json({ ok: true })
 })
 
 app.get('/api/poll/:id', (req, res) => {
@@ -115,6 +200,59 @@ app.get('/api/jobs', (req, res) => {
     id, status: j.status, model: j.model, prompt: j.prompt, elapsed: Math.floor((Date.now() - j.t0) / 1000),
   }))
   res.json({ jobs: list })
+})
+
+// Brain-viz telemetry: graph state THẬT (node/link) từ jobs đang chạy + integrations + voice.
+app.get('/api/telemetry', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  const running = [...jobs.values()].filter((j) => j.status === 'running')
+  const sonnetN = running.filter((j) => j.model === 'sonnet').length
+  const opusN = running.filter((j) => j.model === 'opus').length
+  let integrations: { id: string; label: string; group?: string }[] = []
+  try { integrations = JSON.parse(fs.readFileSync(INTEGRATIONS_FILE, 'utf-8')) } catch { /* none */ }
+
+  // PHÂN VÙNG lớn (zone) — core → zone → node
+  const ZONES = [
+    { id: 'z_agents', label: 'AGENTS' },
+    { id: 'z_channels', label: 'CHANNELS' },
+    { id: 'z_money', label: 'MONEY · DATA' },
+    { id: 'z_dev', label: 'DEV' },
+  ]
+  // leaf hệ thống — LIVE (phản ánh state THẬT)
+  const leaves: any[] = [
+    { id: 'sonnet', label: 'Claude Sonnet', zone: 'z_agents', group: 'model', val: 13, active: sonnetN > 0, load: sonnetN, status: 'live' },
+    { id: 'opus', label: 'Claude Opus', zone: 'z_agents', group: 'model', val: 13, active: opusN > 0, load: opusN, status: 'live' },
+    { id: 'telegram', label: 'Telegram', zone: 'z_channels', group: 'channel', val: 10, active: false, status: 'live' },
+    { id: 'aki', label: 'Aki · Discord', zone: 'z_channels', group: 'channel', val: 10, active: false, status: 'live' },
+    { id: 'hub', label: 'Web Hub', zone: 'z_channels', group: 'channel', val: 11, active: true, status: 'live' },
+  ]
+  // mở rộng / IDEAS từ integrations.json (zone + status tuỳ chọn) — thêm dòng là có node
+  for (const it of integrations as any[]) {
+    leaves.push({ id: it.id, label: it.label, zone: it.zone || 'z_dev', group: it.group || 'api', val: it.val || 8, active: false, status: it.status || 'planned' })
+  }
+
+  const nodes: any[] = [{ id: 'lucy', label: 'L.U.C.Y', group: 'core', val: 28, active: running.length > 0, status: 'live' }]
+  const links: any[] = []
+  for (const z of ZONES) {
+    const kids = leaves.filter((l) => l.zone === z.id)
+    if (!kids.length) continue
+    const zActive = kids.some((k) => k.active)
+    const zFlow = kids.reduce((s, k) => s + (k.load || 0), 0)
+    nodes.push({ id: z.id, label: z.label, group: 'zone', val: 15, active: zActive, status: 'live' })
+    links.push({ source: 'lucy', target: z.id, flow: zFlow, active: zActive })
+    for (const k of kids) { nodes.push(k); links.push({ source: z.id, target: k.id, flow: k.load || 0, active: !!k.active }) }
+  }
+  // mạng lưới: vòng nối các zone + vài cross-link node live -> rậm như neuron
+  const zoneIds = nodes.filter((n) => n.group === 'zone').map((n) => n.id)
+  for (let i = 0; i < zoneIds.length; i++) links.push({ source: zoneIds[i], target: zoneIds[(i + 1) % zoneIds.length], flow: 0, active: false })
+  const has = (id: string) => nodes.some((n) => n.id === id)
+  for (const [a, b] of [['hub', 'sonnet'], ['hub', 'opus'], ['telegram', 'aki'], ['aki', 'opus']]) {
+    if (has(a) && has(b)) links.push({ source: a, target: b, flow: 0, active: false })
+  }
+  res.json({
+    nodes, links, ts: Date.now(),
+    running: running.map((j) => ({ model: j.model, prompt: j.prompt, elapsed: Math.floor((Date.now() - j.t0) / 1000) })),
+  })
 })
 
 app.get('/api/tree', (req, res) => {
@@ -138,28 +276,76 @@ app.get('/api/file', (req, res) => {
   res.json({ binary: false, name: path.basename(fp), content: fs.readFileSync(fp, 'utf-8').slice(0, 200000) })
 })
 
-app.post('/api/tts', async (req, res) => {
-  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
-  const text = String((req.body?.text || '')).slice(0, 500)
-  if (!text) return res.status(400).json({ error: 'empty' })
-  if (!HF_TOKEN) return res.status(400).json({ error: 'no HF_TOKEN' })
+// ---- SCHEDULES (đặt lịch chạy prompt) ----
+type Sched = { id: string; name: string; prompt: string; model: string; times: string[]; enabled: boolean; lastRun: number | null; lastStatus: string; lastResult: string; lastKey?: string }
+let scheds: Sched[] = readJSON<Sched[]>(SCHED_FILE, [])
+const saveScheds = () => writeJSON(SCHED_FILE, scheds)
+
+async function pushTelegram(text: string) {
+  if (!TG_TOKEN || !TG_CHAT) return
   try {
-    const r = await fetch(`https://api-inference.huggingface.co/models/${TTS_MODEL}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${HF_TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ inputs: text }),
+    await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chat_id: TG_CHAT, text: text.slice(0, 3800) }),
     })
-    if (!r.ok) {
-      const t = await r.text()
-      return res.status(502).json({ error: `HF ${r.status}: ${t.slice(0, 200)}` })
-    }
-    const buf = Buffer.from(await r.arrayBuffer())
-    res.setHeader('content-type', r.headers.get('content-type') || 'audio/flac')
-    res.send(buf)
-  } catch (e) {
-    res.status(502).json({ error: String(e).slice(0, 200) })
-  }
+  } catch { /* */ }
+}
+
+async function fireSchedule(s: Sched, manual = false) {
+  logEvent('info', 'schedule', `⏰ chạy "${s.name}"${manual ? ' (thủ công)' : ''}`)
+  const id = randomBytes(8).toString('base64url')
+  jobs.set(id, { status: 'running', result: null, model: s.model, t0: Date.now(), session_id: null, prompt: `[lịch] ${s.name}` })
+  const { text } = await runClaude(s.prompt, null, s.model)
+  const j = jobs.get(id); if (j) { j.result = text; j.status = 'done' }
+  s.lastRun = Date.now(); s.lastStatus = text.startsWith('❌') ? 'error' : 'ok'; s.lastResult = text.slice(0, 400); saveScheds()
+  logEvent(s.lastStatus === 'ok' ? 'info' : 'error', 'schedule', `${s.lastStatus === 'ok' ? '✓' : '✗'} "${s.name}"`)
+  await pushTelegram(`🗓️ Lucy — ${s.name}\n\n${text}`)
+}
+
+app.get('/api/schedules', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  res.json({ schedules: scheds, push: !!(TG_TOKEN && TG_CHAT) })
 })
+app.post('/api/schedules', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  const b = req.body || {}
+  const name = String(b.name || '').trim(); const prompt = String(b.prompt || '').trim()
+  if (!name || !prompt) return res.status(400).json({ error: 'thiếu name/prompt' })
+  const times = (Array.isArray(b.times) ? b.times : String(b.times || '').split(','))
+    .map((t: string) => t.trim()).filter((t: string) => /^\d{1,2}:\d{2}$/.test(t))
+  const s: Sched = { id: randomBytes(6).toString('base64url'), name, prompt, model: b.model === 'opus' ? 'opus' : 'sonnet', times, enabled: true, lastRun: null, lastStatus: '', lastResult: '' }
+  scheds.push(s); saveScheds(); logEvent('info', 'schedule', `+ tạo lịch "${name}" [${times.join(', ')}]`)
+  res.json({ ok: true, schedule: s })
+})
+app.patch('/api/schedules/:id', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  const s = scheds.find((x) => x.id === req.params.id); if (!s) return res.status(404).json({ error: 'nf' })
+  if (typeof req.body?.enabled === 'boolean') s.enabled = req.body.enabled
+  saveScheds(); res.json({ ok: true })
+})
+app.delete('/api/schedules/:id', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  scheds = scheds.filter((x) => x.id !== req.params.id); saveScheds(); res.json({ ok: true })
+})
+app.post('/api/schedules/:id/run', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  const s = scheds.find((x) => x.id === req.params.id); if (!s) return res.status(404).json({ error: 'nf' })
+  fireSchedule(s, true); res.json({ ok: true })
+})
+
+// scheduler tick: mỗi 30s, bắn lịch tới giờ (1 lần / time / ngày, theo giờ VN)
+setInterval(() => {
+  const now = new Date(Date.now() + TZ_OFFSET * 3600 * 1000)
+  const hhmm = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`
+  const dayKey = now.toISOString().slice(0, 10)
+  for (const s of scheds) {
+    if (!s.enabled) continue
+    if (s.times.some((t) => t.padStart(5, '0') === hhmm)) {
+      const key = `${dayKey}T${hhmm}`
+      if (s.lastKey !== key) { s.lastKey = key; saveScheds(); fireSchedule(s) }
+    }
+  }
+}, 30000)
 
 // serve React build (đặt CUỐI để /api ưu tiên)
 if (fs.existsSync(DIST)) {

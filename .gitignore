@@ -9,6 +9,16 @@ dist/
 *.log
 logs/
 
+# hub state bền (2FA secret, schedules, log, lịch sử chat) — KHÔNG commit
+hub/.state/
+.lucy-*.json
+
+# MeloTTS self-host (đã bỏ voice) — venv + checkpoint nặng, không commit
+melotts-vi/.venv/
+melotts-vi/checkpoints/
+melotts-vi/samples_voices/
+melotts-vi/*.wav
+
 # upstream Hermes Agent source (cloned for reference, not Bill's code — cài thật trên VPS qua installer)
 hermes-agent/
 

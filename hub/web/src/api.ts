@@ -1,26 +1,31 @@
 // Lucy Hub API client
-export async function me(): Promise<{ authed: boolean }> {
+export async function me(): Promise<{ authed: boolean; twofa?: boolean }> {
   const r = await fetch('/api/me')
   return r.json()
 }
 
-export async function login(password: string): Promise<boolean> {
+export async function login(password: string, code?: string): Promise<{ ok: boolean; need_code?: boolean; bad_code?: boolean }> {
   const r = await fetch('/login', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ password, code }),
   })
-  return r.ok
+  try { return await r.json() } catch { return { ok: r.ok } }
 }
 
-export async function send(prompt: string, opus: boolean, session_id: string | null) {
+export async function send(prompt: string, opus: boolean) {
   const r = await fetch('/api/send', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ prompt, opus, session_id }),
+    body: JSON.stringify({ prompt, opus }),
   })
   return r.json() as Promise<{ job_id: string }>
 }
+
+export async function chatHistory(): Promise<{ messages: { role: 'me' | 'lucy'; text: string; t: number }[] }> {
+  const r = await fetch('/api/chat'); return r.json()
+}
+export async function newChat() { await fetch('/api/chat/new', { method: 'POST' }) }
 
 export type Poll = {
   status: string
