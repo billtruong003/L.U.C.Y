@@ -382,6 +382,42 @@ app.post('/api/schedules/:id/run', (req, res) => {
   fireSchedule(s, true); res.json({ ok: true })
 })
 
+// ---- CRON hệ thống (chỉ xem) — surface crontab -l vào tab Schedule ----
+function cronTimes(min: string, hour: string): string[] {
+  if (min === '*' || hour === '*') return []
+  const out: string[] = []
+  for (const h of hour.split(',')) for (const m of min.split(',')) {
+    if (/^\d{1,2}$/.test(h) && /^\d{1,2}$/.test(m)) out.push(`${h.padStart(2, '0')}:${m.padStart(2, '0')}`)
+  }
+  return out
+}
+function readCrontab(): Promise<{ times: string[]; schedule: string; command: string; label: string; raw: string }[]> {
+  return new Promise((resolve) => {
+    const child = spawn('crontab', ['-l'])
+    let out = ''
+    child.stdout.on('data', (d) => { out += d })
+    child.on('error', () => resolve([]))
+    child.on('close', () => {
+      const rows: { times: string[]; schedule: string; command: string; label: string; raw: string }[] = []
+      for (const line of out.split('\n')) {
+        const t = line.trim()
+        if (!t || t.startsWith('#')) continue
+        const m = t.match(/^(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.+)$/)
+        if (!m) continue
+        const [, min, hour, dom, mon, dow, command] = m
+        const cmd = command.replace(/\s*>>?.*$/, '').trim()   // bỏ phần redirect log
+        const label = (cmd.split(/\s+/)[0].split('/').pop() || cmd).replace(/\.\w+$/, '')
+        rows.push({ times: cronTimes(min, hour), schedule: `${min} ${hour} ${dom} ${mon} ${dow}`, command: cmd, label, raw: t })
+      }
+      resolve(rows)
+    })
+  })
+}
+app.get('/api/crontab', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  res.json({ crons: await readCrontab() })
+})
+
 // scheduler tick: mỗi 30s, bắn lịch tới giờ (1 lần / time / ngày, theo giờ VN)
 setInterval(() => {
   const now = new Date(Date.now() + TZ_OFFSET * 3600 * 1000)

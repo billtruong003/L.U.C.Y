@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 
 type Sched = { id: string; name: string; prompt: string; model: string; times: string[]; enabled: boolean; lastRun: number | null; lastStatus: string; lastResult: string }
+type Cron = { times: string[]; schedule: string; command: string; label: string; raw: string }
 
 export default function Schedule() {
   const [list, setList] = useState<Sched[]>([])
+  const [crons, setCrons] = useState<Cron[]>([])
   const [push, setPush] = useState(false)
   const [name, setName] = useState('')
   const [prompt, setPrompt] = useState('')
@@ -11,7 +13,10 @@ export default function Schedule() {
   const [times, setTimes] = useState('07:30')
   const [open, setOpen] = useState(false)
 
-  const load = () => fetch('/api/schedules').then((r) => r.json()).then((d) => { setList(d.schedules || []); setPush(!!d.push) }).catch(() => {})
+  const load = () => {
+    fetch('/api/schedules').then((r) => r.json()).then((d) => { setList(d.schedules || []); setPush(!!d.push) }).catch(() => {})
+    fetch('/api/crontab').then((r) => r.json()).then((d) => setCrons(d.crons || [])).catch(() => {})
+  }
   useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t) }, [])
 
   async function create() {
@@ -76,6 +81,29 @@ export default function Schedule() {
             </div>
           ))}
         </div>
+
+        {crons.length > 0 && (
+          <div className="mt-6">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-sm font-semibold text-ink">🛠️ Cron hệ thống</span>
+              <span className="chip">chỉ xem</span>
+              <span className="text-[11px] text-inkfaint">crontab của VPS — sửa bằng cách bảo Lucy</span>
+            </div>
+            <div className="flex flex-col gap-2">
+              {crons.map((c, i) => (
+                <div key={i} className="card p-3 opacity-90">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="font-semibold text-ink flex-1 truncate">{c.label}</span>
+                    {c.times.length > 0
+                      ? c.times.map((t) => <span key={t} className="chip mono">{t}</span>)
+                      : <span className="chip mono" title={c.schedule}>{c.schedule}</span>}
+                  </div>
+                  <div className="text-[11px] text-inkfaint mono mt-1.5 truncate" title={c.command}>{c.command}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
