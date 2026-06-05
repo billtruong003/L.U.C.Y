@@ -33,3 +33,17 @@ export async function poll(jobId: string): Promise<Poll> {
   const r = await fetch('/api/poll/' + jobId)
   return r.json()
 }
+
+export type JobRow = { id: string; status: string; model: string; prompt: string; elapsed: number }
+export async function jobs(): Promise<{ jobs: JobRow[] }> {
+  const r = await fetch('/api/jobs'); return r.json()
+}
+
+export type Entry = { name: string; type: 'dir' | 'file' }
+export async function tree(p: string): Promise<{ root: string; path: string; entries: Entry[] }> {
+  const r = await fetch('/api/tree?path=' + encodeURIComponent(p)); return r.json()
+}
+export async function readFile(p: string): Promise<{ binary?: boolean; tooBig?: boolean; name?: string; content?: string; size?: number }> {
+  const r = await fetch('/api/file?path=' + encodeURIComponent(p)); return r.json()
+}
+

@@ -24,11 +24,18 @@ const CLAUDE = process.env.CLAUDE_BIN || 'claude'
 const PERSONA = home(process.env.LUCY_PERSONA || '~/lucy/bridge/persona.md')
 const TIMEOUT = Number(process.env.LUCY_CLAUDE_TIMEOUT || 900) * 1000
 const DIST = path.join(__dirname, '..', '..', 'web', 'dist')
+const PROJECTS = home(process.env.LUCY_PROJECTS_ROOT || WORKDIR)   // gốc cho tab Projects (file tree)
 
 fs.mkdirSync(WORKDIR, { recursive: true })
 
+function safePath(p: string): string | null {
+  const base = path.resolve(PROJECTS)
+  const r = path.resolve(base, p || '.')
+  return r === base || r.startsWith(base + path.sep) ? r : null   // chặn path traversal ra ngoài root
+}
+
 const tokens = new Set<string>()
-type Job = { status: 'running' | 'done'; result: string | null; model: string; t0: number; session_id: string | null }
+type Job = { status: 'running' | 'done'; result: string | null; model: string; t0: number; session_id: string | null; prompt: string }
 const jobs = new Map<string, Job>()
 
 function runClaude(prompt: string, sessionId: string | null, model: string): Promise<{ sid: string | null; text: string }> {
@@ -82,7 +89,7 @@ app.post('/api/send', (req, res) => {
   const model = req.body?.opus ? 'opus' : 'sonnet'
   const sessionId = req.body?.session_id || null
   const id = randomBytes(8).toString('base64url')
-  jobs.set(id, { status: 'running', result: null, model, t0: Date.now(), session_id: sessionId })
+  jobs.set(id, { status: 'running', result: null, model, t0: Date.now(), session_id: sessionId, prompt: prompt.slice(0, 120) })
   runClaude(prompt, sessionId, model).then(({ sid, text }) => {
     const j = jobs.get(id)
     if (j) { j.result = text; j.session_id = sid || j.session_id; j.status = 'done' }
@@ -98,6 +105,35 @@ app.get('/api/poll/:id', (req, res) => {
     status: j.status, result: j.result, model: j.model,
     elapsed: Math.floor((Date.now() - j.t0) / 1000), session_id: j.session_id,
   })
+})
+
+app.get('/api/jobs', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  const list = [...jobs.entries()].slice(-30).reverse().map(([id, j]) => ({
+    id, status: j.status, model: j.model, prompt: j.prompt, elapsed: Math.floor((Date.now() - j.t0) / 1000),
+  }))
+  res.json({ jobs: list })
+})
+
+app.get('/api/tree', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  const dir = safePath(String(req.query.path || '.'))
+  if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return res.status(400).json({ error: 'badpath' })
+  const entries = fs.readdirSync(dir, { withFileTypes: true })
+    .filter((e) => !e.name.startsWith('.') && e.name !== 'node_modules')
+    .map((e) => ({ name: e.name, type: e.isDirectory() ? 'dir' : 'file' }))
+    .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1))
+  res.json({ root: PROJECTS, path: path.relative(PROJECTS, dir) || '.', entries })
+})
+
+app.get('/api/file', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  const fp = safePath(String(req.query.path || ''))
+  if (!fp || !fs.existsSync(fp) || fs.statSync(fp).isDirectory()) return res.status(400).json({ error: 'badpath' })
+  const size = fs.statSync(fp).size
+  if (/\.(png|jpe?g|gif|webp|ico|pdf|zip|exe|bin|woff2?|mp[34]|mov|class|jar)$/i.test(fp)) return res.json({ binary: true, size })
+  if (size > 500 * 1024) return res.json({ binary: false, tooBig: true, size })
+  res.json({ binary: false, name: path.basename(fp), content: fs.readFileSync(fp, 'utf-8').slice(0, 200000) })
 })
 
 // serve React build (đặt CUỐI để /api ưu tiên)

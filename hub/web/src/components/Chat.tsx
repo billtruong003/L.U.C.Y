@@ -43,11 +43,8 @@ export default function Chat() {
   }
 
   return (
-    <div className="h-screen flex flex-col">
-      <header className="px-4 py-3 border-b border-cyan/20 flex items-center gap-3">
-        <span className="text-lg tracking-[0.25em] text-cyan" style={{ fontFamily: 'Orbitron, sans-serif' }}>L.U.C.Y</span>
-        <span className="text-slate-500 text-xs">● online</span>
-      </header>
+    <div className="h-full flex flex-col">
+      <header className="px-4 py-3 border-b border-cyan/20 text-cyan" style={{ fontFamily: 'Orbitron, sans-serif' }}>💬 CHAT</header>
 
       <div className="flex-1 overflow-auto p-4 flex flex-col gap-3">
         {msgs.map((m, i) => (
