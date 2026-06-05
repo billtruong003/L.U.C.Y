@@ -27,14 +27,14 @@ export default function App() {
   const [open, setOpen] = useState(false)   // sidebar drawer (mobile)
   useEffect(() => { me().then((d) => setAuthed(d.authed)).catch(() => setAuthed(false)) }, [])
 
-  if (authed === null) return <div className="h-screen grid place-items-center text-cyan mono bg-bg">…</div>
+  if (authed === null) return <div className="h-[100dvh] grid place-items-center text-cyan mono bg-bg">…</div>
   if (!authed) return <Login onOk={() => setAuthed(true)} />
 
   const cur = TABS.find((t) => t.id === tab)!
   const pick = (id: string) => { setTab(id); setOpen(false) }
 
   return (
-    <div className="h-screen flex bg-bg text-ink overflow-hidden">
+    <div className="h-[100dvh] flex bg-bg text-ink overflow-hidden">
       {/* overlay mobile */}
       {open && <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setOpen(false)} />}
 

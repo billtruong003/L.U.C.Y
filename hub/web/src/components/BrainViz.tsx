@@ -160,6 +160,9 @@ export default function BrainViz({ visible }: { visible: boolean }) {
     camera.position.set(0, 95, 165)
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    renderer.domElement.style.display = 'block'
+    const iw0 = mount.clientWidth || 800, ih0 = mount.clientHeight || 600
+    renderer.setSize(iw0, ih0); camera.aspect = iw0 / ih0; camera.updateProjectionMatrix()
     mount.appendChild(renderer.domElement)
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true; controls.autoRotate = true; controls.autoRotateSpeed = 0.45
@@ -211,7 +214,7 @@ export default function BrainViz({ visible }: { visible: boolean }) {
     const ro = new ResizeObserver(() => {
       const w = mount.clientWidth, h = mount.clientHeight
       if (!w || !h) return
-      renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix()
+      renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix()
     })
     ro.observe(mount)
 
