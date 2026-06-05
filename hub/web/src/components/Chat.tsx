@@ -9,6 +9,8 @@ export default function Chat() {
   const [inp, setInp] = useState('')
   const [opus, setOpus] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [speak, setSpeak] = useState(false)
+  const [listening, setListening] = useState(false)
   const sid = useRef<string | null>(null)
   const end = useRef<HTMLDivElement>(null)
 
@@ -18,8 +20,28 @@ export default function Chat() {
     setMsgs((p) => { const c = [...p]; c[c.length - 1] = { role: 'sys', text }; return c })
   }
 
-  async function go() {
-    const text = inp.trim()
+  function speakText(t: string) {
+    try {
+      const clean = t.replace(/```[\s\S]*?```/g, ' ').replace(/[#*`_>|~]/g, '').replace(/\[(.*?)\]\([^)]*\)/g, '$1').slice(0, 1200)
+      const u = new SpeechSynthesisUtterance(clean)
+      u.lang = 'vi-VN'
+      const v = speechSynthesis.getVoices().find((x) => x.lang.toLowerCase().startsWith('vi'))
+      if (v) u.voice = v
+      speechSynthesis.cancel(); speechSynthesis.speak(u)
+    } catch { /* no tts */ }
+  }
+  function startMic() {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SR) { alert('Trình duyệt không hỗ trợ voice input — dùng Chrome.'); return }
+    const rec = new SR(); rec.lang = 'vi-VN'; rec.interimResults = false
+    setListening(true)
+    rec.onresult = (e: any) => { go(e.results[0][0].transcript) }
+    rec.onend = () => setListening(false)
+    rec.onerror = () => setListening(false)
+    rec.start()
+  }
+  async function go(override?: string) {
+    const text = (override ?? inp).trim()
     if (!text || busy) return
     setInp(''); setBusy(true)
     setMsgs((p) => [...p, { role: 'me', text }, { role: 'sys', text: '🤔 Lucy đang xử lý…' }])
@@ -38,6 +60,7 @@ export default function Chat() {
         }, 2000)
       })
       setMsgs((p) => { const c = [...p]; c[c.length - 1] = { role: 'lucy', text: res }; return c })
+      if (speak) speakText(res)
     } catch (e) { patchLast('❌ ' + e) }
     setBusy(false)
   }
@@ -73,10 +96,14 @@ export default function Chat() {
           placeholder="Nhắn Lucy… (Shift+Enter xuống dòng)"
           className="flex-1 h-12 resize-none bg-panel border border-cyan/30 px-3 py-2 outline-none focus:border-cyan"
         />
+        <button onClick={startMic} title="Nói (mic)" className={'border px-3 ' + (listening ? 'border-pink text-pink animate-pulse' : 'border-cyan/40 text-cyan hover:bg-cyan/10')}>🎤</button>
+        <label className="flex items-center gap-1 text-slate-500 text-xs" title="Lucy đọc tiếng">
+          <input type="checkbox" checked={speak} onChange={(e) => setSpeak(e.target.checked)} /> 🔊
+        </label>
         <label className="flex items-center gap-1 text-slate-500 text-xs">
           <input type="checkbox" checked={opus} onChange={(e) => setOpus(e.target.checked)} /> opus
         </label>
-        <button onClick={go} disabled={busy} className="border border-cyan text-cyan px-4 hover:bg-cyan/10 disabled:opacity-40">
+        <button onClick={() => go()} disabled={busy} className="border border-cyan text-cyan px-4 hover:bg-cyan/10 disabled:opacity-40">
           GỬI
         </button>
       </footer>
