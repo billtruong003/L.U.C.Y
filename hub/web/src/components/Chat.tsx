@@ -20,20 +20,28 @@ export default function Chat() {
     setMsgs((p) => { const c = [...p]; c[c.length - 1] = { role: 'sys', text }; return c })
   }
 
-  function speakText(t: string) {
+  function browserSpeak(clean: string) {
     try {
-      const clean = t.replace(/```[\s\S]*?```/g, ' ').replace(/[#*`_>|~]/g, '').replace(/\[(.*?)\]\([^)]*\)/g, '$1').slice(0, 1200)
-      const u = new SpeechSynthesisUtterance(clean)
-      u.lang = 'vi-VN'
+      const u = new SpeechSynthesisUtterance(clean); u.lang = 'vi-VN'
       const vs = speechSynthesis.getVoices()
-      // ưu tiên giọng VN nữ; fallback giọng VN bất kỳ
-      const v = vs.find((x) => x.lang.toLowerCase().startsWith('vi') && /female|nữ|hoaimy|female/i.test(x.name))
-        || vs.find((x) => x.lang.toLowerCase().startsWith('vi'))
+      const v = vs.find((x) => x.lang.toLowerCase().startsWith('vi') && /female|nữ/i.test(x.name)) || vs.find((x) => x.lang.toLowerCase().startsWith('vi'))
       if (v) u.voice = v
-      u.pitch = 1.45   // cao hơn → girlish hơn (browser TTS, chưa phải anime thật)
-      u.rate = 1.0
+      u.pitch = 1.4
       speechSynthesis.cancel(); speechSynthesis.speak(u)
     } catch { /* no tts */ }
+  }
+  async function speakText(t: string) {
+    const clean = t.replace(/```[\s\S]*?```/g, ' ').replace(/[#*`_>|~]/g, '').replace(/\[(.*?)\]\([^)]*\)/g, '$1').trim().slice(0, 500)
+    if (!clean) return
+    try {
+      // MeloTTS qua backend (HF) — giọng tự nhiên hơn browser
+      const r = await fetch('/api/tts', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: clean }) })
+      if (!r.ok) throw new Error('tts ' + r.status)
+      const a = new Audio(URL.createObjectURL(await r.blob()))
+      await a.play()
+    } catch {
+      browserSpeak(clean)   // fallback browser TTS nếu HF lỗi/chưa có HF_TOKEN
+    }
   }
   function startMic() {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition

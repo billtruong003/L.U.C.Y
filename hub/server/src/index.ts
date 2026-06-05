@@ -25,6 +25,8 @@ const PERSONA = home(process.env.LUCY_PERSONA || '~/lucy/bridge/persona.md')
 const TIMEOUT = Number(process.env.LUCY_CLAUDE_TIMEOUT || 900) * 1000
 const DIST = path.join(__dirname, '..', '..', 'web', 'dist')
 const PROJECTS = home(process.env.LUCY_PROJECTS_ROOT || WORKDIR)   // gốc cho tab Projects (file tree)
+const HF_TOKEN = process.env.HF_TOKEN || ''                        // Hugging Face token (cho TTS)
+const TTS_MODEL = process.env.LUCY_TTS_MODEL || 'nmcuong/MeloTTS-Vietnamese'
 
 fs.mkdirSync(WORKDIR, { recursive: true })
 
@@ -134,6 +136,29 @@ app.get('/api/file', (req, res) => {
   if (/\.(png|jpe?g|gif|webp|ico|pdf|zip|exe|bin|woff2?|mp[34]|mov|class|jar)$/i.test(fp)) return res.json({ binary: true, size })
   if (size > 500 * 1024) return res.json({ binary: false, tooBig: true, size })
   res.json({ binary: false, name: path.basename(fp), content: fs.readFileSync(fp, 'utf-8').slice(0, 200000) })
+})
+
+app.post('/api/tts', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  const text = String((req.body?.text || '')).slice(0, 500)
+  if (!text) return res.status(400).json({ error: 'empty' })
+  if (!HF_TOKEN) return res.status(400).json({ error: 'no HF_TOKEN' })
+  try {
+    const r = await fetch(`https://api-inference.huggingface.co/models/${TTS_MODEL}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${HF_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ inputs: text }),
+    })
+    if (!r.ok) {
+      const t = await r.text()
+      return res.status(502).json({ error: `HF ${r.status}: ${t.slice(0, 200)}` })
+    }
+    const buf = Buffer.from(await r.arrayBuffer())
+    res.setHeader('content-type', r.headers.get('content-type') || 'audio/flac')
+    res.send(buf)
+  } catch (e) {
+    res.status(502).json({ error: String(e).slice(0, 200) })
+  }
 })
 
 // serve React build (đặt CUỐI để /api ưu tiên)
