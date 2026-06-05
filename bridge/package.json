@@ -1,0 +1,13 @@
+{
+  "name": "lucy-brief",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Lucy daily market brief — markdown → HTML report + archive index",
+  "bin": {
+    "gen-brief": "./gen_brief.mjs"
+  },
+  "dependencies": {
+    "marked": "^12.0.2"
+  }
+}
