@@ -9,7 +9,7 @@ import 'dotenv/config'   // auto-load .env (cùng thư mục chạy) → pm2 kh�
 import express, { type Request } from 'express'
 import cookieParser from 'cookie-parser'
 import { spawn } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, createHmac } from 'node:crypto'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
@@ -35,6 +35,10 @@ const INTEGRATIONS_FILE = home(process.env.LUCY_INTEGRATIONS_FILE || path.join(P
 const TZ_OFFSET = Number(process.env.LUCY_TZ_OFFSET || 7)   // VN = UTC+7 (cho schedule)
 const TG_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ''       // optional: schedule đẩy Telegram
 const TG_CHAT = process.env.LUCY_PUSH_CHAT_ID || process.env.LUCY_ALLOWED_USER_ID || ''
+// Aki (radiant-bot Discord) control API — Lucy đẩy báo cáo / tạo kênh
+const RADIANT_API = (process.env.RADIANT_BOT_API_URL || '').replace(/\/$/, '')
+const AGENT_SECRET = process.env.RADIANT_BOT_AGENT_SECRET || ''
+let lastAkiAt = 0   // brain-viz: node Aki sáng khi vừa đẩy
 // STATE dir bền: 2FA secret, schedules, log, lịch sử chat
 const STATE = home(process.env.LUCY_STATE || path.join(os.homedir(), '.lucy-hub'))
 fs.mkdirSync(STATE, { recursive: true })
@@ -184,6 +188,47 @@ app.post('/api/chat/new', (req, res) => {
   res.json({ ok: true })
 })
 
+// ---- Aki (Discord) qua radiant-bot control API (HMAC) ----
+const akiOn = () => !!(RADIANT_API && AGENT_SECRET)
+async function akiCall(pathName: string, payload: unknown): Promise<{ ok: boolean; status: number; data: any }> {
+  const body = JSON.stringify(payload)
+  const sig = 'sha256=' + createHmac('sha256', AGENT_SECRET).update(body).digest('hex')
+  const r = await fetch(RADIANT_API + pathName, { method: 'POST', headers: { 'content-type': 'application/json', 'x-lucy-signature': sig }, body })
+  let data: any = null; try { data = await r.json() } catch { /* */ }
+  return { ok: r.ok, status: r.status, data }
+}
+
+app.get('/api/aki/status', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  res.json({ configured: akiOn() })
+})
+app.post('/api/aki/report', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!akiOn()) return res.status(400).json({ error: 'Aki chưa cấu hình (RADIANT_BOT_API_URL + RADIANT_BOT_AGENT_SECRET)' })
+  const channel = String(req.body?.channel || '').trim()
+  const text = String(req.body?.text || '').trim()
+  if (!channel || !text) return res.status(400).json({ error: 'cần channel + text' })
+  try {
+    const r = await akiCall('/api/agent/post', { channel, text })
+    lastAkiAt = Date.now()
+    logEvent(r.ok ? 'info' : 'error', 'aki', r.ok ? `📣 đẩy báo cáo -> #${channel}` : `✗ Aki post lỗi: ${r.data?.error || r.status}`)
+    res.status(r.ok ? 200 : 502).json(r.data || { error: 'aki ' + r.status })
+  } catch (e) { logEvent('error', 'aki', 'Aki offline'); res.status(502).json({ error: 'Aki offline: ' + String(e).slice(0, 150) }) }
+})
+app.post('/api/aki/channel', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!akiOn()) return res.status(400).json({ error: 'Aki chưa cấu hình' })
+  const name = String(req.body?.name || '').trim()
+  if (!name) return res.status(400).json({ error: 'cần name' })
+  const payload = { name, type: req.body?.type === 'thread' ? 'thread' : 'text', parent: req.body?.parent, message: req.body?.message }
+  try {
+    const r = await akiCall('/api/agent/channel', payload)
+    lastAkiAt = Date.now()
+    logEvent(r.ok ? 'info' : 'error', 'aki', r.ok ? `➕ tạo ${payload.type} "${name}"` : `✗ Aki channel lỗi: ${r.data?.error || r.status}`)
+    res.status(r.ok ? 200 : 502).json(r.data || { error: 'aki ' + r.status })
+  } catch (e) { res.status(502).json({ error: 'Aki offline: ' + String(e).slice(0, 150) }) }
+})
+
 app.get('/api/poll/:id', (req, res) => {
   if (!authed(req)) return res.status(401).json({ error: 'unauth' })
   const j = jobs.get(req.params.id)
@@ -223,7 +268,7 @@ app.get('/api/telemetry', (req, res) => {
     { id: 'sonnet', label: 'Claude Sonnet', zone: 'z_agents', group: 'model', val: 13, active: sonnetN > 0, load: sonnetN, status: 'live' },
     { id: 'opus', label: 'Claude Opus', zone: 'z_agents', group: 'model', val: 13, active: opusN > 0, load: opusN, status: 'live' },
     { id: 'telegram', label: 'Telegram', zone: 'z_channels', group: 'channel', val: 10, active: false, status: 'live' },
-    { id: 'aki', label: 'Aki · Discord', zone: 'z_channels', group: 'channel', val: 10, active: false, status: 'live' },
+    { id: 'aki', label: 'Aki · Discord', zone: 'z_channels', group: 'channel', val: 10, active: Date.now() - lastAkiAt < 8000, status: 'live' },
     { id: 'hub', label: 'Web Hub', zone: 'z_channels', group: 'channel', val: 11, active: true, status: 'live' },
   ]
   // mở rộng / IDEAS từ integrations.json (zone + status tuỳ chọn) — thêm dòng là có node
