@@ -1,11 +1,25 @@
 #!/usr/bin/env bash
-# Daily Market Brief — chạy lúc 7h sáng qua cron
-# Crontab: 0 7 * * * /root/lucy/bridge/cron_brief.sh
+# Daily Market Brief — chạy 2 lần/ngày qua cron (sáng 7h, chiều 17h)
+# Crontab:
+#   0 7  * * * /root/lucy/bridge/cron_brief.sh morning
+#   0 17 * * * /root/lucy/bridge/cron_brief.sh afternoon
 # Host trực tiếp trên VPS: http://14.225.255.73/reports/  (lưu archive đối chiếu)
 set -e
 cd "$(dirname "$0")"
 set -a; [ -f .env ] && . ./.env; set +a
 export IS_SANDBOX=1
+
+# --- Buổi (morning/afternoon) ---
+SESSION="${1:-morning}"
+case "$SESSION" in
+  afternoon|chieu|pm)
+    LABEL="Brief chiều"; SLUG="pm"
+    SESS_NOTE="Đây là BÁO CÁO CHIỀU (chốt phiên). Nhấn mạnh DIỄN BIẾN trong phiên hôm nay so với sáng, \
+biến động đáng chú ý, và định hướng cho phiên tối/đêm (US session). " ;;
+  *)
+    LABEL="Brief sáng"; SLUG="am"
+    SESS_NOTE="Đây là BÁO CÁO SÁNG (mở ngày). Nhấn mạnh bức tranh tổng thể đầu ngày và kế hoạch theo dõi trong ngày. " ;;
+esac
 
 WORKDIR="${LUCY_WORKDIR:-$HOME/lucy-workspace}"; mkdir -p "$WORKDIR"
 WEB_ROOT="/var/www/lucy-reports"
@@ -14,14 +28,15 @@ mkdir -p "$ARCHIVE"
 PUBLIC_BASE="${LUCY_REPORTS_URL:-http://14.225.255.73/reports}"
 
 DATE_STR="$(date +%F)"
-MD_OUT="$WORKDIR/brief-$DATE_STR.md"
-HTML_OUT="$WORKDIR/brief-$DATE_STR.html"
+MD_OUT="$WORKDIR/brief-$DATE_STR-$SLUG.md"
+HTML_OUT="$WORKDIR/brief-$DATE_STR-$SLUG.html"
 RES="$(mktemp)"
 SUMM_FILE="$(mktemp)"
 
 # 1. Gọi Claude sinh báo cáo — chi tiết, nguồn là LINK click được
 "${CLAUDE_BIN:-claude}" -p \
   "Làm BÁO CÁO THỊ TRƯỜNG hôm nay, CHI TIẾT và CHUYÊN NGHIỆP. Số liệu THẬT lấy từ web/API (ghi rõ nguồn + giờ lấy). \
+$SESS_NOTE\
 Bao gồm các mảng: \
 (1) CRYPTO: BTC, ETH, + 2-3 top mover 24h (giá, %24h/7d, market cap, vùng hỗ trợ/kháng cự). \
 (2) VÀNG: XAU/USD + SJC + chênh lệch trong-ngoài nếu có. \
@@ -58,23 +73,23 @@ fi
 # 4. Host trên VPS: copy vào archive + regenerate index
 PUBLIC_URL=""
 if [ -s "$HTML_OUT" ]; then
-  cp "$HTML_OUT" "$ARCHIVE/brief-$DATE_STR.html"
+  cp "$HTML_OUT" "$ARCHIVE/brief-$DATE_STR-$SLUG.html"
   LUCY_WEB_ROOT="$WEB_ROOT" node "$(dirname "$0")/gen_brief.mjs" index 2>/dev/null || true
-  PUBLIC_URL="$PUBLIC_BASE/archive/brief-$DATE_STR.html"
+  PUBLIC_URL="$PUBLIC_BASE/archive/brief-$DATE_STR-$SLUG.html"
 fi
 
 # 5. Gửi Telegram
 API="https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN"
 
 if [ -n "$PUBLIC_URL" ]; then
-  MSG="📊 *Brief sáng* — $DATE_STR
+  MSG="📊 *$LABEL* — $DATE_STR
 
 $SUMMARY
 
 🌐 Đọc đầy đủ: $PUBLIC_URL
 📚 Tất cả báo cáo: $PUBLIC_BASE/"
 else
-  MSG="📊 *Brief sáng* — $DATE_STR
+  MSG="📊 *$LABEL* — $DATE_STR
 
 $SUMMARY
 
@@ -91,14 +106,14 @@ curl -s "$API/sendMessage" \
 if [ -n "$RADIANT_BOT_AGENT_SECRET" ] && [ -n "$LUCY_BRIEF_DISCORD_CHANNEL" ]; then
   AKI_URL="${RADIANT_BOT_API_URL:-http://127.0.0.1:3030}"
   if [ -n "$PUBLIC_URL" ]; then
-    DISCORD_TEXT="📊 **Brief sáng** — $DATE_STR
+    DISCORD_TEXT="📊 **$LABEL** — $DATE_STR
 
 $SUMMARY
 
 🌐 Đọc đầy đủ: $PUBLIC_URL
 📚 Tất cả báo cáo: $PUBLIC_BASE/"
   else
-    DISCORD_TEXT="📊 **Brief sáng** — $DATE_STR
+    DISCORD_TEXT="📊 **$LABEL** — $DATE_STR
 
 $SUMMARY"
   fi

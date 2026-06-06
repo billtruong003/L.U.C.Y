@@ -128,13 +128,15 @@ function buildIndex() {
   let files = [];
   if (fs.existsSync(ARCHIVE_DIR)) {
     for (const fn of fs.readdirSync(ARCHIVE_DIR)) {
-      const m = fn.match(/^brief-(\d{4}-\d{2}-\d{2})\.html$/);
-      if (m) files.push([m[1], fn]);
+      const m = fn.match(/^brief-(\d{4}-\d{2}-\d{2})(?:-(am|pm))?\.html$/);
+      if (m) files.push([m[1], m[2] || '', fn]);
     }
   }
-  files.sort((a, b) => (a[0] < b[0] ? 1 : -1)); // mới nhất lên đầu
+  // mới nhất lên đầu: ngày giảm dần, trong cùng ngày thì chiều (pm) trước sáng (am)
+  const rank = (s) => (s === 'pm' ? 2 : s === 'am' ? 1 : 0);
+  files.sort((a, b) => (a[0] !== b[0] ? (a[0] < b[0] ? 1 : -1) : rank(b[1]) - rank(a[1])));
 
-  const cards = files.map(([dateStr, fn]) => {
+  const cards = files.map(([dateStr, sess, fn]) => {
     let dayLabel = dateStr, weekday = '';
     const dm = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (dm) {
@@ -142,15 +144,16 @@ function buildIndex() {
       dayLabel = `${dm[3]}/${dm[2]}/${dm[1]}`;
       weekday = WEEKDAYS[dt.getDay()];
     }
+    const sessLabel = sess === 'pm' ? '🌆 Chiều' : sess === 'am' ? '🌅 Sáng' : '';
     const summary = extractSummary(path.join(ARCHIVE_DIR, fn));
     return `
         <a class="report-card" href="archive/${fn}">
           <div class="card-date">
-            <span class="card-weekday">${weekday}</span>
+            <span class="card-weekday">${weekday}${sessLabel ? ' · ' + sessLabel : ''}</span>
             <span class="card-day">${dayLabel}</span>
           </div>
           <div class="card-body">
-            <div class="card-title">📊 Báo cáo thị trường</div>
+            <div class="card-title">📊 Báo cáo thị trường${sessLabel ? ' — ' + sessLabel : ''}</div>
             <div class="card-preview">${summary || 'Crypto · Vàng · Chứng khoán · Macro'}</div>
           </div>
           <div class="card-arrow">→</div>
@@ -158,7 +161,7 @@ function buildIndex() {
   });
 
   const latestLink = files.length
-    ? `<a class="latest-btn" href="archive/${files[0][1]}">📈 Xem báo cáo mới nhất (${files[0][0]})</a>`
+    ? `<a class="latest-btn" href="archive/${files[0][2]}">📈 Xem báo cáo mới nhất (${files[0][0]})</a>`
     : '';
   const { gen: now } = fmtDateParts(new Date());
   const cardsHtml = cards.length ? cards.join('\n') : '<p class="empty">Chưa có báo cáo nào.</p>';
