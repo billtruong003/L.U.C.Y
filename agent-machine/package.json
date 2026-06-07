@@ -1,0 +1,15 @@
+{
+  "name": "lucy-agent-machine",
+  "private": true,
+  "type": "module",
+  "description": "Lucy Agent Machine — Kanban autonomous multi-agent engine (walking skeleton)",
+  "scripts": {
+    "demo": "tsx src/demo.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
