@@ -24,8 +24,9 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
   const server = http.createServer(async (req, res) => {
     const send = (code: number, obj: unknown) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)) }
     const url = (req.url || '').split('?')[0]
-    // auth token cho endpoint worker + config admin (gửi header x-worker-token)
-    if (opts.token && (url.startsWith('/worker') || url === '/config') && req.headers['x-worker-token'] !== opts.token) return send(401, { error: 'bad token' })
+    // auth: token bảo vệ MỌI endpoint (trừ /health) — chống tạo card/đọc state trái phép (RCE qua /card).
+    // Hub proxy + worker đều gửi header x-worker-token. KHÔNG để hở khi expose public.
+    if (opts.token && url !== '/health' && req.headers['x-worker-token'] !== opts.token) return send(401, { error: 'bad token' })
     try {
       if (req.method === 'POST' && url === '/tick') return send(200, { did: engine.tick() })
       if (url === '/config') {

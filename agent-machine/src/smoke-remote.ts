@@ -28,14 +28,14 @@ const script: Record<string, Outcome> = {
   ship: { decision: 'advance', summary: 'shipped' },
 }
 
-const headers = { 'content-type': 'application/json' }
-const getState = async () => (await (await fetch(URL + '/state')).json()) as { cards: any[]; channels: any[] }
+const headers = { 'content-type': 'application/json', 'x-worker-token': TOKEN }
+const getState = async () => (await (await fetch(URL + '/state', { headers: { 'x-worker-token': TOKEN } })).json()) as { cards: any[]; channels: any[] }
 
 // worker runner riêng (giả lập máy local) — coordinator KHÔNG dùng runner để chạy
 const workerRunner = new MockRunner(script)
 async function drive(rounds: number, stopOn: (cards: any[]) => boolean) {
   for (let i = 0; i < rounds; i++) {
-    await fetch(URL + '/tick', { method: 'POST' })
+    await fetch(URL + '/tick', { method: 'POST', headers: { 'x-worker-token': TOKEN } })
     while (await workerStep(URL, workerRunner, { token: TOKEN, localRoot: path.join(process.cwd(), '.worker') })) { /* drain */ }
     const st = await getState()
     if (stopOn(st.cards)) return

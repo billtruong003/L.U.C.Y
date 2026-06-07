@@ -39,7 +39,7 @@ async function tParallel() {
   const t0 = Date.now()
   await runWorker(URL, doneRunner(120), { token: TOKEN, concurrency: 2, stopWhenIdle: true, localRoot: path.join(process.cwd(), '.worker') })
   const elapsed = Date.now() - t0
-  const st = await (await fetch(URL + '/state')).json()
+  const st = await (await fetch(URL + '/state', { headers: { 'x-worker-token': TOKEN } })).json()
   check('4 card DONE', st.cards.filter((c: any) => c.status === 'done').length === 4)
   check(`song song nhanh hơn tuần tự (${elapsed}ms < 440ms)`, elapsed < 440, `(${elapsed}ms)`)
   co.stop(); clean(dir)
