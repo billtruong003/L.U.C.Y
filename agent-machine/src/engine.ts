@@ -36,10 +36,10 @@ export class Engine {
     this.maxDepth = opts.maxDepth ?? 6
   }
 
-  createCard(title: string, brief: string, pipelineId: string, parentId?: string, depth = 0, projectId = 'default', deferred = false): Card {
+  createCard(title: string, brief: string, pipelineId: string, parentId?: string, depth = 0, projectId = 'default', deferred = false, modelOverride?: 'sonnet' | 'opus'): Card {
     const id = uid('card')
     const card: Card = {
-      id, title, brief, pipelineId, projectId, stageIndex: 0, status: deferred ? 'backlog' : 'queued',
+      id, title, brief, pipelineId, projectId, stageIndex: 0, status: deferred ? 'backlog' : 'queued', modelOverride,
       workspace: makeWorkspace(this.store.dir, id), parentId, depth, blockedBy: [],
       cost: { usd: 0, inTok: 0, outTok: 0 }, history: [{ ts: Date.now(), stage: '-', event: deferred ? 'created-backlog' : 'created' }],
       createdAt: Date.now(), updatedAt: Date.now(),
@@ -195,8 +195,10 @@ export class Engine {
     if (!c) { this.inFlight.delete(j.id); return null }
     const pipe = this.store.pipelines.get(c.pipelineId)
     const stage = pipe?.stages[c.stageIndex]
-    const persona = stage ? this.store.personas.get(stage.personaId) : undefined
-    if (!pipe || !stage || !persona) { this.inFlight.delete(j.id); c.status = 'failed'; this.store.putCard(c); return null }
+    const base = stage ? this.store.personas.get(stage.personaId) : undefined
+    if (!pipe || !stage || !base) { this.inFlight.delete(j.id); c.status = 'failed'; this.store.putCard(c); return null }
+    // modelOverride: card ép model riêng -> đè model persona (áp cho CẢ local lẫn remote worker)
+    const persona = c.modelOverride ? { ...base, model: c.modelOverride } : base
     return { jobId: j.id, cardId: c.id, card: c, stage, persona }
   }
 

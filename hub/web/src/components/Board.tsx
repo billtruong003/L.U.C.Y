@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { amState, amSetLanes, amCreateCard, amApprove, amReject, amRemoveCard, amActivate, type AmCard, type AmPipeline, type AmPersona } from '../api'
+import Planner from './Planner'
 
 const STATUS: Record<string, { label: string; color: string; icon: string }> = {
   backlog: { label: 'ĐỂ SAU', color: '#8aa0b5', icon: '🕓' },
@@ -22,8 +23,9 @@ export default function Board() {
   const [cfgState, setCfgState] = useState<'ok' | 'unconfigured' | 'offline'>('ok')
   const [sel, setSel] = useState<string | null>(null)
   const [proj, setProj] = useState('all')
-  const [form, setForm] = useState({ title: '', brief: '', pipeline: 'course', project: '', defer: false, open: false })
+  const [form, setForm] = useState({ title: '', brief: '', pipeline: 'course', project: '', model: '', defer: false, open: false })
   const [lanes, setLanes] = useState('')
+  const [planOpen, setPlanOpen] = useState(false)
   const busy = useRef(false)
 
   const pull = async () => {
@@ -50,7 +52,7 @@ export default function Board() {
   const waiting = shown.filter((c) => c.status === 'waiting_human')
   const selected = cards.find((c) => c.id === sel) || null
 
-  const create = async () => { if (!form.title.trim()) return; const pj = form.project.trim() || (proj !== 'all' ? proj : 'default'); await amCreateCard(form.title.trim(), form.brief.trim(), form.pipeline.trim() || 'course', pj, form.defer); setForm({ ...form, title: '', brief: '', open: false }); pull() }
+  const create = async () => { if (!form.title.trim()) return; const pj = form.project.trim() || (proj !== 'all' ? proj : 'default'); const mdl = form.model === 'opus' || form.model === 'sonnet' ? (form.model as 'sonnet' | 'opus') : undefined; await amCreateCard(form.title.trim(), form.brief.trim(), form.pipeline.trim() || 'course', pj, form.defer, mdl); setForm({ ...form, title: '', brief: '', open: false }); pull() }
   const approve = async (id: string) => { await amApprove(id); pull() }
   const reject = async (id: string, fb: string) => { await amReject(id, fb); pull() }
   const remove = async (id: string) => { await amRemoveCard(id); setSel(null); pull() }
@@ -71,8 +73,10 @@ export default function Board() {
           <input className="input !w-12 text-center !py-1.5" value={lanes} onChange={(e) => setLanes(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && setLanesNow()} title="số agent chạy song song (maxLanes)" />
           <button className="btn !py-1.5" onClick={setLanesNow}>set</button>
         </div>
+        <button className="btn" style={{ borderColor: '#3fd3ff55', color: '#3fd3ff' }} onClick={() => setPlanOpen((v) => !v)} title="Lucy tự soạn card từ mục tiêu">✨ Lucy</button>
         <button className="btn btn-primary" onClick={() => setForm({ ...form, open: !form.open })}>{form.open ? 'Đóng' : '+ Card'}</button>
       </div>
+      {planOpen && <Planner project={proj} pipes={pipes} onDone={pull} onClose={() => setPlanOpen(false)} />}
 
       {/* ── project selector (1 hệ, nhiều dự án) ── */}
       {projects.length > 0 && (
@@ -100,6 +104,11 @@ export default function Board() {
           <select className="input sm:!w-40" value={form.pipeline} onChange={(e) => setForm({ ...form, pipeline: e.target.value })}>
             {pipes.length === 0 && <option value="">(chưa có pipeline)</option>}
             {pipes.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <select className="input sm:!w-28" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} title="Model cho card (mặc định = theo persona)">
+            <option value="">model: auto</option>
+            <option value="sonnet">sonnet</option>
+            <option value="opus">opus</option>
           </select>
           <label className="flex items-center gap-1.5 px-2 text-[12px] text-inkdim cursor-pointer select-none" title="Tạo nhưng KHÔNG chạy ngay — để backlog, khi nào muốn bấm Chạy">
             <input type="checkbox" checked={form.defer} onChange={(e) => setForm({ ...form, defer: e.target.checked })} /> 🕓 để sau

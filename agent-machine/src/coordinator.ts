@@ -5,7 +5,8 @@ import type { Engine, JobSpec } from './engine'
 import type { Store } from './store'
 
 function serializeJob(j: JobSpec) {
-  // worker không cần workspace của coordinator — nó tự tạo workspace local
+  // worker không cần workspace của coordinator — nó tự tạo workspace local.
+  // persona đã được engine.claim() áp modelOverride (nếu có) -> gửi nguyên.
   return { jobId: j.jobId, cardId: j.cardId, card: { id: j.card.id, title: j.card.title, brief: j.card.brief, reviewNotes: j.card.reviewNotes }, stage: j.stage, persona: j.persona }
 }
 
@@ -35,7 +36,7 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       }
       if (req.method === 'POST' && url === '/worker/claim') { const j = engine.claim(); return send(200, { job: j ? serializeJob(j) : null }) }
       if (req.method === 'POST' && url === '/worker/result') { const b = await readBody(req); engine.submit(b.jobId, b.result); return send(200, { ok: true }) }
-      if (req.method === 'POST' && url === '/card') { const b = await readBody(req); return send(200, { card: engine.createCard(b.title, b.brief, b.pipelineId, undefined, 0, b.projectId || 'default', !!b.deferred) }) }
+      if (req.method === 'POST' && url === '/card') { const b = await readBody(req); const mdl = (b.model === 'opus' || b.model === 'sonnet') ? b.model : undefined; return send(200, { card: engine.createCard(b.title, b.brief, b.pipelineId, undefined, 0, b.projectId || 'default', !!b.deferred, mdl) }) }
       if (req.method === 'POST' && url === '/card/remove') { const b = await readBody(req); return send(200, { ok: engine.removeCard(b.cardId) }) }
       if (req.method === 'POST' && url === '/card/activate') { const b = await readBody(req); engine.activate(b.cardId); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/approve') { const b = await readBody(req); engine.approve(b.cardId); return send(200, { ok: true }) }

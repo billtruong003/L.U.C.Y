@@ -34,6 +34,7 @@ export type Card = {
   depth: number // độ sâu delegate (root=0) — depth-breaker chống delegate vô hạn
   blockedBy: string[] // DAG: card này chờ các card này xong (hold/resume)
   pendingQuestion?: string
+  modelOverride?: 'sonnet' | 'opus' // ép model cho CARD này (đè model mặc định của persona) — orchestrator/bạn chọn
   reviewNotes?: string[] // feedback khi bạn TRẢ LẠI ở gate -> chèn vào prompt cho agent sửa
   cost: Cost
   stageVisits?: Record<string, number> // loop-breaker: đếm số lần vào mỗi stage

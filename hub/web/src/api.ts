@@ -64,8 +64,8 @@ export async function amConfig(): Promise<{ configured: boolean; offline?: boole
 export async function amSetLanes(maxLanes: number) {
   const r = await fetch('/api/am/config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ maxLanes }) }); return r.json()
 }
-export async function amCreateCard(title: string, brief: string, pipelineId: string, projectId: string, deferred = false) {
-  const r = await fetch('/api/am/card', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, brief, pipelineId, projectId, deferred }) }); return r.json()
+export async function amCreateCard(title: string, brief: string, pipelineId: string, projectId: string, deferred = false, model?: 'sonnet' | 'opus') {
+  const r = await fetch('/api/am/card', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, brief, pipelineId, projectId, deferred, model }) }); return r.json()
 }
 export async function amRemoveCard(cardId: string) {
   await fetch('/api/am/card/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cardId }) })

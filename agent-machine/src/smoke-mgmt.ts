@@ -59,6 +59,14 @@ async function main() {
   engine.createCard('backlog2', 'b', 'one', undefined, 0, 'default', true)
   check('backlog không tính vào queued', engine.limits().queued === 0, `(queued=${engine.limits().queued})`)
 
+  // ── MODEL OVERRIDE: card ép opus -> claim trả persona.model = opus (local lẫn remote) ──
+  const mo = engine.createCard('ép opus', 'b', 'one', undefined, 0, 'default', false, 'opus')
+  check('card lưu modelOverride', store.getCard(mo.id)!.modelOverride === 'opus')
+  engine.tick()
+  const spec = engine.claim()
+  check('claim áp model = opus', spec?.persona.model === 'opus', `(got ${spec?.persona.model})`)
+  check('persona gốc KHÔNG bị đổi (clone, không mutate)', store.personas.get('eng')!.model === 'sonnet')
+
   clean(dir)
   console.log(`\n${fail === 0 ? '✅ ALL PASS' : '❌ FAIL'} — ${pass} pass, ${fail} fail`)
   process.exit(fail === 0 ? 0 : 1)
