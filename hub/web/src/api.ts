@@ -52,7 +52,10 @@ export type AmCard = {
   history?: { ts: number; stage: string; event: string }[]
 }
 export type AmMsg = { ts: number; channel: string; author: string; kind: string; text: string; cardId?: string }
-export async function amState(): Promise<{ configured: boolean; offline?: boolean; cards: AmCard[]; channels: AmMsg[] }> {
+export type AmStage = { id: string; name: string; personaId: string; gate?: boolean }
+export type AmPipeline = { id: string; name: string; stages: AmStage[] }
+export type AmPersona = { id: string; name: string; avatar?: string; model?: string }
+export async function amState(): Promise<{ configured: boolean; offline?: boolean; cards: AmCard[]; channels: AmMsg[]; pipelines?: AmPipeline[]; personas?: AmPersona[] }> {
   const r = await fetch('/api/am/state'); return r.json()
 }
 export async function amConfig(): Promise<{ configured: boolean; offline?: boolean; maxLanes?: number; perCardMaxUsd?: number; queued?: number; inFlight?: number }> {

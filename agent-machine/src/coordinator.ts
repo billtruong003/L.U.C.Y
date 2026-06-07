@@ -36,7 +36,13 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       if (req.method === 'POST' && url === '/worker/result') { const b = await readBody(req); engine.submit(b.jobId, b.result); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/card') { const b = await readBody(req); return send(200, { card: engine.createCard(b.title, b.brief, b.pipelineId) }) }
       if (req.method === 'POST' && url === '/approve') { const b = await readBody(req); engine.approve(b.cardId); return send(200, { ok: true }) }
-      if (req.method === 'GET' && url === '/state') return send(200, { cards: store.listCards(), channels: store.readChannel().slice(-200) })
+      if (req.method === 'GET' && url === '/state') return send(200, {
+        cards: store.listCards(),
+        channels: store.readChannel().slice(-200),
+        pipelines: [...store.pipelines.values()],
+        personas: [...store.personas.values()].map((p) => ({ id: p.id, name: p.name, avatar: p.avatar, model: p.model })),
+        limits: engine.limits(),
+      })
       if (req.method === 'GET' && url === '/health') return send(200, { ok: true, pending: store.listCards().filter((c) => c.status === 'queued' || c.status === 'working').length })
       send(404, { error: 'not found' })
     } catch (e) { send(500, { error: String(e) }) }
