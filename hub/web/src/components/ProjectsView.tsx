@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { amState, amCreateProject, amRemoveProject, type AmProject, type AmCard, type AmPipeline } from '../api'
 import Board from './Board'
 import Channels from './Channels'
-import Planner from './Planner'
+import LucyChat from './LucyChat'
 
 export default function ProjectsView() {
   const [projects, setProjects] = useState<AmProject[]>([])
@@ -57,7 +57,7 @@ export default function ProjectsView() {
         </div>
         <div className="flex-1 min-h-0">
           {tab === 'kanban' && <Board projectId={proj.id} />}
-          {tab === 'lucy' && <div className="h-full overflow-auto"><Planner project={proj.id} pipes={pipes} onDone={() => { pull(); setTab('kanban') }} onClose={() => setTab('kanban')} /></div>}
+          {tab === 'lucy' && <LucyChat project={proj.id} pipes={pipes} onCreated={pull} />}
           {tab === 'channels' && <Channels projectId={proj.id} />}
         </div>
       </div>
