@@ -2,8 +2,25 @@
 // VPS không chạy agent; worker đến/đi tự do (máy tắt -> card xếp hàng; bật -> hút tiếp).
 import path from 'node:path'
 import fs from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import type { Runner } from './runner'
 import type { RunResult } from './types'
+
+// R2: project có repoUrl -> clone repo THẬT vào .worker/repos/<project>, agent sửa trong đó.
+// (Không auto-push — work nằm local, bạn review/push tay. Push để dành cho stage "ship".)
+const repoLocks = new Map<string, Promise<void>>() // serialize card CÙNG repo trong process này
+function ensureRepoClone(root: string, repo: { url: string; branch?: string; projectId: string }): string {
+  const dir = path.join(root, 'repos', repo.projectId.replace(/[^\w.-]/g, '_'))
+  if (!fs.existsSync(path.join(dir, '.git'))) {
+    fs.mkdirSync(path.dirname(dir), { recursive: true })
+    execFileSync('git', ['clone', repo.url, dir], { stdio: 'ignore' })
+  } else {
+    try { execFileSync('git', ['-C', dir, 'pull', '--ff-only'], { stdio: 'ignore' }) } catch { /* lệch -> để agent xử */ }
+  }
+  if (repo.branch) { try { execFileSync('git', ['-C', dir, 'checkout', repo.branch], { stdio: 'ignore' }) } catch { /* nhánh chưa có -> kệ */ } }
+  return dir
+}
+const FAIL = (msg: string): RunResult => ({ outcome: { decision: 'fail', summary: msg }, cost: { usd: 0, inTok: 0, outTok: 0 }, raw: '' })
 
 // 1 bước: claim -> chạy -> submit. Trả true nếu có job đã xử lý.
 export async function workerStep(coordUrl: string, runner: Runner, opts: { token?: string; localRoot?: string } = {}): Promise<boolean> {
@@ -18,18 +35,31 @@ export async function workerStep(coordUrl: string, runner: Runner, opts: { token
   if (!job) return false
 
   const root = opts.localRoot || path.join(process.cwd(), '.worker')
-  const ws = path.join(root, job.cardId || job.jobId) // theo CARD -> các stage cùng card chia sẻ file
-  fs.mkdirSync(ws, { recursive: true })
+  const submit = async (result: RunResult) => {
+    try { await fetch(coordUrl + '/worker/result', { method: 'POST', headers, body: JSON.stringify({ jobId: job.jobId, result }) }) } catch { /* coordinator tạm mất -> re-dispatch sau */ }
+  }
+
+  // workspace: repo project -> clone & serialize theo project; thường -> thư mục nháp theo card
+  let ws = ''
+  let release = () => {}
+  if (job.repo?.url) {
+    const key = job.repo.projectId
+    const prev = repoLocks.get(key) || Promise.resolve()
+    const lock = new Promise<void>((r) => { release = r })
+    repoLocks.set(key, prev.then(() => lock).catch(() => {}))
+    await prev.catch(() => {})
+    try { ws = ensureRepoClone(root, job.repo) }
+    catch (e) { release(); await submit(FAIL(`clone repo lỗi: ${String(e).slice(0, 160)}`)); return true }
+  } else {
+    ws = path.join(root, job.cardId || job.jobId) // theo CARD -> các stage cùng card chia sẻ file
+    fs.mkdirSync(ws, { recursive: true })
+  }
 
   let result: RunResult
-  try {
-    result = await runner.run(job.card, job.stage, job.persona, ws)
-  } catch (e) {
-    result = { outcome: { decision: 'fail', summary: `worker lỗi: ${String(e).slice(0, 200)}` }, cost: { usd: 0, inTok: 0, outTok: 0 }, raw: '' }
-  }
-  try {
-    await fetch(coordUrl + '/worker/result', { method: 'POST', headers, body: JSON.stringify({ jobId: job.jobId, result }) })
-  } catch { /* coordinator tạm mất -> job sẽ được re-dispatch sau (M2.1 lease/timeout) */ }
+  try { result = await runner.run(job.card, job.stage, job.persona, ws) }
+  catch (e) { result = FAIL(`worker lỗi: ${String(e).slice(0, 200)}`) }
+  finally { release() }
+  await submit(result)
   return true
 }
 

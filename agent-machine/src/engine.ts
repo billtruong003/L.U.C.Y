@@ -11,7 +11,7 @@ import type { Card, Stage, Persona, Project, RunResult } from './types'
 let _n = 0
 const uid = (p: string) => `${p}_${Date.now().toString(36)}${(_n++).toString(36)}`
 
-export type JobSpec = { jobId: string; cardId: string; card: Card; stage: Stage; persona: Persona }
+export type JobSpec = { jobId: string; cardId: string; card: Card; stage: Stage; persona: Persona; repo?: { url: string; branch?: string; projectId: string } }
 
 export class Engine {
   store: Store
@@ -230,7 +230,10 @@ export class Engine {
     if (!pipe || !stage || !base) { this.inFlight.delete(j.id); c.status = 'failed'; this.store.putCard(c); return null }
     // modelOverride: card ép model riêng -> đè model persona (áp cho CẢ local lẫn remote worker)
     const persona = c.modelOverride ? { ...base, model: c.modelOverride } : base
-    return { jobId: j.id, cardId: c.id, card: c, stage, persona }
+    // repo: nếu project có repoUrl -> worker clone & làm việc trong repo thật (R2)
+    const proj = this.store.getProject(c.projectId)
+    const repo = proj?.repoUrl ? { url: proj.repoUrl, branch: proj.branch, projectId: proj.id } : undefined
+    return { jobId: j.id, cardId: c.id, card: c, stage, persona, repo }
   }
 
   // ── WORKER submit: trả kết quả -> áp outcome ──

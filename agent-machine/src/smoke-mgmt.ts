@@ -66,6 +66,7 @@ async function main() {
   const spec = engine.claim()
   check('claim áp model = opus', spec?.persona.model === 'opus', `(got ${spec?.persona.model})`)
   check('persona gốc KHÔNG bị đổi (clone, không mutate)', store.personas.get('eng')!.model === 'sonnet')
+  check('project KHÔNG repo -> claim.repo undefined', spec?.repo === undefined)
 
   // ── PROJECT first-class ──
   const pj = engine.createProject('Game ABC', { repoUrl: 'https://github.com/x/abc' })
@@ -76,6 +77,15 @@ async function main() {
   check('tạo card AUTO tạo project', !!store.getProject('Dự án mới X'))
   check('removeProject bị chặn khi còn card', engine.removeProject('Dự án mới X') === false)
   check('removeProject rỗng OK', engine.removeProject('Game ABC') === true)
+
+  // ── R2: project có repoUrl -> claim gắn repo cho worker clone ──
+  engine.createProject('repo-proj', { repoUrl: 'https://github.com/x/y', branch: 'dev' })
+  const rc = engine.createCard('work', 'b', 'one', undefined, 0, 'repo-proj')
+  engine.tick()
+  let rs = engine.claim(); let guard = 0
+  while (rs && rs.cardId !== rc.id && guard++ < 12) rs = engine.claim()
+  check('claim gắn repo.url khi project có repoUrl', rs?.repo?.url === 'https://github.com/x/y', `(got ${rs?.repo?.url})`)
+  check('claim gắn repo.branch', rs?.repo?.branch === 'dev', `(got ${rs?.repo?.branch})`)
 
   clean(dir)
   console.log(`\n${fail === 0 ? '✅ ALL PASS' : '❌ FAIL'} — ${pass} pass, ${fail} fail`)

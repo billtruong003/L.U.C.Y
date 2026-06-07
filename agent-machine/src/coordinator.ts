@@ -7,7 +7,7 @@ import type { Store } from './store'
 function serializeJob(j: JobSpec) {
   // worker không cần workspace của coordinator — nó tự tạo workspace local.
   // persona đã được engine.claim() áp modelOverride (nếu có) -> gửi nguyên.
-  return { jobId: j.jobId, cardId: j.cardId, card: { id: j.card.id, title: j.card.title, brief: j.card.brief, reviewNotes: j.card.reviewNotes }, stage: j.stage, persona: j.persona }
+  return { jobId: j.jobId, cardId: j.cardId, card: { id: j.card.id, title: j.card.title, brief: j.card.brief, reviewNotes: j.card.reviewNotes }, stage: j.stage, persona: j.persona, repo: j.repo }
 }
 
 async function readBody(req: http.IncomingMessage): Promise<any> {
