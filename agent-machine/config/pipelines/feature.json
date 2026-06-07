@@ -4,6 +4,7 @@
   "stages": [
     { "id": "plan", "name": "Thiết kế cách làm", "personaId": "architect" },
     { "id": "build", "name": "Code feature", "personaId": "builder" },
-    { "id": "review", "name": "Review & test", "personaId": "reviewer", "gate": true }
+    { "id": "test", "name": "Viết test & tìm bug", "personaId": "tester" },
+    { "id": "review", "name": "Review & duyệt", "personaId": "reviewer", "gate": true }
   ]
 }
