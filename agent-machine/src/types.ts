@@ -16,6 +16,7 @@ export type Project = {
   branch?: string // nhánh làm việc (mặc định nhánh chính)
   description?: string
   skill?: string // SKILL.md domain của dự án (vd Unity/Colyseus) -> chèn vào prompt MỌI agent dự án này
+  trashed?: boolean // thùng rác: ẩn khỏi list, chờ purge (xoá hẳn)
   channels: string[] // kênh con Discord-style (R4). Mặc định ['general']
   createdAt: number
   updatedAt: number

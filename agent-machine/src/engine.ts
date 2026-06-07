@@ -113,9 +113,31 @@ export class Engine {
     if (!c) return false
     this.pending = this.pending.filter((j) => j.cardId !== cardId)
     for (const [jid, cid] of [...this.inFlight]) if (cid === cardId) this.inFlight.delete(jid)
+    this.store.removeWorkspace(cardId) // dọn dir trên đĩa luôn
     const ok = this.store.deleteCard(cardId)
     if (ok) post(this.store, 'coordination', 'engine', 'system', `🗑 xoá card "${c.title}"`, cardId)
     return ok
+  }
+
+  // ── THÙNG RÁC dự án: trash (ẩn) -> restore | purge (xoá HẲN: card + workspace + record) ──
+  trashProject(id: string): boolean {
+    const p = this.store.getProject(id); if (!p) return false
+    p.trashed = true; this.store.putProject(p)
+    post(this.store, 'coordination', 'engine', 'system', `🗑 ném dự án "${p.name}" vào thùng rác`)
+    return true
+  }
+  restoreProject(id: string): boolean {
+    const p = this.store.getProject(id); if (!p) return false
+    p.trashed = false; this.store.putProject(p); return true
+  }
+  // xoá HẲN: mọi card của dự án (+ workspace dir) + record dự án. (Repo clone trên worker là cache, tự dọn/clone lại.)
+  purgeProject(id: string): number {
+    const p = this.store.getProject(id); if (!p) return 0
+    let n = 0
+    for (const c of this.store.listCards().filter((c) => (c.projectId || 'default') === id)) { if (this.removeCard(c.id)) n++ }
+    this.store.deleteProject(id)
+    post(this.store, 'coordination', 'engine', 'system', `🔥 xoá HẲN dự án "${p.name}" (${n} card)`)
+    return n
   }
 
   approve(cardId: string) {

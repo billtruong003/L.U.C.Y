@@ -47,6 +47,12 @@ export class Store {
   getCard(id: string) { return this.cards.get(id) }
   listCards() { return [...this.cards.values()] }
   deleteCard(id: string): boolean { const ok = this.cards.delete(id); if (ok) this.saveCards(); return ok }
+  // xoá workspace dir của card — CHỈ trong AM_DATA/workspaces (FS defense, không xoá ra ngoài)
+  removeWorkspace(cardId: string) {
+    const base = path.resolve(path.join(this.dir, 'workspaces'))
+    const ws = path.resolve(path.join(this.dir, 'workspaces', cardId))
+    if (ws.startsWith(base + path.sep)) fs.rmSync(ws, { recursive: true, force: true })
+  }
 
   registerPersona(p: Persona) { this.personas.set(p.id, p) }
   registerPipeline(p: Pipeline) { this.pipelines.set(p.id, p) }

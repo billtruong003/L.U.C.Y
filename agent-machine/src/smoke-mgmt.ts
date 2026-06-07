@@ -107,6 +107,16 @@ async function main() {
   check('SKILL dự án nhồi vào persona prompt', !!ss && ss.persona.systemPrompt.includes('DOMAIN: chuyên gia Unity.'))
   check('persona gốc KHÔNG bị nhồi (clone)', store.personas.get('eng')!.systemPrompt === 'x')
 
+  // ── V2: thùng rác dự án (trash/restore/purge) ──
+  engine.createProject('TrashMe')
+  engine.createCard('rác1', 'b', 'one', undefined, 0, 'TrashMe')
+  check('trashProject -> trashed=true', engine.trashProject('TrashMe') === true && store.getProject('TrashMe')!.trashed === true)
+  check('restoreProject -> trashed=false', engine.restoreProject('TrashMe') === true && store.getProject('TrashMe')!.trashed === false)
+  const before = store.listCards().filter((c) => (c.projectId || 'default') === 'TrashMe').length
+  const purged = engine.purgeProject('TrashMe')
+  check('purgeProject xoá hết card dự án', purged === before && store.listCards().filter((c) => (c.projectId || 'default') === 'TrashMe').length === 0)
+  check('purgeProject xoá record dự án', store.getProject('TrashMe') === undefined)
+
   clean(dir)
   console.log(`\n${fail === 0 ? '✅ ALL PASS' : '❌ FAIL'} — ${pass} pass, ${fail} fail`)
   process.exit(fail === 0 ? 0 : 1)

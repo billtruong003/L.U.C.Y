@@ -66,6 +66,9 @@ export async function amCreateProject(name: string, opts: { repoUrl?: string; br
 export async function amRemoveProject(projectId: string) {
   await fetch('/api/am/project/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId }) })
 }
+export async function amTrashProject(projectId: string) { await fetch('/api/am/project/trash', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId }) }) }
+export async function amRestoreProject(projectId: string) { await fetch('/api/am/project/restore', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId }) }) }
+export async function amPurgeProject(projectId: string) { await fetch('/api/am/project/purge', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId }) }) }
 export async function amAddChannel(projectId: string, name: string) {
   await fetch('/api/am/project/channel', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId, name }) })
 }

@@ -41,6 +41,9 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       if (req.method === 'POST' && url === '/card/activate') { const b = await readBody(req); engine.activate(b.cardId); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/project') { const b = await readBody(req); return send(200, { project: engine.createProject(b.name, { repoUrl: b.repoUrl, branch: b.branch, description: b.description, skill: b.skill }) }) }
       if (req.method === 'POST' && url === '/project/remove') { const b = await readBody(req); return send(200, { ok: engine.removeProject(b.projectId) }) }
+      if (req.method === 'POST' && url === '/project/trash') { const b = await readBody(req); return send(200, { ok: engine.trashProject(b.projectId) }) }
+      if (req.method === 'POST' && url === '/project/restore') { const b = await readBody(req); return send(200, { ok: engine.restoreProject(b.projectId) }) }
+      if (req.method === 'POST' && url === '/project/purge') { const b = await readBody(req); return send(200, { purged: engine.purgeProject(b.projectId) }) }
       if (req.method === 'POST' && url === '/project/channel') { const b = await readBody(req); return send(200, { ok: engine.addChannel(b.projectId, b.name) }) }
       if (req.method === 'POST' && url === '/project/channel/remove') { const b = await readBody(req); return send(200, { ok: engine.removeChannel(b.projectId, b.name) }) }
       if (req.method === 'POST' && url === '/channel/post') { const b = await readBody(req); engine.postHuman(b.projectId, b.channel, b.text || '', b.mention); return send(200, { ok: true }) }
