@@ -11,6 +11,7 @@
     "smoke:conc": "tsx src/smoke-conc.ts",
     "coordinator": "tsx src/coordinator-main.ts",
     "worker": "tsx src/worker-main.ts",
+    "seed": "tsx src/seed.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

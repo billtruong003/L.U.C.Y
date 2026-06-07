@@ -4,6 +4,8 @@ import Chat from './components/Chat'
 import Tasks from './components/Tasks'
 import Schedule from './components/Schedule'
 import Projects from './components/Projects'
+import Board from './components/Board'
+import Channels from './components/Channels'
 import BrainViz from './components/BrainViz'
 import Aki from './components/Aki'
 import Logs from './components/Logs'
@@ -13,6 +15,8 @@ import { me } from './api'
 const TABS = [
   { id: 'chat', label: 'Chat', icon: '💬', sub: 'Trò chuyện & ra lệnh' },
   { id: 'tasks', label: 'Tasks', icon: '⚙️', sub: 'Việc đang chạy' },
+  { id: 'board', label: 'Board', icon: '📋', sub: 'Kanban agent' },
+  { id: 'channels', label: 'Channels', icon: '📡', sub: 'Kênh agent giao tiếp' },
   { id: 'schedule', label: 'Schedule', icon: '🗓️', sub: 'Đặt lịch tự chạy' },
   { id: 'projects', label: 'Projects', icon: '📁', sub: 'Cây mã nguồn' },
   { id: 'brain', label: 'Neural', icon: '🧠', sub: 'Bản đồ não Lucy' },
@@ -90,6 +94,8 @@ export default function App() {
         <section className="flex-1 min-h-0 relative">
           <div className={tab === 'chat' ? 'absolute inset-0' : 'hidden'}><Chat /></div>
           <div className={tab === 'tasks' ? 'absolute inset-0' : 'hidden'}><Tasks /></div>
+          <div className={tab === 'board' ? 'absolute inset-0' : 'hidden'}><Board /></div>
+          <div className={tab === 'channels' ? 'absolute inset-0' : 'hidden'}><Channels /></div>
           <div className={tab === 'schedule' ? 'absolute inset-0' : 'hidden'}><Schedule /></div>
           <div className={tab === 'projects' ? 'absolute inset-0' : 'hidden'}><Projects /></div>
           <div className={tab === 'brain' ? 'absolute inset-0' : 'hidden'}><BrainViz visible={tab === 'brain'} /></div>

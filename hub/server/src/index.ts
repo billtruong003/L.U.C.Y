@@ -38,6 +38,9 @@ const TG_CHAT = process.env.LUCY_PUSH_CHAT_ID || process.env.LUCY_ALLOWED_USER_I
 // Aki (radiant-bot Discord) control API — Lucy đẩy báo cáo / tạo kênh
 const RADIANT_API = (process.env.RADIANT_BOT_API_URL || '').replace(/\/$/, '')
 const AGENT_SECRET = process.env.RADIANT_BOT_AGENT_SECRET || ''
+// Agent-Machine coordinator — hub proxy (browser gọi hub đã authed, token giữ server-side)
+const AM_URL = (process.env.AM_COORD_URL || '').replace(/\/$/, '')
+const AM_TOKEN = process.env.AM_TOKEN || ''
 let lastAkiAt = 0   // brain-viz: node Aki sáng khi vừa đẩy
 // STATE dir bền: 2FA secret, schedules, log, lịch sử chat
 const STATE = home(process.env.LUCY_STATE || path.join(os.homedir(), '.lucy-hub'))
@@ -431,6 +434,35 @@ setInterval(() => {
     }
   }
 }, 30000)
+
+// ---- Agent-Machine (Board + Channels) proxy → coordinator ----
+const amOn = () => !!AM_URL
+async function amFetch(p: string, init?: { method?: string; body?: string }) {
+  const headers: Record<string, string> = {}
+  if (AM_TOKEN) headers['x-worker-token'] = AM_TOKEN
+  if (init?.body) headers['content-type'] = 'application/json'
+  return fetch(AM_URL + p, { method: init?.method || 'GET', headers, body: init?.body })
+}
+app.get('/api/am/state', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!amOn()) return res.json({ configured: false, cards: [], channels: [] })
+  try { const r = await amFetch('/state'); res.json({ configured: true, ...(await r.json()) }) }
+  catch (e) { res.json({ configured: true, offline: true, cards: [], channels: [], error: String(e).slice(0, 120) }) }
+})
+app.get('/api/am/config', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!amOn()) return res.json({ configured: false })
+  try { const r = await amFetch('/config'); res.json({ configured: true, ...(await r.json()) }) }
+  catch { res.json({ configured: true, offline: true }) }
+})
+for (const [route, fwd] of [['/api/am/config', '/config'], ['/api/am/card', '/card'], ['/api/am/approve', '/approve']] as const) {
+  app.post(route, async (req, res) => {
+    if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+    if (!amOn()) return res.status(400).json({ error: 'Agent-Machine chưa cấu hình (AM_COORD_URL)' })
+    try { const r = await amFetch(fwd, { method: 'POST', body: JSON.stringify(req.body || {}) }); res.status(r.status).json(await r.json()) }
+    catch (e) { res.status(502).json({ error: 'coordinator offline: ' + String(e).slice(0, 120) }) }
+  })
+}
 
 // serve React build (đặt CUỐI để /api ưu tiên)
 if (fs.existsSync(DIST)) {
