@@ -84,7 +84,10 @@ export default function Board() {
           <input className="input sm:!w-56" placeholder="Tên việc…" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && create()} autoFocus />
           <input className="input flex-1" placeholder="Mô tả / brief…" value={form.brief} onChange={(e) => setForm({ ...form, brief: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && create()} />
           <input className="input sm:!w-32" placeholder="dự án" value={form.project} onChange={(e) => setForm({ ...form, project: e.target.value })} />
-          <input className="input sm:!w-32 mono" placeholder="pipeline" value={form.pipeline} onChange={(e) => setForm({ ...form, pipeline: e.target.value })} />
+          <select className="input sm:!w-40" value={form.pipeline} onChange={(e) => setForm({ ...form, pipeline: e.target.value })}>
+            {pipes.length === 0 && <option value="">(chưa có pipeline)</option>}
+            {pipes.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
           <button className="btn btn-primary" onClick={create}>Tạo</button>
         </div>
       )}
