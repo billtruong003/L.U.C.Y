@@ -15,14 +15,15 @@ const ORDER = ['backlog', 'queued', 'working', 'waiting_human', 'blocked', 'done
 const EVENT_ICON: Record<string, string> = { created: '✚', 'created-backlog': '🕓', activated: '▶', 'enter-stage': '→', advance: '↑', done: '🏁', delegate: '📨', needs_decision: '⛔', fail: '✕', 'reject-rework': '↩', recovered: '♻' }
 const fmtElapsed = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); const m = Math.floor(s / 60); return m > 0 ? `${m}:${String(s % 60).padStart(2, '0')}` : `${s}s` }
 
-export default function Board() {
+export default function Board({ projectId }: { projectId?: string } = {}) {
   const [cards, setCards] = useState<AmCard[]>([])
   const [pipes, setPipes] = useState<AmPipeline[]>([])
   const [personas, setPersonas] = useState<AmPersona[]>([])
   const [limits, setLimits] = useState<{ maxLanes?: number; queued?: number; inFlight?: number }>({})
   const [cfgState, setCfgState] = useState<'ok' | 'unconfigured' | 'offline'>('ok')
   const [sel, setSel] = useState<string | null>(null)
-  const [proj, setProj] = useState('all')
+  const [proj, setProj] = useState(projectId || 'all')
+  useEffect(() => { if (projectId) setProj(projectId) }, [projectId])
   const [form, setForm] = useState({ title: '', brief: '', pipeline: 'course', project: '', model: '', defer: false, open: false })
   const [lanes, setLanes] = useState('')
   const [planOpen, setPlanOpen] = useState(false)
@@ -52,7 +53,7 @@ export default function Board() {
   const waiting = shown.filter((c) => c.status === 'waiting_human')
   const selected = cards.find((c) => c.id === sel) || null
 
-  const create = async () => { if (!form.title.trim()) return; const pj = form.project.trim() || (proj !== 'all' ? proj : 'default'); const mdl = form.model === 'opus' || form.model === 'sonnet' ? (form.model as 'sonnet' | 'opus') : undefined; await amCreateCard(form.title.trim(), form.brief.trim(), form.pipeline.trim() || 'course', pj, form.defer, mdl); setForm({ ...form, title: '', brief: '', open: false }); pull() }
+  const create = async () => { if (!form.title.trim()) return; const pj = projectId || form.project.trim() || (proj !== 'all' ? proj : 'default'); const mdl = form.model === 'opus' || form.model === 'sonnet' ? (form.model as 'sonnet' | 'opus') : undefined; await amCreateCard(form.title.trim(), form.brief.trim(), form.pipeline.trim() || 'course', pj, form.defer, mdl); setForm({ ...form, title: '', brief: '', open: false }); pull() }
   const approve = async (id: string) => { await amApprove(id); pull() }
   const reject = async (id: string, fb: string) => { await amReject(id, fb); pull() }
   const remove = async (id: string) => { await amRemoveCard(id); setSel(null); pull() }
@@ -78,8 +79,8 @@ export default function Board() {
       </div>
       {planOpen && <Planner project={proj} pipes={pipes} onDone={pull} onClose={() => setPlanOpen(false)} />}
 
-      {/* ── project selector (1 hệ, nhiều dự án) ── */}
-      {projects.length > 0 && (
+      {/* ── project selector (chỉ hiện khi KHÔNG bị scope vào 1 dự án) ── */}
+      {!projectId && projects.length > 0 && (
         <div className="shrink-0 px-4 sm:px-5 py-2 border-b border-line flex items-center gap-1.5 overflow-x-auto">
           <span className="text-[10px] text-inkfaint tracking-[0.16em] shrink-0 mr-1">DỰ ÁN</span>
           <button onClick={() => setProj('all')} className={'chip shrink-0 transition ' + (proj === 'all' ? '!text-cyan !border-cyan/50 bg-cyan/5' : 'hover:text-ink')}>Tất cả <span className="opacity-50 ml-0.5">{cards.length}</span></button>
@@ -100,7 +101,7 @@ export default function Board() {
         <div className="shrink-0 px-4 sm:px-5 py-3 border-b border-line bg-panel/30 flex flex-col sm:flex-row gap-2">
           <input className="input sm:!w-56" placeholder="Tên việc…" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && create()} autoFocus />
           <input className="input flex-1" placeholder="Mô tả / brief…" value={form.brief} onChange={(e) => setForm({ ...form, brief: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && create()} />
-          <input className="input sm:!w-32" placeholder="dự án" value={form.project} onChange={(e) => setForm({ ...form, project: e.target.value })} />
+          {!projectId && <input className="input sm:!w-32" placeholder="dự án" value={form.project} onChange={(e) => setForm({ ...form, project: e.target.value })} />}
           <select className="input sm:!w-40" value={form.pipeline} onChange={(e) => setForm({ ...form, pipeline: e.target.value })}>
             {pipes.length === 0 && <option value="">(chưa có pipeline)</option>}
             {pipes.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}

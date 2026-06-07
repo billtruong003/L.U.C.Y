@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { amState, type AmMsg } from '../api'
+import { amState, type AmMsg, type AmCard } from '../api'
 
 // màu/avatar theo "ai nói" — agent là thành viên của kênh (như Discord)
 const AGENT_PALETTE = ['#3fd3ff', '#5fe39a', '#ff9d5c', '#b78cff', '#46c6ec', '#f5d76e']
@@ -7,8 +7,9 @@ function hashIdx(s: string, n: number) { let h = 0; for (let i = 0; i < s.length
 function authorColor(a: string) { return a === 'bill' ? '#5fe39a' : a === 'engine' ? '#5e748b' : AGENT_PALETTE[hashIdx(a, AGENT_PALETTE.length)] }
 function initials(a: string) { const t = a.replace(/·.*/, '').trim(); return (t[0] || '?').toUpperCase() }
 
-export default function Channels() {
+export default function Channels({ projectId }: { projectId?: string } = {}) {
   const [msgs, setMsgs] = useState<AmMsg[]>([])
+  const [cards, setCards] = useState<AmCard[]>([])
   const [cur, setCur] = useState<string>('coordination')
   const [configured, setConfigured] = useState(true)
   const [offline, setOffline] = useState(false)
@@ -17,13 +18,22 @@ export default function Channels() {
 
   const pull = async () => {
     if (busy.current) return; busy.current = true
-    try { const s = await amState(); setConfigured(s.configured !== false); setOffline(!!s.offline); setMsgs(s.channels || []) } catch { /* */ } finally { busy.current = false }
+    try { const s = await amState(); setConfigured(s.configured !== false); setOffline(!!s.offline); setMsgs(s.channels || []); setCards(s.cards || []) } catch { /* */ } finally { busy.current = false }
   }
   useEffect(() => { pull(); const iv = setInterval(pull, 2000); return () => clearInterval(iv) }, [])
+
+  // scope theo project: chỉ kênh của card thuộc dự án này (+ coordination)
+  const inScope = useMemo(() => {
+    if (!projectId) return null
+    const ok = new Set(cards.filter((c) => (c.projectId || 'default') === projectId).map((c) => 'card-' + c.id))
+    ok.add('coordination')
+    return ok
+  }, [projectId, cards])
 
   const channels = useMemo(() => {
     const m = new Map<string, { count: number; title?: string }>()
     for (const x of msgs) {
+      if (inScope && !inScope.has(x.channel)) continue
       const e = m.get(x.channel) || { count: 0 }
       e.count++
       if (x.kind === 'system' && x.text.startsWith('+ card')) e.title = x.text.replace(/^\+ card "(.*?)".*/, '$1')
