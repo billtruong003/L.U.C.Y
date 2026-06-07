@@ -55,10 +55,11 @@ export default function ProjectsView() {
             ))}
           </div>
         </div>
-        <div className="flex-1 min-h-0">
-          {tab === 'kanban' && <Board projectId={proj.id} />}
-          {tab === 'lucy' && <LucyChat project={proj.id} pipes={pipes} onCreated={pull} />}
-          {tab === 'channels' && <Channels projectId={proj.id} />}
+        {/* giữ MOUNTED cả 3, ẩn bằng CSS -> đổi tab không mất state (vd chat Lucy) */}
+        <div className="flex-1 min-h-0 relative">
+          <div className={tab === 'kanban' ? 'absolute inset-0' : 'hidden'}><Board projectId={proj.id} /></div>
+          <div className={tab === 'lucy' ? 'absolute inset-0' : 'hidden'}><LucyChat key={proj.id} project={proj.id} pipes={pipes} onCreated={pull} /></div>
+          <div className={tab === 'channels' ? 'absolute inset-0' : 'hidden'}><Channels projectId={proj.id} /></div>
         </div>
       </div>
     )
