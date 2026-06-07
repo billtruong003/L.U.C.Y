@@ -117,6 +117,13 @@ async function main() {
   check('purgeProject xoá hết card dự án', purged === before && store.listCards().filter((c) => (c.projectId || 'default') === 'TrashMe').length === 0)
   check('purgeProject xoá record dự án', store.getProject('TrashMe') === undefined)
 
+  // ── O1: custom flow (pipeline) tạo/sửa/xoá ──
+  const fp = engine.upsertPipeline({ name: 'My Flow', stages: [{ name: 'B1', personaId: 'eng' }, { name: 'B2', personaId: 'eng', gate: true }] })
+  check('upsertPipeline tạo flow (id từ tên)', !!fp && fp.id === 'my-flow' && store.pipelines.get('my-flow')!.stages.length === 2)
+  check('flow giữ gate đúng', store.pipelines.get('my-flow')!.stages[1].gate === true)
+  check('upsertPipeline bỏ stage persona không tồn tại -> null', engine.upsertPipeline({ name: 'Bad', stages: [{ name: 'x', personaId: 'nope' }] }) === null)
+  check('deletePipeline xoá flow tự tạo', engine.deletePipeline('my-flow') === true && store.pipelines.get('my-flow') === undefined)
+
   clean(dir)
   console.log(`\n${fail === 0 ? '✅ ALL PASS' : '❌ FAIL'} — ${pass} pass, ${fail} fail`)
   process.exit(fail === 0 ? 0 : 1)

@@ -57,6 +57,16 @@ export class Store {
   registerPersona(p: Persona) { this.personas.set(p.id, p) }
   registerPipeline(p: Pipeline) { this.pipelines.set(p.id, p) }
 
+  // pipeline TỰ TẠO lúc chạy (custom flow) — lưu riêng AM_DATA/custom-pipelines.json, nạp SAU config.
+  customPipelineIds = new Set<string>()
+  private pipelinesFile() { return path.join(this.dir, 'custom-pipelines.json') }
+  loadCustomPipelines() {
+    try { const arr = JSON.parse(fs.readFileSync(this.pipelinesFile(), 'utf8')) as Pipeline[]; for (const p of arr) { this.pipelines.set(p.id, p); this.customPipelineIds.add(p.id) } } catch { /* none */ }
+  }
+  private saveCustomPipelines() { this.atomicWrite(this.pipelinesFile(), [...this.customPipelineIds].map((id) => this.pipelines.get(id)).filter(Boolean)) }
+  saveCustomPipeline(p: Pipeline) { this.pipelines.set(p.id, p); this.customPipelineIds.add(p.id); this.saveCustomPipelines() }
+  deleteCustomPipeline(id: string): boolean { if (!this.customPipelineIds.has(id)) return false; this.pipelines.delete(id); this.customPipelineIds.delete(id); this.saveCustomPipelines(); return true }
+
   postMessage(m: ChannelMsg) { fs.appendFileSync(path.join(this.dir, 'channels.jsonl'), JSON.stringify(m) + '\n') }
   readChannel(channel?: string): ChannelMsg[] {
     try {

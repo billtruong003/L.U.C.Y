@@ -15,6 +15,7 @@ const CONFIG = process.env.AM_CONFIG || path.join(process.cwd(), 'config')
 
 const store = new Store(DATA)
 const loaded = loadConfig(store, CONFIG)
+store.loadCustomPipelines() // flow tự tạo (override/bổ sung config) — nạp SAU config
 
 // coordinator KHÔNG chạy claude -> runner chỉ là placeholder (worker remote mới chạy thật)
 const engine = new Engine(store, new MockRunner({}), new Budget({

@@ -6,7 +6,7 @@ import { Budget } from './budget'
 import { makeWorkspace } from './workspace'
 import { post, threadOf } from './channels'
 import type { Runner } from './runner'
-import type { Card, Stage, Persona, Project, RunResult } from './types'
+import type { Card, Stage, Persona, Project, Pipeline, RunResult } from './types'
 
 let _n = 0
 const uid = (p: string) => `${p}_${Date.now().toString(36)}${(_n++).toString(36)}`
@@ -72,6 +72,27 @@ export class Engine {
     // chỉ xoá project rỗng (không còn card) — tránh mồ côi card
     if (this.store.listCards().some((c) => (c.projectId || 'default') === id)) return false
     return this.store.deleteProject(id)
+  }
+
+  // ── FLOW (pipeline) tự định nghĩa/sửa lúc chạy (O1) ──
+  upsertPipeline(input: { id?: string; name: string; stages: { name: string; personaId: string; gate?: boolean }[] }): Pipeline | null {
+    const name = (input.name || '').trim()
+    if (!name || !input.stages?.length) return null
+    const stages: Stage[] = []
+    input.stages.forEach((s, i) => {
+      if (!this.store.personas.get(s.personaId)) return // persona phải tồn tại
+      stages.push({ id: 's' + (i + 1), name: (s.name || '').trim() || `Bước ${i + 1}`, personaId: s.personaId, gate: !!s.gate })
+    })
+    if (!stages.length) return null
+    const id = input.id || name.toLowerCase().replace(/[^\w]+/g, '-').replace(/^-+|-+$/g, '') || 'flow'
+    const p: Pipeline = { id, name, stages }
+    this.store.saveCustomPipeline(p)
+    post(this.store, 'coordination', 'engine', 'system', `🧩 flow "${name}" (${stages.length} bước) đã lưu`)
+    return p
+  }
+  deletePipeline(id: string): boolean {
+    if (this.store.listCards().some((c) => c.pipelineId === id && c.status !== 'done' && c.status !== 'failed')) return false // còn card đang dùng
+    return this.store.deleteCustomPipeline(id)
   }
 
   // ── KÊNH Discord-style per-project (R4) — channel id = `p:<projectId>:<name>` ──

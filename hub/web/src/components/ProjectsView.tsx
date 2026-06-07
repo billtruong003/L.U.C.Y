@@ -1,24 +1,26 @@
 // ProjectsView — mỗi dự án là 1 container: list/dashboard -> click vào workspace
 // (3 tab: Kanban / Lucy / Channels). Repo URL -> agent clone & sửa repo thật.
 import { useEffect, useMemo, useState } from 'react'
-import { amState, amCreateProject, amTrashProject, amRestoreProject, amPurgeProject, type AmProject, type AmCard, type AmPipeline, type AmMsg } from '../api'
+import { amState, amCreateProject, amTrashProject, amRestoreProject, amPurgeProject, type AmProject, type AmCard, type AmPipeline, type AmPersona, type AmMsg } from '../api'
 import Board from './Board'
 import Channels from './Channels'
 import LucyChat from './LucyChat'
+import FlowEditor from './FlowEditor'
 
 export default function ProjectsView() {
   const [projects, setProjects] = useState<AmProject[]>([])
   const [cards, setCards] = useState<AmCard[]>([])
   const [pipes, setPipes] = useState<AmPipeline[]>([])
+  const [personas, setPersonas] = useState<AmPersona[]>([])
   const [channels, setChannels] = useState<AmMsg[]>([])
   const [active, setActive] = useState<string | null>(null)
-  const [tab, setTab] = useState<'kanban' | 'lucy' | 'channels'>('kanban')
+  const [tab, setTab] = useState<'kanban' | 'lucy' | 'channels' | 'flow'>('kanban')
   const [configured, setConfigured] = useState(true)
   const [nf, setNf] = useState({ open: false, name: '', repoUrl: '', skill: '' })
   const [showTrash, setShowTrash] = useState(false)
 
   const pull = async () => {
-    try { const s = await amState(); setConfigured(s.configured !== false); setProjects(s.projects || []); setCards(s.cards || []); setPipes(s.pipelines || []); setChannels(s.channels || []) } catch { /* */ }
+    try { const s = await amState(); setConfigured(s.configured !== false); setProjects(s.projects || []); setCards(s.cards || []); setPipes(s.pipelines || []); setPersonas(s.personas || []); setChannels(s.channels || []) } catch { /* */ }
   }
   useEffect(() => { pull(); const iv = setInterval(pull, 3000); return () => clearInterval(iv) }, [])
 
@@ -45,7 +47,7 @@ export default function ProjectsView() {
   // ── WORKSPACE 1 dự án ──
   const proj = projects.find((p) => p.id === active)
   if (active && proj) {
-    const TABS = [{ k: 'kanban', label: '📋 Kanban' }, { k: 'lucy', label: '✨ Lucy' }, { k: 'channels', label: '💬 Channels' }] as const
+    const TABS = [{ k: 'kanban', label: '📋 Kanban' }, { k: 'lucy', label: '✨ Lucy' }, { k: 'channels', label: '💬 Channels' }, { k: 'flow', label: '🧩 Flow' }] as const
     const s = stats.get(proj.id)
     return (
       <div className="h-full flex flex-col overflow-hidden">
@@ -80,6 +82,7 @@ export default function ProjectsView() {
           <div className={tab === 'kanban' ? 'absolute inset-0' : 'hidden'}><Board projectId={proj.id} /></div>
           <div className={tab === 'lucy' ? 'absolute inset-0' : 'hidden'}><LucyChat key={proj.id} project={proj.id} pipes={pipes} onCreated={pull} /></div>
           <div className={tab === 'channels' ? 'absolute inset-0' : 'hidden'}><Channels projectId={proj.id} /></div>
+          <div className={tab === 'flow' ? 'absolute inset-0' : 'hidden'}><FlowEditor pipes={pipes} personas={personas} onChanged={pull} /></div>
         </div>
       </div>
     )

@@ -78,6 +78,12 @@ export async function amPostChannel(projectId: string, channel: string, text: st
 export async function amLogLucy(projectId: string, role: 'me' | 'lucy', text: string) {
   await fetch('/api/am/lucy/log', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId, role, text }) })
 }
+export async function amUpsertPipeline(p: { id?: string; name: string; stages: { name: string; personaId: string; gate?: boolean }[] }) {
+  const r = await fetch('/api/am/pipeline', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(p) }); return r.json()
+}
+export async function amRemovePipeline(id: string) {
+  await fetch('/api/am/pipeline/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) })
+}
 export async function amConfig(): Promise<{ configured: boolean; offline?: boolean; maxLanes?: number; perCardMaxUsd?: number; queued?: number; inFlight?: number }> {
   const r = await fetch('/api/am/config'); return r.json()
 }

@@ -44,6 +44,8 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       if (req.method === 'POST' && url === '/project/trash') { const b = await readBody(req); return send(200, { ok: engine.trashProject(b.projectId) }) }
       if (req.method === 'POST' && url === '/project/restore') { const b = await readBody(req); return send(200, { ok: engine.restoreProject(b.projectId) }) }
       if (req.method === 'POST' && url === '/project/purge') { const b = await readBody(req); return send(200, { purged: engine.purgeProject(b.projectId) }) }
+      if (req.method === 'POST' && url === '/pipeline') { const b = await readBody(req); return send(200, { pipeline: engine.upsertPipeline(b) }) }
+      if (req.method === 'POST' && url === '/pipeline/remove') { const b = await readBody(req); return send(200, { ok: engine.deletePipeline(b.id) }) }
       if (req.method === 'POST' && url === '/project/channel') { const b = await readBody(req); return send(200, { ok: engine.addChannel(b.projectId, b.name) }) }
       if (req.method === 'POST' && url === '/project/channel/remove') { const b = await readBody(req); return send(200, { ok: engine.removeChannel(b.projectId, b.name) }) }
       if (req.method === 'POST' && url === '/channel/post') { const b = await readBody(req); engine.postHuman(b.projectId, b.channel, b.text || '', b.mention); return send(200, { ok: true }) }

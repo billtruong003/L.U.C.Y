@@ -16,6 +16,7 @@ function convPrompt(project: string, pipes: AmPipeline[], transcript: string): s
     `- Nếu yêu cầu CHƯA đủ rõ để chia task -> HỎI LẠI ngắn gọn (1-2 câu), KHÔNG kèm json.`,
     `- Khi ĐÃ đủ rõ -> trả lời 1 câu chốt NGẮN rồi kèm DUY NHẤT 1 khối json ở cuối (model: opus cho việc khó, sonnet việc thường):`,
     '```json', `[{"title":"...","brief":"...","pipelineId":"<id>","model":"sonnet"}]`, '```',
+    `- CHIA ĐỦ task như 1 product owner: mục tiêu lớn -> nhiều task nhỏ làm được (dự án lớn 5-15 task), mỗi task 1 việc rõ ràng. Đừng gộp 1 task khổng lồ, cũng đừng vụn vặt.`,
     `- Trả lời tiếng Việt, gọn, xưng "em" gọi "chủ".`,
     ``,
     `HỘI THOẠI:`, transcript, `Lucy:`,
