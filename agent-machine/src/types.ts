@@ -49,7 +49,7 @@ export type Outcome = {
 }
 export type RunResult = { outcome: Outcome; cost: Cost; raw: string }
 
-export type ChannelKind = 'chat' | 'status' | 'report' | 'decision' | 'system'
+export type ChannelKind = 'chat' | 'status' | 'report' | 'decision' | 'system' | 'handoff'
 export type ChannelMsg = {
   ts: number
   channel: string

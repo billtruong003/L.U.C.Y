@@ -187,10 +187,12 @@ export class Engine {
           this.store.putCard(c)
           break
         }
+        const tgt = this.store.personas.get(d.personaId)
         const child = this.createCard(d.title, d.brief, d.pipelineId ?? c.pipelineId, c.id, c.depth + 1)
         c.blockedBy.push(child.id)
         c.status = 'blocked'
-        post(this.store, threadOf(c.id), 'engine', 'system', `↪ delegate → ${child.id} ("${d.title}"); HOLD "${c.title}"`, c.id)
+        // agent↔agent: người đang làm NHỜ persona khác (handoff thật, không phải log)
+        post(this.store, threadOf(c.id), persona.name, 'handoff', `📨 → ${tgt?.name ?? d.personaId}: nhờ xử lý "${d.title}"`, c.id)
         this.store.putCard(c)
         break
       }
@@ -198,6 +200,11 @@ export class Engine {
         c.status = 'failed'
         this.store.putCard(c)
         break
+    }
+
+    // agent↔agent: child xong -> báo NGƯỢC về người nhờ (trong thread của parent)
+    if (c.parentId && c.status === 'done') {
+      post(this.store, threadOf(c.parentId), persona.name, 'handoff', `↩ "${c.title}" xong — trả về`, c.parentId)
     }
   }
 
