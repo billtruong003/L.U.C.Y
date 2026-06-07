@@ -31,25 +31,44 @@ engineer fix xong → RESUME → review (GATE) → Bill duyệt → ship → DON
 **gate (HITL waiting_human + approve)**, **channels** (msg-as-data Bill đọc), **budget guard** (cửa 5h, cap → pause),
 **workspace cô lập** mỗi card, **cap lane**.
 
+## Chạy phân tán (topology thật: coordinator VPS + worker local)
+```bash
+# VPS (nhẹ, always-on) — KHÔNG chạy claude:
+AM_TOKEN=<secret> AM_PORT=8780 AM_DATA=~/.agent-machine npm run coordinator
+
+# Máy LOCAL (mạnh) — chạy claude -p thật, quay ra coordinator:
+AM_COORD_URL=http://<vps-ip>:8780 AM_TOKEN=<secret> AM_RUNNER=claude npm run worker
+```
+Coordinator giữ board/queue/channels (KHÔNG spawn claude). Worker claim job qua HTTP → chạy
+`claude -p` trên máy local → submit kết quả. Máy local tắt → card xếp hàng; bật → worker hút tiếp.
+`AM_RUNNER=mock` (mặc định) để test đường truyền không đốt token. `npm run smoke:remote` kiểm topology.
+
 ## Cấu trúc
 ```
 src/
-├── types.ts      # Card / Stage / Pipeline / Persona / Outcome / ChannelMsg  (config-là-data)
-├── store.ts      # persistence file-based (swap Postgres ở M2.1)
-├── workspace.ts  # dir cô lập / blast-radius (→ git worktree ở M2.1)
-├── budget.ts     # guardrail token theo cửa 5h/tuần
-├── channels.ts   # message bus mỏng
-├── runner.ts     # Runner: MockRunner (free) | ClaudeRunner (claude -p thật) | (remote worker sau)
-├── engine.ts     # vòng auto-process: tick → run stage → áp outcome → gate/delegate
-└── demo.ts       # kịch bản end-to-end
+├── types.ts            # Card / Stage / Pipeline / Persona / Outcome  (config-là-data)
+├── store.ts            # persistence file-based (swap Postgres ở M2.1)
+├── workspace.ts        # dir cô lập / blast-radius (→ git worktree)
+├── budget.ts           # guardrail token: cửa 5h + tuần
+├── channels.ts         # message bus mỏng
+├── config.ts           # nạp personas/pipelines từ config/*.json (cửa extend)
+├── runner.ts           # MockRunner (free) | ClaudeRunner (claude -p) 
+├── engine.ts           # dispatch(tick) → queue → claim/submit; guardrails; DAG
+├── coordinator.ts      # HTTP server (VPS): /tick /worker/claim /worker/result /card /approve /state
+├── worker.ts           # worker dial-out: claim → run → submit
+├── coordinator-main.ts # entry chạy coordinator (VPS)
+├── worker-main.ts      # entry chạy worker (local)
+├── demo.ts             # kịch bản end-to-end (local mode)
+├── smoke.ts            # 13 assertion (local)
+└── smoke-remote.ts     # 7 assertion (coordinator + worker qua HTTP)
 ```
 
 ## Dùng Claude THẬT (đốt token — cẩn thận)
 Đổi `new MockRunner(...)` → `new ClaudeRunner()` trong `demo.ts` (cần `claude` CLI trong PATH).
 ClaudeRunner ép persona kết thúc bằng JSON outcome, parse `total_cost_usd`/`usage` cho ledger.
 
-## Tiếp theo (M2.1)
-- Swap Store → Postgres; queue → pg-boss; lifecycle/pause-resume → DBOS Transact.
-- Runner → **remote worker** (local quay ra VPS coordinator pull card).
-- Workspace → git worktree thật + restricted user + allowlist (FS defense đầy đủ).
-- Wire vào hub UI: tab Board (Kanban) + tab Channels.
+## Trạng thái
+- ✅ Engine queue (dispatch/claim/submit) + 6 guardrail (budget cửa, per-card cap, depth/loop-breaker, gate, workspace cô lập).
+- ✅ Config-là-data (personas/pipelines từ file).
+- ✅ **Coordinator(VPS) ↔ worker(local) dial-out** qua HTTP (token auth) — tested 2 process.
+- ⏳ Tiếp: Postgres + pg-boss + DBOS (durable, deploy VPS) · git worktree thật + restricted user · wire hub UI (Board + Channels tab).

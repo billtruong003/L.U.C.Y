@@ -1,24 +1,30 @@
-// Engine — vòng auto-process: card -> stage -> runner -> outcome -> advance/gate/delegate.
-// Guardrails: budget pause, cap lane, gate (HITL), workspace cô lập, blockedBy (DAG hold/resume).
+// Engine — vòng auto-process tách RÕ: dispatch (tick) -> queue -> worker claim/run/submit.
+// Local mode: worker in-process (drainLocal). Remote mode: worker quay ra qua coordinator (HTTP).
+// Guardrails: budget pause, cap lane, gate (HITL), per-card cost cap, depth-breaker, loop-breaker, workspace cô lập.
 import { Store } from './store'
 import { Budget } from './budget'
 import { makeWorkspace } from './workspace'
 import { post, threadOf } from './channels'
 import type { Runner } from './runner'
-import type { Card } from './types'
+import type { Card, Stage, Persona, RunResult } from './types'
 
 let _n = 0
 const uid = (p: string) => `${p}_${Date.now().toString(36)}${(_n++).toString(36)}`
 
+export type JobSpec = { jobId: string; cardId: string; card: Card; stage: Stage; persona: Persona }
+
 export class Engine {
   store: Store
-  runner: Runner
+  runner: Runner // worker in-process (local mode); remote thì worker bên ngoài claim/submit
   budget: Budget
   maxLanes: number
-  perCardMaxUsd: number // guardrail: 1 card không được đốt quá ngần này
-  maxStageVisits: number // loop-breaker: 1 stage vào quá ngần này lần -> halt
-  maxDepth: number // depth-breaker: delegate sâu quá -> halt (chống delegate vô hạn)
+  perCardMaxUsd: number
+  maxStageVisits: number
+  maxDepth: number
   paused = false
+
+  private pending: { id: string; cardId: string }[] = []
+  private inFlight = new Map<string, string>() // jobId -> cardId
 
   constructor(store: Store, runner: Runner, budget: Budget, opts: { maxLanes?: number; perCardMaxUsd?: number; maxStageVisits?: number; maxDepth?: number } = {}) {
     this.store = store
@@ -43,7 +49,6 @@ export class Engine {
     return card
   }
 
-  // người DUYỆT 1 card đang chờ (dashboard/Telegram gọi vào đây)
   approve(cardId: string) {
     const c = this.store.getCard(cardId)
     if (!c || c.status !== 'waiting_human') return
@@ -66,12 +71,10 @@ export class Engine {
     this.store.putCard(c)
   }
 
-  private working(): number {
-    return this.store.listCards().filter((c) => c.status === 'working').length
-  }
+  private working(): number { return this.inFlight.size }
 
-  // 1 tick: chạy các card actionable (tôn trọng budget + cap lane). Trả số card đã xử lý.
-  async tick(): Promise<number> {
+  // ── DISPATCH: tìm card actionable -> đẩy vào queue (mark working). KHÔNG chạy ở đây. ──
+  tick(): number {
     const b = this.budget.check()
     if (!b.ok) {
       if (!this.paused) { this.paused = true; post(this.store, 'coordination', 'engine', 'system', `⛔ ${b.reason}`) }
@@ -84,41 +87,61 @@ export class Engine {
     for (const c of this.store.listCards()) {
       if (this.working() >= this.maxLanes) break
       if (c.status !== 'queued' || c.blockedBy.length) continue
-      await this.runStage(c)
+
+      const pipe = this.store.pipelines.get(c.pipelineId)!
+      const stage = pipe.stages[c.stageIndex]
+      // guardrail: loop-breaker
+      c.stageVisits = c.stageVisits || {}
+      c.stageVisits[stage.id] = (c.stageVisits[stage.id] || 0) + 1
+      if (c.stageVisits[stage.id] > this.maxStageVisits) {
+        c.status = 'failed'
+        post(this.store, threadOf(c.id), 'engine', 'system', `⛔ loop-breaker: stage "${stage.name}" chạy quá ${this.maxStageVisits} lần → HALT`, c.id)
+        this.store.putCard(c)
+        continue
+      }
+      const persona = this.store.personas.get(stage.personaId)!
+      c.status = 'working'
+      this.store.putCard(c)
+      const jobId = uid('job')
+      this.pending.push({ id: jobId, cardId: c.id })
+      this.inFlight.set(jobId, c.id)
+      post(this.store, threadOf(c.id), persona.name, 'status', `▶ ${persona.name} nhận "${stage.name}"`, c.id)
       did++
     }
     this.resolveUnblocks()
     return did
   }
 
-  private async runStage(c: Card) {
+  // ── WORKER claim: lấy 1 job để chạy (in-process hoặc remote qua HTTP) ──
+  claim(): JobSpec | null {
+    const j = this.pending.shift()
+    if (!j) return null
+    const c = this.store.getCard(j.cardId)
+    if (!c) { this.inFlight.delete(j.id); return null }
+    const pipe = this.store.pipelines.get(c.pipelineId)!
+    const stage = pipe.stages[c.stageIndex]
+    const persona = this.store.personas.get(stage.personaId)!
+    return { jobId: j.id, cardId: c.id, card: c, stage, persona }
+  }
+
+  // ── WORKER submit: trả kết quả -> áp outcome ──
+  submit(jobId: string, result: RunResult): void {
+    const cardId = this.inFlight.get(jobId)
+    if (!cardId) return
+    this.inFlight.delete(jobId)
+    const c = this.store.getCard(cardId)
+    if (!c) return
     const pipe = this.store.pipelines.get(c.pipelineId)!
     const stage = pipe.stages[c.stageIndex]
     const persona = this.store.personas.get(stage.personaId)!
 
-    // guardrail: loop-breaker — stage vào quá nhiều lần -> halt
-    c.stageVisits = c.stageVisits || {}
-    c.stageVisits[stage.id] = (c.stageVisits[stage.id] || 0) + 1
-    if (c.stageVisits[stage.id] > this.maxStageVisits) {
-      c.status = 'failed'
-      post(this.store, threadOf(c.id), 'engine', 'system', `⛔ loop-breaker: stage "${stage.name}" chạy quá ${this.maxStageVisits} lần → HALT`, c.id)
-      this.store.putCard(c)
-      return
-    }
+    c.cost.usd += result.cost.usd; c.cost.inTok += result.cost.inTok; c.cost.outTok += result.cost.outTok
+    this.budget.add(result.cost)
+    this.store.appendLedger({ ts: Date.now(), cardId: c.id, stage: stage.id, persona: persona.id, ...result.cost })
+    post(this.store, threadOf(c.id), persona.name, 'status', result.outcome.summary, c.id)
+    c.history.push({ ts: Date.now(), stage: stage.id, event: result.outcome.decision, detail: result.outcome.summary })
 
-    c.status = 'working'
-    this.store.putCard(c)
-    post(this.store, threadOf(c.id), persona.name, 'status', `▶ ${persona.name} bắt đầu "${stage.name}"`, c.id)
-
-    const res = await this.runner.run(c, stage, persona, c.workspace)
-
-    c.cost.usd += res.cost.usd; c.cost.inTok += res.cost.inTok; c.cost.outTok += res.cost.outTok
-    this.budget.add(res.cost)
-    this.store.appendLedger({ ts: Date.now(), cardId: c.id, stage: stage.id, persona: persona.id, ...res.cost })
-    post(this.store, threadOf(c.id), persona.name, 'status', res.outcome.summary, c.id)
-    c.history.push({ ts: Date.now(), stage: stage.id, event: res.outcome.decision, detail: res.outcome.summary })
-
-    // guardrail: per-card cost cap -> chặn lại hỏi người
+    // guardrail: per-card cost cap
     if (c.cost.usd >= this.perCardMaxUsd) {
       c.status = 'waiting_human'
       c.pendingQuestion = `Card vượt cap chi phí $${this.perCardMaxUsd.toFixed(2)} (đã $${c.cost.usd.toFixed(3)}) — duyệt để chạy tiếp?`
@@ -127,7 +150,7 @@ export class Engine {
       return
     }
 
-    switch (res.outcome.decision) {
+    switch (result.outcome.decision) {
       case 'advance':
         if (stage.gate) {
           c.status = 'waiting_human'
@@ -143,12 +166,12 @@ export class Engine {
         break
       case 'needs_decision':
         c.status = 'waiting_human'
-        c.pendingQuestion = res.outcome.question ?? res.outcome.summary
+        c.pendingQuestion = result.outcome.question ?? result.outcome.summary
         post(this.store, threadOf(c.id), 'engine', 'decision', `⛔ CẦN QUYẾT ĐỊNH: ${c.pendingQuestion}`, c.id)
         this.store.putCard(c)
         break
       case 'delegate': {
-        const d = res.outcome.delegateTo!
+        const d = result.outcome.delegateTo!
         if (c.depth >= this.maxDepth) {
           c.status = 'failed'
           post(this.store, threadOf(c.id), 'engine', 'system', `⛔ depth-breaker: delegate quá sâu (depth ${c.depth} ≥ ${this.maxDepth}) → HALT`, c.id)
@@ -169,7 +192,7 @@ export class Engine {
     }
   }
 
-  // child xong -> parent qua stage tiếp (việc của stage này coi như đã xử lý bởi child)
+  // child xong -> parent qua stage tiếp
   private resolveUnblocks() {
     for (const c of this.store.listCards()) {
       if (c.status !== 'blocked' || !c.blockedBy.length) continue
@@ -185,11 +208,28 @@ export class Engine {
     }
   }
 
-  // chạy tới khi không còn việc TỰ ĐỘNG (dừng ở waiting_human/done) — helper skeleton
-  async runUntilIdle(maxTicks = 100): Promise<void> {
-    for (let i = 0; i < maxTicks; i++) {
-      const did = await this.tick()
-      if (!did) break
+  // ── LOCAL worker in-process: claim+run+submit hết queue ──
+  async drainLocal(): Promise<number> {
+    let n = 0
+    let spec = this.claim()
+    while (spec) {
+      const res = await this.runner.run(spec.card, spec.stage, spec.persona, spec.card.workspace)
+      this.submit(spec.jobId, res)
+      n++
+      spec = this.claim()
+    }
+    return n
+  }
+
+  // chạy tới khi không còn việc TỰ ĐỘNG (local mode) — helper demo/test.
+  // (resolveUnblocks chạy cuối tick có thể queue card mới -> phải xét 'còn queued' để không thoát sớm)
+  async runUntilIdle(maxRounds = 300): Promise<void> {
+    for (let i = 0; i < maxRounds; i++) {
+      const d = this.tick()
+      if (this.paused) break
+      const r = await this.drainLocal()
+      const moreQueued = this.store.listCards().some((c) => c.status === 'queued')
+      if (!d && !r && !moreQueued && !this.pending.length && !this.inFlight.size) break
     }
   }
 }

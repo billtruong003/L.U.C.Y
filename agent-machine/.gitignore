@@ -1,4 +1,5 @@
 node_modules/
-.data-demo/
-.smoke/
+.data*/
+.smoke*/
+.worker/
 *.log

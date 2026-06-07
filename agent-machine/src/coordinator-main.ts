@@ -1,0 +1,35 @@
+// Coordinator entry — CHẠY TRÊN VPS (nhẹ, always-on). KHÔNG chạy claude -p.
+// Worker (máy local) quay ra nối vào đây. Env cấu hình; pm2 giữ sống.
+import path from 'node:path'
+import { Store } from './store'
+import { Budget } from './budget'
+import { Engine } from './engine'
+import { MockRunner } from './runner'
+import { loadConfig } from './config'
+import { startCoordinator } from './coordinator'
+
+const PORT = Number(process.env.AM_PORT || 8780)
+const TOKEN = process.env.AM_TOKEN || ''
+const DATA = process.env.AM_DATA || path.join(process.cwd(), '.data')
+const CONFIG = process.env.AM_CONFIG || path.join(process.cwd(), 'config')
+
+const store = new Store(DATA)
+const loaded = loadConfig(store, CONFIG)
+
+// coordinator KHÔNG chạy claude -> runner chỉ là placeholder (worker remote mới chạy thật)
+const engine = new Engine(store, new MockRunner({}), new Budget({
+  windowMs: Number(process.env.AM_WINDOW_MS || 5 * 3600e3),
+  capUsd: Number(process.env.AM_CAP_USD || 20),
+  softUsd: Number(process.env.AM_SOFT_USD || 14),
+  weeklyMs: 7 * 24 * 3600e3,
+  weeklyCapUsd: Number(process.env.AM_WEEKLY_CAP_USD || 120),
+}), {
+  maxLanes: Number(process.env.AM_MAX_LANES || 3),
+  perCardMaxUsd: Number(process.env.AM_PER_CARD_USD || 5),
+})
+
+if (!TOKEN) console.warn('⚠ AM_TOKEN trống — endpoint /worker KHÔNG có auth. Đặt AM_TOKEN cho production.')
+const co = startCoordinator(engine, store, PORT, { token: TOKEN || undefined, autoTickMs: Number(process.env.AM_TICK_MS || 800) })
+console.log(`🧠 Lucy Agent-Machine coordinator: http://127.0.0.1:${PORT}  (personas ${loaded.personas}, pipelines ${loaded.pipelines}, data ${DATA})`)
+process.on('SIGINT', () => { co.stop(); process.exit(0) })
+process.on('SIGTERM', () => { co.stop(); process.exit(0) })
