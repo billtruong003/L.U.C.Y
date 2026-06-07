@@ -65,6 +65,12 @@ export async function amCreateProject(name: string, repoUrl?: string, branch?: s
 export async function amRemoveProject(projectId: string) {
   await fetch('/api/am/project/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId }) })
 }
+export async function amAddChannel(projectId: string, name: string) {
+  await fetch('/api/am/project/channel', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId, name }) })
+}
+export async function amPostChannel(projectId: string, channel: string, text: string, mention?: string) {
+  await fetch('/api/am/channel/post', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId, channel, text, mention }) })
+}
 export async function amConfig(): Promise<{ configured: boolean; offline?: boolean; maxLanes?: number; perCardMaxUsd?: number; queued?: number; inFlight?: number }> {
   const r = await fetch('/api/am/config'); return r.json()
 }

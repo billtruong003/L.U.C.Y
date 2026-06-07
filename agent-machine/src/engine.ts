@@ -73,6 +73,24 @@ export class Engine {
     if (this.store.listCards().some((c) => (c.projectId || 'default') === id)) return false
     return this.store.deleteProject(id)
   }
+
+  // ── KÊNH Discord-style per-project (R4) — channel id = `p:<projectId>:<name>` ──
+  addChannel(projectId: string, name: string): boolean {
+    const p = this.store.getProject(projectId); if (!p) return false
+    const n = (name || '').trim().replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase(); if (!n) return false
+    if (!p.channels.includes(n)) { p.channels.push(n); this.store.putProject(p); post(this.store, `p:${projectId}:general`, 'engine', 'system', `# tạo kênh "${n}"`) }
+    return true
+  }
+  removeChannel(projectId: string, name: string): boolean {
+    const p = this.store.getProject(projectId); if (!p || name === 'general') return false
+    p.channels = p.channels.filter((c) => c !== name); this.store.putProject(p); return true
+  }
+  // người (Bill) gõ vào kênh — có thể @tag 1 agent để điều hướng. channel = tên kênh dự án HOẶC card-<id> (rep trong thread task)
+  postHuman(projectId: string, channel: string, text: string, mention?: string) {
+    if (!(text || '').trim()) return
+    const ch = (channel || '').startsWith('card-') ? channel : `p:${projectId}:${channel || 'general'}`
+    post(this.store, ch, 'bill', 'chat', (mention ? `@${mention} ` : '') + text.trim())
+  }
   // backfill: mọi projectId trên card phải có Project entity (migration cho card cũ)
   private backfillProjects() {
     const have = new Set(this.store.listProjects().map((p) => p.id))

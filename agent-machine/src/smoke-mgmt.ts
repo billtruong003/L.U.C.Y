@@ -87,6 +87,17 @@ async function main() {
   check('claim gắn repo.url khi project có repoUrl', rs?.repo?.url === 'https://github.com/x/y', `(got ${rs?.repo?.url})`)
   check('claim gắn repo.branch', rs?.repo?.branch === 'dev', `(got ${rs?.repo?.branch})`)
 
+  // ── R4: kênh Discord-style + human post ──
+  engine.createProject('ChanProj')
+  check('project mặc định có kênh "general"', store.getProject('ChanProj')!.channels.includes('general'))
+  check('addChannel + sanitize "Testing!!" -> "testing"', engine.addChannel('ChanProj', 'Testing!!') === true && store.getProject('ChanProj')!.channels.includes('testing'))
+  engine.postHuman('ChanProj', 'general', 'hello team')
+  check('postHuman vào kênh dự án', store.readChannel('p:ChanProj:general').some((m) => m.text === 'hello team' && m.author === 'bill'))
+  engine.postHuman('ChanProj', 'card-xyz', 'rep task con')
+  check('postHuman vào card-thread (rep AI)', store.readChannel('card-xyz').some((m) => m.text === 'rep task con'))
+  check('removeChannel "general" bị chặn', engine.removeChannel('ChanProj', 'general') === false)
+  check('removeChannel "testing" OK', engine.removeChannel('ChanProj', 'testing') === true)
+
   clean(dir)
   console.log(`\n${fail === 0 ? '✅ ALL PASS' : '❌ FAIL'} — ${pass} pass, ${fail} fail`)
   process.exit(fail === 0 ? 0 : 1)
