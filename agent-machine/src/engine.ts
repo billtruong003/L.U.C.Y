@@ -21,12 +21,13 @@ export class Engine {
   perCardMaxUsd: number
   maxStageVisits: number
   maxDepth: number
+  leaseMs: number
   paused = false
 
   private pending: { id: string; cardId: string }[] = []
   private inFlight = new Map<string, string>() // jobId -> cardId
 
-  constructor(store: Store, runner: Runner, budget: Budget, opts: { maxLanes?: number; perCardMaxUsd?: number; maxStageVisits?: number; maxDepth?: number } = {}) {
+  constructor(store: Store, runner: Runner, budget: Budget, opts: { maxLanes?: number; perCardMaxUsd?: number; maxStageVisits?: number; maxDepth?: number; leaseMs?: number } = {}) {
     this.store = store
     this.runner = runner
     this.budget = budget
@@ -34,6 +35,7 @@ export class Engine {
     this.perCardMaxUsd = opts.perCardMaxUsd ?? Infinity
     this.maxStageVisits = opts.maxStageVisits ?? 5
     this.maxDepth = opts.maxDepth ?? 6
+    this.leaseMs = opts.leaseMs ?? 20 * 60e3 // card 'working' quá 20' -> coi như treo, đưa lại hàng
   }
 
   createCard(title: string, brief: string, pipelineId: string, parentId?: string, depth = 0, projectId = 'default', deferred = false, modelOverride?: 'sonnet' | 'opus'): Card {
@@ -246,6 +248,17 @@ export class Engine {
     }
     if (b.soft && !this.budget.warned) { this.budget.warned = true; post(this.store, 'coordination', 'engine', 'system', `⚠ budget mềm: đã dùng $${b.used.toFixed(4)} trong cửa`) }
     this.paused = false
+
+    // lease: card 'working' quá lâu (worker chết / mất kết quả / "chập") -> dọn job + đưa lại hàng
+    for (const c of this.store.listCards()) {
+      if (c.status !== 'working' || Date.now() - c.updatedAt <= this.leaseMs) continue
+      for (const [jid, cid] of [...this.inFlight]) if (cid === c.id) this.inFlight.delete(jid)
+      this.pending = this.pending.filter((j) => j.cardId !== c.id)
+      c.status = 'queued'
+      c.history.push({ ts: Date.now(), stage: '-', event: 'lease-requeue' })
+      post(this.store, threadOf(c.id), 'engine', 'system', `♻ card treo >${Math.round(this.leaseMs / 60e3)}' → đưa lại hàng (worker có thể đã chết)`, c.id)
+      this.store.putCard(c)
+    }
 
     let did = 0
     for (const c of this.store.listCards()) {

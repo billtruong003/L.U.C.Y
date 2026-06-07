@@ -124,6 +124,18 @@ async function main() {
   check('upsertPipeline bỏ stage persona không tồn tại -> null', engine.upsertPipeline({ name: 'Bad', stages: [{ name: 'x', personaId: 'nope' }] }) === null)
   check('deletePipeline xoá flow tự tạo', engine.deletePipeline('my-flow') === true && store.pipelines.get('my-flow') === undefined)
 
+  // ── O2: lease — card 'working' treo quá lâu -> đưa lại hàng ──
+  const ls = path.join(process.cwd(), '.smoke-lease'); clean(ls)
+  const lstore = new Store(ls)
+  lstore.registerPersona({ id: 'eng', name: 'E', systemPrompt: 'x', model: 'sonnet' })
+  lstore.registerPipeline({ id: 'one', name: 'One', stages: [{ id: 'fix', name: 'F', personaId: 'eng' }] })
+  const leng = new Engine(lstore, new MockRunner({}), new Budget({ windowMs: 5 * 3600e3, capUsd: 99 }), { maxLanes: 0, leaseMs: 5 })
+  const lc = leng.createCard('stuck', 'b', 'one')
+  const cc = lstore.getCard(lc.id)!; cc.status = 'working'; cc.updatedAt = Date.now() - 1000 // ép treo (không putCard để giữ updatedAt cũ)
+  leng.tick()
+  check('lease: card treo -> đưa lại hàng (queued)', lstore.getCard(lc.id)!.status === 'queued', `(got ${lstore.getCard(lc.id)!.status})`)
+  clean(ls)
+
   clean(dir)
   console.log(`\n${fail === 0 ? '✅ ALL PASS' : '❌ FAIL'} — ${pass} pass, ${fail} fail`)
   process.exit(fail === 0 ? 0 : 1)

@@ -27,6 +27,7 @@ const engine = new Engine(store, new MockRunner({}), new Budget({
 }), {
   maxLanes: Number(process.env.AM_MAX_LANES || 3),
   perCardMaxUsd: Number(process.env.AM_PER_CARD_USD || 5),
+  leaseMs: Number(process.env.AM_LEASE_MS || 20 * 60e3),
 })
 
 if (!TOKEN) console.warn('⚠ AM_TOKEN trống — endpoint /worker KHÔNG có auth. Đặt AM_TOKEN cho production.')
