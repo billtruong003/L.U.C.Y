@@ -53,6 +53,8 @@ src/
 ├── channels.ts         # message bus mỏng
 ├── config.ts           # nạp personas/pipelines từ config/*.json (cửa extend)
 ├── runner.ts           # MockRunner (free) | ClaudeRunner (claude -p) 
+├── guard.ts            # FS defense: isWithin/isProtected/looksDangerous
+├── worktree.ts         # git worktree blast-radius (xoá bậy chỉ chết worktree)
 ├── engine.ts           # dispatch(tick) → queue → claim/submit; guardrails; DAG
 ├── coordinator.ts      # HTTP server (VPS): /tick /worker/claim /worker/result /card /approve /state
 ├── worker.ts           # worker dial-out: claim → run → submit
