@@ -179,17 +179,13 @@ export class Engine {
 
     switch (result.outcome.decision) {
       case 'advance':
+      case 'done': // 'done' = agent xong việc của STAGE này -> advanceCard (tự kết thúc card nếu là stage CUỐI); tôn trọng gate
         if (stage.gate) {
           c.status = 'waiting_human'
           c.pendingQuestion = `Duyệt qua "${stage.name}"?`
           post(this.store, threadOf(c.id), 'engine', 'decision', `⛔ GATE: ${c.pendingQuestion} (cần bạn duyệt)`, c.id)
           this.store.putCard(c)
         } else this.advanceCard(c)
-        break
-      case 'done':
-        c.status = 'done'
-        post(this.store, threadOf(c.id), 'engine', 'report', `🏁 "${c.title}" DONE`, c.id)
-        this.store.putCard(c)
         break
       case 'needs_decision':
         c.status = 'waiting_human'

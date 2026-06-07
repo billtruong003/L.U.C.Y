@@ -18,7 +18,7 @@ export async function workerStep(coordUrl: string, runner: Runner, opts: { token
   if (!job) return false
 
   const root = opts.localRoot || path.join(process.cwd(), '.worker')
-  const ws = path.join(root, job.jobId)
+  const ws = path.join(root, job.cardId || job.jobId) // theo CARD -> các stage cùng card chia sẻ file
   fs.mkdirSync(ws, { recursive: true })
 
   let result: RunResult

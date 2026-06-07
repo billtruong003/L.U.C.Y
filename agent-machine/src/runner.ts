@@ -27,10 +27,13 @@ export class MockRunner implements Runner {
 const OUTCOME_CONTRACT = `
 
 ---
-KHI XONG STAGE: kết thúc câu trả lời bằng ĐÚNG MỘT khối JSON (không thêm chữ sau nó):
+QUY TẮC KẾT THÚC (BẮT BUỘC): bạn chỉ đang làm 1 BƯỚC trong quy trình nhiều bước. Làm xong phần việc của
+BƯỚC HIỆN TẠI thì kết thúc câu trả lời bằng ĐÚNG MỘT khối JSON (không thêm chữ nào sau nó):
 \`\`\`json
-{"decision":"advance|done|needs_decision|delegate|fail","summary":"tóm tắt 1 câu","question":"(chỉ khi needs_decision)"}
-\`\`\``
+{"decision":"advance|needs_decision|delegate|fail","summary":"tóm tắt 1 câu","question":"(chỉ khi needs_decision)"}
+\`\`\`
+- "advance" = xong việc bước này, CHUYỂN sang bước kế (DÙNG mặc định khi hoàn thành tốt — KHÔNG tự kết thúc cả quy trình).
+- "needs_decision" = cần người quyết · "delegate" = nhờ persona khác · "fail" = thất bại.`
 
 export class ClaudeRunner implements Runner {
   bin: string
