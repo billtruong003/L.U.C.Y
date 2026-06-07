@@ -7,7 +7,7 @@ import Channels from './Channels'
 import LucyChat from './LucyChat'
 import FlowEditor from './FlowEditor'
 
-export default function ProjectsView() {
+export default function ProjectsView({ openProjectId, onOpenProjectChange }: { openProjectId?: string | null; onOpenProjectChange?: (id: string | null) => void }) {
   const [projects, setProjects] = useState<AmProject[]>([])
   const [cards, setCards] = useState<AmCard[]>([])
   const [pipes, setPipes] = useState<AmPipeline[]>([])
@@ -16,13 +16,16 @@ export default function ProjectsView() {
   const [active, setActive] = useState<string | null>(null)
   const [tab, setTab] = useState<'kanban' | 'lucy' | 'channels' | 'flow'>('kanban')
   const [configured, setConfigured] = useState(true)
-  const [nf, setNf] = useState({ open: false, name: '', repoUrl: '', skill: '' })
+  const [nf, setNf] = useState({ open: false, name: '', repoUrl: '', desc: '', skill: '' })
   const [showTrash, setShowTrash] = useState(false)
 
   const pull = async () => {
     try { const s = await amState(); setConfigured(s.configured !== false); setProjects(s.projects || []); setCards(s.cards || []); setPipes(s.pipelines || []); setPersonas(s.personas || []); setChannels(s.channels || []) } catch { /* */ }
   }
   useEffect(() => { pull(); const iv = setInterval(pull, 3000); return () => clearInterval(iv) }, [])
+
+  // sync sidebar project selection → open that project
+  useEffect(() => { if (openProjectId) setActive(openProjectId) }, [openProjectId])
 
   // dashboard per-project: đếm status + kinh phí + số agent tham gia
   const stats = useMemo(() => {
@@ -37,7 +40,7 @@ export default function ProjectsView() {
   const active_ = projects.filter((p) => !p.trashed)
   const trashed = projects.filter((p) => p.trashed)
 
-  const createProject = async () => { if (!nf.name.trim()) return; await amCreateProject(nf.name.trim(), { repoUrl: nf.repoUrl.trim() || undefined, skill: nf.skill.trim() || undefined }); setNf({ open: false, name: '', repoUrl: '', skill: '' }); pull() }
+  const createProject = async () => { if (!nf.name.trim()) return; await amCreateProject(nf.name.trim(), { repoUrl: nf.repoUrl.trim() || undefined, description: nf.desc.trim() || undefined, skill: nf.skill.trim() || undefined }); setNf({ open: false, name: '', repoUrl: '', desc: '', skill: '' }); pull() }
   const trashProject = async (id: string) => { await amTrashProject(id); pull() }
   const restoreProject = async (id: string) => { await amRestoreProject(id); pull() }
   const purgeProject = async (id: string) => { await amPurgeProject(id); pull() }
@@ -53,7 +56,7 @@ export default function ProjectsView() {
       <div className="h-full flex flex-col overflow-hidden">
         <div className="shrink-0 border-b border-line bg-panel/30">
           <div className="h-13 flex items-center gap-3 px-4 py-2">
-            <button className="btn btn-icon !w-8 !h-8 shrink-0" title="về danh sách dự án" onClick={() => setActive(null)}>←</button>
+            <button className="btn btn-icon !w-8 !h-8 shrink-0" title="về danh sách dự án" onClick={() => { setActive(null); onOpenProjectChange?.(null) }}>←</button>
             <span className="text-lg shrink-0">📁</span>
             <div className="min-w-0">
               <div className="text-[14px] font-semibold text-ink truncate leading-tight">{proj.name}</div>
@@ -63,11 +66,12 @@ export default function ProjectsView() {
               {TABS.map((t) => (
                 <button key={t.k} onClick={() => setTab(t.k)} className={'btn !py-1.5 !text-[12px] ' + (tab === t.k ? 'btn-primary' : '')}>{t.label}</button>
               ))}
-              <button className="btn btn-icon !w-8 !h-8" title="ném dự án vào thùng rác" onClick={() => { trashProject(proj.id); setActive(null) }}>🗑</button>
+              <button className="btn btn-icon !w-8 !h-8" title="ném dự án vào thùng rác" onClick={() => { trashProject(proj.id); setActive(null); onOpenProjectChange?.(null) }}>🗑</button>
             </div>
           </div>
-          {/* dashboard strip: kinh phí + agent + task */}
+          {/* dashboard strip: mô tả + kinh phí + agent + task */}
           <div className="px-4 pb-2 flex items-center gap-1.5 flex-wrap">
+            {proj.description && <span className="text-[11px] text-inkdim truncate max-w-[45%] mr-1" title={proj.description}>{proj.description}</span>}
             <Stat v={s?.total || 0} label="task" />
             {s?.byStatus.working ? <Stat v={s.byStatus.working} label="chạy" color="#3fd3ff" /> : null}
             {s?.byStatus.waiting_human ? <Stat v={s.byStatus.waiting_human} label="cần duyệt" color="#ff5d9e" /> : null}
@@ -119,6 +123,7 @@ export default function ProjectsView() {
             <input className="input flex-1" placeholder="Repo URL (tuỳ chọn — agent sẽ CLONE & sửa repo thật)" value={nf.repoUrl} onChange={(e) => setNf({ ...nf, repoUrl: e.target.value })} />
             <button className="btn btn-primary shrink-0" onClick={createProject}>Tạo</button>
           </div>
+          <input className="input w-full" placeholder="Mô tả / mục tiêu dự án (tuỳ chọn)" value={nf.desc} onChange={(e) => setNf({ ...nf, desc: e.target.value })} />
           <textarea className="input w-full !h-auto text-[12px]" rows={3} placeholder="SKILL dự án (tuỳ chọn) — dán nguyên SKILL.md domain (vd Unity/Colyseus) để MỌI agent dự án này thành chuyên gia…" value={nf.skill} onChange={(e) => setNf({ ...nf, skill: e.target.value })} />
         </div>
       )}
@@ -134,6 +139,7 @@ export default function ProjectsView() {
                 <button className="text-inkfaint hover:text-pink text-[13px] ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition" title="ném vào thùng rác" onClick={(e) => { e.stopPropagation(); trashProject(p.id) }}>🗑</button>
               </div>
               {p.repoUrl && <div className="text-[10px] text-inkfaint truncate mt-1">{p.repoUrl}</div>}
+              {p.description && <div className="text-[11px] text-inkdim mt-1.5" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.description}</div>}
               <div className="flex items-center gap-1.5 mt-3 flex-wrap">
                 <Stat v={s?.total || 0} label="task" />
                 {s?.byStatus.working ? <Stat v={s.byStatus.working} label="chạy" color="#3fd3ff" /> : null}

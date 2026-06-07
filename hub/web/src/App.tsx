@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Login from './components/Login'
 import Chat from './components/Chat'
 import Tasks from './components/Tasks'
@@ -9,7 +9,7 @@ import BrainViz from './components/BrainViz'
 import Aki from './components/Aki'
 import Logs from './components/Logs'
 import Settings from './components/Settings'
-import { me } from './api'
+import { me, amState, amTrashProject, amCreateProject, type AmProject } from './api'
 
 const TABS = [
   { id: 'chat', label: 'Chat', icon: '💬', sub: 'Trò chuyện & ra lệnh' },
@@ -27,13 +27,53 @@ export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null)
   const [tab, setTab] = useState('workspace')
   const [open, setOpen] = useState(false)   // sidebar drawer (mobile)
+
+  // project list for sidebar "note list"
+  const [projects, setProjects] = useState<AmProject[]>([])
+  const [openProjectId, setOpenProjectId] = useState<string | null>(null)
+  const [newProjName, setNewProjName] = useState('')
+  const [showNewProj, setShowNewProj] = useState(false)
+  const newProjRef = useRef<HTMLInputElement>(null)
+
   useEffect(() => { me().then((d) => setAuthed(d.authed)).catch(() => setAuthed(false)) }, [])
+
+  useEffect(() => {
+    const fetchProjects = () =>
+      amState().then((s) => setProjects((s.projects || []).filter((p) => !p.trashed))).catch(() => { /* */ })
+    fetchProjects()
+    const iv = setInterval(fetchProjects, 5000)
+    return () => clearInterval(iv)
+  }, [])
+
+  useEffect(() => {
+    if (showNewProj) setTimeout(() => newProjRef.current?.focus(), 50)
+  }, [showNewProj])
 
   if (authed === null) return <div className="h-[100dvh] grid place-items-center text-cyan mono bg-bg">…</div>
   if (!authed) return <Login onOk={() => setAuthed(true)} />
 
   const cur = TABS.find((t) => t.id === tab)!
   const pick = (id: string) => { setTab(id); setOpen(false) }
+
+  const pickProject = (id: string) => {
+    setOpenProjectId(id)
+    setTab('workspace')
+    setOpen(false)
+  }
+
+  const createProject = async () => {
+    if (!newProjName.trim()) return
+    await amCreateProject(newProjName.trim())
+    setNewProjName('')
+    setShowNewProj(false)
+    amState().then((s) => setProjects((s.projects || []).filter((p) => !p.trashed))).catch(() => { /* */ })
+  }
+
+  const trashProject = async (id: string) => {
+    await amTrashProject(id)
+    setProjects((prev) => prev.filter((p) => p.id !== id))
+    if (openProjectId === id) setOpenProjectId(null)
+  }
 
   return (
     <div className="h-[100dvh] flex bg-bg text-ink overflow-hidden">
@@ -43,33 +83,100 @@ export default function App() {
       {/* SIDEBAR */}
       <nav className={'fixed md:static z-40 inset-y-0 left-0 w-60 shrink-0 flex flex-col border-r border-line bg-panel md:bg-panel/60 backdrop-blur transition-transform duration-200 ' +
         (open ? 'translate-x-0' : '-translate-x-full md:translate-x-0')}>
-        <div className="px-5 pt-6 pb-5 border-b border-line">
-          <div className="flex items-center gap-2.5">
-            <img src="/lucy.jpg" alt="Lucy" className="h-9 w-9 rounded-full object-cover shrink-0" style={{ border: '1px solid rgba(63,211,255,0.5)', boxShadow: '0 0 12px rgba(63,211,255,.45)' }} />
-            <div>
-              <div className="display text-cyan text-lg tracking-[0.32em] leading-none" style={{ textShadow: '0 0 12px rgba(63,211,255,.45)' }}>LUCY</div>
-              <div className="text-[10px] text-inkfaint mt-1 tracking-wide">personal AI hub</div>
-            </div>
+
+        {/* header */}
+        <div className="px-5 pt-5 pb-4 border-b border-line flex items-center gap-2.5">
+          <img src="/lucy.jpg" alt="Lucy" className="h-9 w-9 rounded-full object-cover shrink-0" style={{ border: '1px solid rgba(63,211,255,0.5)', boxShadow: '0 0 12px rgba(63,211,255,.45)' }} />
+          <div className="flex-1 min-w-0">
+            <div className="display text-cyan text-lg tracking-[0.32em] leading-none" style={{ textShadow: '0 0 12px rgba(63,211,255,.45)' }}>LUCY</div>
+            <div className="text-[10px] text-inkfaint mt-1 tracking-wide">personal AI hub</div>
           </div>
+          {/* close button — mobile only */}
+          <button onClick={() => setOpen(false)} className="md:hidden text-inkfaint hover:text-ink transition text-lg leading-none px-1" aria-label="Đóng sidebar">✕</button>
         </div>
-        <div className="flex-1 p-3 flex flex-col gap-1.5 overflow-auto">
+
+        {/* nav items */}
+        <div className="p-3 flex flex-col gap-0.5">
           {TABS.map((t) => {
             const on = tab === t.id
             return (
               <button key={t.id} onClick={() => pick(t.id)}
-                className={'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all ' +
-                  (on ? 'bg-cyan/10 text-ink' : 'text-inkdim hover:text-ink hover:bg-white/[0.03]')}>
-                {on && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-[3px] rounded-r bg-cyan" style={{ boxShadow: '0 0 10px rgba(63,211,255,.8)' }} />}
+                className={'group relative flex items-center gap-3 rounded-xl px-3 py-2 text-left transition-all ' +
+                  (on ? 'bg-cyan/10 text-ink' : 'text-inkdim hover:text-ink hover:bg-white/[0.05]')}>
+                {on && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r bg-cyan" style={{ boxShadow: '0 0 10px rgba(63,211,255,.8)' }} />}
                 <span className={'text-base transition-transform ' + (on ? 'scale-110' : 'opacity-70 group-hover:opacity-100')}>{t.icon}</span>
-                <span className="flex-1">
-                  <span className={'block text-sm font-semibold ' + (on ? 'text-cyan' : '')}>{t.label}</span>
-                  <span className="block text-[10px] text-inkfaint">{t.sub}</span>
+                <span className="flex-1 min-w-0">
+                  <span className={'block text-[13px] font-semibold truncate ' + (on ? 'text-cyan' : '')}>{t.label}</span>
+                  <span className="block text-[10px] text-inkfaint truncate">{t.sub}</span>
                 </span>
               </button>
             )
           })}
         </div>
-        <div className="p-4 border-t border-line flex items-center gap-2 text-[11px] text-inkdim">
+
+        {/* PROJECT NOTE LIST */}
+        <div className="flex-1 min-h-0 flex flex-col border-t border-line overflow-hidden">
+          <div className="px-4 pt-3 pb-1.5 flex items-center gap-1.5 shrink-0">
+            <span className="text-[10px] text-inkfaint uppercase tracking-widest flex-1">Dự án</span>
+            <button
+              onClick={() => setShowNewProj((v) => !v)}
+              className="text-inkfaint hover:text-cyan transition text-base leading-none w-5 h-5 flex items-center justify-center"
+              title="Tạo dự án mới">+</button>
+          </div>
+
+          {/* create new project inline */}
+          {showNewProj && (
+            <div className="px-3 pb-2 flex gap-1 shrink-0">
+              <input
+                ref={newProjRef}
+                className="input !py-1.5 text-[12px] flex-1"
+                placeholder="Tên dự án…"
+                value={newProjName}
+                onChange={(e) => setNewProjName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') createProject()
+                  if (e.key === 'Escape') { setShowNewProj(false); setNewProjName('') }
+                }}
+              />
+              <button className="btn btn-primary !py-1 !text-[11px] shrink-0" onClick={createProject} disabled={!newProjName.trim()}>Tạo</button>
+            </div>
+          )}
+
+          {/* project list */}
+          <div className="flex-1 overflow-y-auto px-2 pb-3">
+            {projects.length === 0 && !showNewProj ? (
+              <div className="px-2 py-4 text-[11px] text-inkfaint text-center">
+                Chưa có dự án
+                <button className="block mx-auto mt-1.5 text-cyan hover:underline text-[11px]" onClick={() => setShowNewProj(true)}>+ Tạo mới</button>
+              </div>
+            ) : (
+              projects.map((p) => {
+                const isActive = tab === 'workspace' && openProjectId === p.id
+                return (
+                  <div
+                    key={p.id}
+                    onClick={() => pickProject(p.id)}
+                    className={'group relative flex items-center gap-2 rounded-lg px-2 py-1.5 cursor-pointer transition-all select-none ' +
+                      (isActive ? 'bg-cyan/10' : 'hover:bg-white/[0.05]')}>
+                    {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-r bg-cyan" style={{ boxShadow: '0 0 8px rgba(63,211,255,.7)' }} />}
+                    <span className="text-sm shrink-0 opacity-80">📁</span>
+                    <span className={'text-[12px] truncate flex-1 ' + (isActive ? 'text-cyan font-medium' : 'text-inkdim group-hover:text-ink')}>{p.name}</span>
+                    {p.repoUrl && <span className="chip !py-0 !px-1 !text-[9px] text-cyan shrink-0 opacity-70 group-hover:opacity-100">repo</span>}
+                    <button
+                      className="shrink-0 text-inkfaint hover:text-pink opacity-0 group-hover:opacity-100 transition text-[12px] w-5 h-5 flex items-center justify-center rounded"
+                      title="Xoá dự án"
+                      onClick={(e) => { e.stopPropagation(); trashProject(p.id) }}>
+                      🗑
+                    </button>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+
+        {/* status bar */}
+        <div className="p-4 border-t border-line flex items-center gap-2 text-[11px] text-inkdim shrink-0">
           <span className="h-2 w-2 rounded-full bg-grn" style={{ boxShadow: '0 0 8px #5fe39a' }} />
           online · claude engine
         </div>
@@ -91,7 +198,9 @@ export default function App() {
 
         <section className="flex-1 min-h-0 relative">
           <div className={tab === 'chat' ? 'absolute inset-0' : 'hidden'}><Chat /></div>
-          <div className={tab === 'workspace' ? 'absolute inset-0' : 'hidden'}><ProjectsView /></div>
+          <div className={tab === 'workspace' ? 'absolute inset-0' : 'hidden'}>
+            <ProjectsView openProjectId={openProjectId} onOpenProjectChange={setOpenProjectId} />
+          </div>
           <div className={tab === 'tasks' ? 'absolute inset-0' : 'hidden'}><Tasks /></div>
           <div className={tab === 'schedule' ? 'absolute inset-0' : 'hidden'}><Schedule /></div>
           <div className={tab === 'projects' ? 'absolute inset-0' : 'hidden'}><Projects /></div>
