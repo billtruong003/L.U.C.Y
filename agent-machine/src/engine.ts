@@ -115,8 +115,17 @@ export class Engine {
       if (this.working() >= this.maxLanes) break
       if (c.status !== 'queued' || c.blockedBy.length) continue
 
-      const pipe = this.store.pipelines.get(c.pipelineId)!
-      const stage = pipe.stages[c.stageIndex]
+      const pipe = this.store.pipelines.get(c.pipelineId)
+      const stage = pipe?.stages[c.stageIndex]
+      const persona = stage ? this.store.personas.get(stage.personaId) : undefined
+      // guardrail: cấu hình sai (pipeline/stage/persona thiếu) -> FAIL card NÀY, KHÔNG throw.
+      // (1 card hỏng từng làm tick() throw -> auto-tick nuốt lỗi -> kẹt CẢ queue.)
+      if (!pipe || !stage || !persona) {
+        c.status = 'failed'
+        post(this.store, threadOf(c.id), 'engine', 'system', `⛔ cấu hình sai: ${!pipe ? `pipeline "${c.pipelineId}" không tồn tại` : !stage ? `stage #${c.stageIndex} không tồn tại` : 'persona không tồn tại'} → card FAILED`, c.id)
+        this.store.putCard(c)
+        continue
+      }
       // guardrail: loop-breaker
       c.stageVisits = c.stageVisits || {}
       c.stageVisits[stage.id] = (c.stageVisits[stage.id] || 0) + 1
@@ -126,7 +135,6 @@ export class Engine {
         this.store.putCard(c)
         continue
       }
-      const persona = this.store.personas.get(stage.personaId)!
       c.status = 'working'
       this.store.putCard(c)
       const jobId = uid('job')
@@ -145,9 +153,10 @@ export class Engine {
     if (!j) return null
     const c = this.store.getCard(j.cardId)
     if (!c) { this.inFlight.delete(j.id); return null }
-    const pipe = this.store.pipelines.get(c.pipelineId)!
-    const stage = pipe.stages[c.stageIndex]
-    const persona = this.store.personas.get(stage.personaId)!
+    const pipe = this.store.pipelines.get(c.pipelineId)
+    const stage = pipe?.stages[c.stageIndex]
+    const persona = stage ? this.store.personas.get(stage.personaId) : undefined
+    if (!pipe || !stage || !persona) { this.inFlight.delete(j.id); c.status = 'failed'; this.store.putCard(c); return null }
     return { jobId: j.id, cardId: c.id, card: c, stage, persona }
   }
 
