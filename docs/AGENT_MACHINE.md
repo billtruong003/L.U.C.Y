@@ -92,5 +92,41 @@ Human approve (dashboard/Telegram) → unblock card → tick tiếp. Gate/blocke
 - FS-defense Windows cụ thể (CC sandbox không chạy Win) — worktree + restricted user + ACL + allowlist.
 - DBOS vs chỉ pg-boss + state-table (DBOS cho auto-resume free nhưng thêm coupling) — quyết ở M2.1.
 
-## 8. Trạng thái
-- **SKELETON**: đang code (`../agent-machine/`). MockRunner chứng minh loop, không đốt token.
+## 8. Deploy coordinator lên VPS (prompt cho Claude Code TRÊN VPS)
+
+Coordinator chạy trên VPS (nhẹ, **không** spawn claude). Worker chạy trên máy local (dial ra). Paste block:
+
+````
+Bạn là Claude Code trên VPS Ubuntu của tôi. Deploy "Lucy Agent-Machine COORDINATOR" — server điều phối
+multi-agent (Node/TS, repo ở ~/lucy, thư mục agent-machine/). Coordinator NHẸ: giữ board/queue/channels,
+TUYỆT ĐỐI KHÔNG chạy `claude -p` (agent chạy ở máy local của tôi qua worker). Always-on sau pm2 (+ nginx TLS).
+
+LUẬT SECRET: KHÔNG hỏi tôi token qua chat; KHÔNG echo/cat secret. Tôi tự nano.
+
+Các bước:
+1. `cd ~/lucy && git pull`. `cd ~/lucy/agent-machine && npm install`.
+2. Tạo `~/lucy/agent-machine/.env` (tôi tự nano đặt AM_TOKEN=<chuỗi ngẫu nhiên mạnh, `openssl rand -hex 24`>):
+     AM_PORT=8780
+     AM_DATA=/root/.agent-machine
+     AM_CAP_USD=20            # cap cửa 5h (auto-pause)
+     AM_WEEKLY_CAP_USD=120    # cap tuần
+     AM_PER_CARD_USD=5
+   (tsx tự đọc env từ shell; dùng `set -a; . .env; set +a` hoặc nạp qua pm2 ecosystem.)
+3. Chạy thử nền: `set -a; . .env; set +a; npx tsx src/coordinator-main.ts &` rồi
+   `curl -s 127.0.0.1:8780/health` phải ra JSON `{ok:true}`. Tắt thử nghiệm.
+4. pm2 always-on: tạo ecosystem hoặc
+   `AM_TOKEN=$AM_TOKEN AM_PORT=8780 AM_DATA=/root/.agent-machine pm2 start "npx tsx src/coordinator-main.ts" --name lucy-coordinator --cwd ~/lucy/agent-machine`
+   rồi `pm2 save && pm2 startup`.
+5. Nginx TLS (để worker local nối an toàn): proxy `https://<domain-hoặc-subdomain>` → `127.0.0.1:8780`
+   (read/send timeout 1200s). `nginx -t && systemctl reload nginx`; `certbot --nginx -d <domain>`.
+   (Hoặc tạm: mở firewall 8780 — chỉ khi tin mạng; token là lớp auth duy nhất, nên dùng TLS.)
+6. Báo tôi URL coordinator + xác nhận `GET /health` ok. KHÔNG commit .env.
+
+Sau đó MÁY LOCAL của tôi chạy worker:
+  AM_COORD_URL=https://<domain> AM_TOKEN=<token> AM_RUNNER=claude npm run worker
+(worker mới là chỗ chạy claude -p; coordinator chỉ điều phối.)
+````
+
+## 9. Trạng thái (cập nhật 2026-06-07)
+- ✅ Engine queue (dispatch/claim/submit) + 6 guardrail · config-là-data · **coordinator↔worker dial-out HTTP** (tested 2 process).
+- ⏳ Tiếp: Postgres + pg-boss + DBOS (durable) · git worktree + restricted user (FS defense đầy đủ) · wire hub UI (Board + Channels).
