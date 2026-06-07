@@ -1,26 +1,37 @@
 // LucyChat — Lucy hội thoại per-project: trò chuyện DÀI để gom ý tưởng, hỏi lại khi
 // chưa rõ, và khi đủ rõ thì đề xuất các task (card) có nút Tạo. Dùng bridge claude (send/poll).
 import { useEffect, useRef, useState } from 'react'
-import { send, poll, amCreateCard, amState, amLogLucy, type AmPipeline } from '../api'
+import { send, poll, amCreateCard, amState, amLogLucy, type AmPipeline, type AmCard, type AmMsg } from '../api'
 import { parseDrafts, type Draft } from './Planner'
 
 type Msg = { role: 'me' | 'lucy'; text: string; drafts?: Draft[]; created?: boolean }
 
-function convPrompt(project: string, pipes: AmPipeline[], transcript: string): string {
+function convPrompt(project: string, pipes: AmPipeline[], transcript: string, context: string): string {
   const plist = pipes.map((p) => `- ${p.id}: ${p.name} (${p.stages.map((s) => s.name).join(' → ')})`).join('\n')
   return [
     `Bạn là Lucy — điều phối viên kỹ thuật của dự án "${project}". Trò chuyện với chủ để GOM yêu cầu/ý tưởng rồi chia thành task.`,
     `Pipeline có sẵn (chỉ chọn id trong đây):`, plist || '- (không có)',
+    context, // E3: trạng thái task + agent đang nói gì -> Lucy align, không mù
     ``,
     `QUY TẮC:`,
     `- Nếu yêu cầu CHƯA đủ rõ để chia task -> HỎI LẠI ngắn gọn (1-2 câu), KHÔNG kèm json.`,
-    `- Khi ĐÃ đủ rõ -> trả lời 1 câu chốt NGẮN rồi kèm DUY NHẤT 1 khối json ở cuối (model: opus cho việc khó, sonnet việc thường):`,
-    '```json', `[{"title":"...","brief":"...","pipelineId":"<id>","model":"sonnet"}]`, '```',
-    `- CHIA ĐỦ task như 1 product owner: mục tiêu lớn -> nhiều task nhỏ làm được (dự án lớn 5-15 task), mỗi task 1 việc rõ ràng. Đừng gộp 1 task khổng lồ, cũng đừng vụn vặt.`,
-    `- Trả lời tiếng Việt, gọn, xưng "em" gọi "chủ".`,
+    `- Khi ĐÃ đủ rõ -> trả lời 1 câu chốt NGẮN rồi kèm DUY NHẤT 1 khối json ở cuối:`,
+    '```json', `[{"title":"...","brief":"...","pipelineId":"<id>","model":"sonnet|opus","dependsOn":<index task phải xong TRƯỚC, bỏ trống nếu chạy ngay>}]`, '```',
+    `- THỨ TỰ QUAN TRỌNG: nếu task B cần task A xong trước (vd setup trước khi build, build trước khi test) -> đặt "dependsOn" = index (0-based) của task A. Task độc lập thì bỏ dependsOn. Đừng để mọi task chạy song song khi chúng phụ thuộc nhau.`,
+    `- CHIA ĐỦ task như product owner: mục tiêu lớn -> nhiều task nhỏ (5-15), mỗi task 1 việc rõ, model opus cho việc khó.`,
+    `- Trả lời tiếng Việt, gọn, xưng "em" gọi "chủ". Dùng TRẠNG THÁI DỰ ÁN ở trên để biết đã làm gì, đang vướng gì.`,
     ``,
     `HỘI THOẠI:`, transcript, `Lucy:`,
   ].join('\n')
+}
+
+function buildContext(project: string, cards: AmCard[], channels: AmMsg[]): string {
+  const pc = cards.filter((c) => (c.projectId || 'default') === project)
+  if (!pc.length) return ''
+  const cardLines = pc.slice(0, 30).map((c) => `- [${c.status}] ${c.title}${c.lastSummary ? ' — ' + c.lastSummary.slice(0, 100) : ''}`).join('\n')
+  const ids = new Set(pc.map((c) => 'card-' + c.id))
+  const recent = channels.filter((m) => ids.has(m.channel) && m.author !== 'bill' && m.kind !== 'system').slice(-12).map((m) => `${m.author}: ${m.text.slice(0, 120)}`).join('\n')
+  return `\n\nTRẠNG THÁI DỰ ÁN (để align — KHÔNG đề xuất lại task đã có):\nTask hiện có:\n${cardLines}\n\nAgent gần đây nói:\n${recent || '(chưa có)'}`
 }
 
 export default function LucyChat({ project, pipes, onCreated }: { project: string; pipes: AmPipeline[]; onCreated: () => void }) {
@@ -51,7 +62,9 @@ export default function LucyChat({ project, pipes, onCreated }: { project: strin
     const t = setInterval(() => setSecs((s) => s + 1), 1000)
     try {
       const transcript = hist.map((m) => `${m.role === 'me' ? 'Chủ' : 'Lucy'}: ${m.text}`).join('\n')
-      const { job_id } = await send(convPrompt(project, pipes, transcript), false)
+      let context = ''
+      try { const st = await amState(); context = buildContext(project, st.cards || [], st.channels || []) } catch { /* */ } // E3: Lucy đọc trạng thái + channel
+      const { job_id } = await send(convPrompt(project, pipes, transcript, context), false)
       let res = ''
       for (let i = 0; i < 100; i++) { await new Promise((s) => setTimeout(s, 1200)); const p = await poll(job_id); if (p.result != null) { res = p.result; break }; if (p.status === 'error' || p.status === 'failed') throw new Error('bridge') }
       const ds = parseDrafts(res, pipes)
@@ -62,7 +75,14 @@ export default function LucyChat({ project, pipes, onCreated }: { project: strin
   }
 
   const createDrafts = async (idx: number, ds: Draft[]) => {
-    for (const d of ds) await amCreateCard(d.title, d.brief, d.pipelineId, project, false, d.model)
+    // tạo theo THỨ TỰ; dependsOn (index task trước) -> blockedBy = id task đó (E1)
+    const ids: string[] = []
+    for (let i = 0; i < ds.length; i++) {
+      const d = ds[i]
+      const dep = typeof d.dependsOn === 'number' && d.dependsOn >= 0 && d.dependsOn < i && ids[d.dependsOn] ? [ids[d.dependsOn]] : undefined
+      const res = await amCreateCard(d.title, d.brief, d.pipelineId, project, false, d.model, dep)
+      ids[i] = res?.card?.id || ''
+    }
     onCreated()
     setMsgs((h) => h.map((m, k) => (k === idx ? { ...m, created: true } : m)))
   }

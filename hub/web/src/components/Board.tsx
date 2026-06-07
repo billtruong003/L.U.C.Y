@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { amState, amSetLanes, amCreateCard, amApprove, amReject, amRemoveCard, amActivate, type AmCard, type AmPipeline, type AmPersona } from '../api'
+import { amState, amSetLanes, amCreateCard, amApprove, amReject, amAnswer, amRemoveCard, amActivate, type AmCard, type AmPipeline, type AmPersona } from '../api'
 import Planner from './Planner'
 
 const STATUS: Record<string, { label: string; color: string; icon: string }> = {
@@ -56,6 +56,7 @@ export default function Board({ projectId }: { projectId?: string } = {}) {
   const create = async () => { if (!form.title.trim()) return; const pj = projectId || form.project.trim() || (proj !== 'all' ? proj : 'default'); const mdl = form.model === 'opus' || form.model === 'sonnet' ? (form.model as 'sonnet' | 'opus') : undefined; await amCreateCard(form.title.trim(), form.brief.trim(), form.pipeline.trim() || 'course', pj, form.defer, mdl); setForm({ ...form, title: '', brief: '', open: false }); pull() }
   const approve = async (id: string) => { await amApprove(id); pull() }
   const reject = async (id: string, fb: string) => { await amReject(id, fb); pull() }
+  const answer = async (id: string, text: string) => { await amAnswer(id, text); pull() }
   const remove = async (id: string) => { await amRemoveCard(id); setSel(null); pull() }
   const activate = async (id: string) => { await amActivate(id); pull() }
   const setLanesNow = async () => { const n = Number(lanes); if (n >= 1) { await amSetLanes(n); pull() } }
@@ -179,13 +180,13 @@ export default function Board({ projectId }: { projectId?: string } = {}) {
         </div>
 
         {/* detail drawer */}
-        {selected && <Detail c={selected} stage={stageOf(selected)} persona={personaOf(selected)} pipeName={pipeMap.get(selected.pipelineId)?.name} personaMap={personaMap} onClose={() => setSel(null)} onApprove={() => approve(selected.id)} onReject={(fb) => reject(selected.id, fb)} onRemove={() => remove(selected.id)} onActivate={() => activate(selected.id)} now={now} />}
+        {selected && <Detail c={selected} stage={stageOf(selected)} persona={personaOf(selected)} pipeName={pipeMap.get(selected.pipelineId)?.name} personaMap={personaMap} onClose={() => setSel(null)} onApprove={() => approve(selected.id)} onReject={(fb) => reject(selected.id, fb)} onAnswer={(t) => answer(selected.id, t)} onRemove={() => remove(selected.id)} onActivate={() => activate(selected.id)} now={now} />}
       </div>
     </div>
   )
 }
 
-function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove, onReject, onRemove, onActivate, now }: { c: AmCard; stage: any; persona: any; pipeName?: string; personaMap: Map<string, AmPersona>; onClose: () => void; onApprove: () => void; onReject: (feedback: string) => void; onRemove: () => void; onActivate: () => void; now: number }) {
+function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove, onReject, onAnswer, onRemove, onActivate, now }: { c: AmCard; stage: any; persona: any; pipeName?: string; personaMap: Map<string, AmPersona>; onClose: () => void; onApprove: () => void; onReject: (feedback: string) => void; onAnswer: (text: string) => void; onRemove: () => void; onActivate: () => void; now: number }) {
   const [fb, setFb] = useState('')
   const [confirmDel, setConfirmDel] = useState(false)
   const meta = STATUS[c.status]
@@ -217,7 +218,7 @@ function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove, o
           <Field k="Agent" v={persona?.name || '—'} />
           <Field k="Chi phí" v={`$${c.cost?.usd?.toFixed(4) ?? '0'}`} />
           {c.depth > 0 && <Field k="Delegate depth" v={String(c.depth)} />}
-          {c.blockedBy?.length > 0 && <Field k="Đang chờ" v={`${c.blockedBy.length} việc con`} />}
+          {c.blockedBy?.length > 0 && <Field k="Đang chờ" v={`${c.blockedBy.length} ${c.blockKind === 'dep' ? 'task trước' : 'việc con'}`} />}
         </div>
 
         {/* đang chạy: trấn an "không chết" + đồng hồ */}
@@ -240,19 +241,26 @@ function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove, o
           <button className="btn btn-primary w-full" onClick={onActivate}>▶ Chạy ngay (đang để sau)</button>
         )}
 
-        {/* khối DUYỆT — rõ ràng chỗ phải làm */}
+        {/* khối CẦN BẠN — decision = agent HỎI (trả lời), gate/cost = DUYỆT */}
         {c.status === 'waiting_human' && (
           <div className="rounded-xl border p-3" style={{ borderColor: '#ff5d9e55', background: '#ff5d9e10' }}>
-            <div className="text-[11px] text-pink font-semibold mb-1">⛔ Cần bạn quyết định</div>
-            <div className="text-[13px] text-ink mb-2">{c.pendingQuestion || 'Duyệt để tiếp tục?'}</div>
+            <div className="text-[11px] text-pink font-semibold mb-1">{c.waitKind === 'decision' ? '💬 Agent hỏi bạn' : '⛔ Cần bạn duyệt'}</div>
+            <div className="text-[13px] text-ink mb-2">{c.pendingQuestion || 'Tiếp tục?'}</div>
             <textarea className="input w-full !h-auto mb-2 text-[12.5px]" rows={3}
-              placeholder="Có vấn đề? Ghi yêu cầu / lỗi cần sửa rồi bấm 'Trả lại' — agent sẽ làm lại theo feedback…"
+              placeholder={c.waitKind === 'decision' ? 'Trả lời / chọn option cho agent (agent sẽ làm tiếp với câu trả lời này)…' : "Có vấn đề? Ghi yêu cầu / lỗi cần sửa rồi bấm 'Trả lại'…"}
               value={fb} onChange={(e) => setFb(e.target.value)} />
-            <div className="flex gap-2">
-              <button className="btn btn-primary flex-1" onClick={onApprove}>✓ Duyệt & tiếp</button>
-              <button className="btn flex-1" style={{ borderColor: '#ff9d5c66', color: '#ff9d5c' }}
-                onClick={() => onReject(fb)} title="Trả card về cho agent sửa theo feedback">↩ Trả lại sửa</button>
-            </div>
+            {c.waitKind === 'decision' ? (
+              <div className="flex gap-2">
+                <button className="btn btn-primary flex-1" onClick={() => onAnswer(fb)} disabled={!fb.trim()}>💬 Trả lời → agent làm tiếp</button>
+                <button className="btn flex-1" onClick={() => onAnswer('')} title="để agent tự quyết, chạy tiếp">Tự quyết</button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <button className="btn btn-primary flex-1" onClick={onApprove}>✓ Duyệt & tiếp</button>
+                <button className="btn flex-1" style={{ borderColor: '#ff9d5c66', color: '#ff9d5c' }}
+                  onClick={() => onReject(fb)} title="Trả card về cho agent sửa theo feedback">↩ Trả lại sửa</button>
+              </div>
+            )}
           </div>
         )}
 

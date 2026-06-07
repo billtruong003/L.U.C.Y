@@ -38,11 +38,14 @@ export class Engine {
     this.leaseMs = opts.leaseMs ?? 20 * 60e3 // card 'working' quá 20' -> coi như treo, đưa lại hàng
   }
 
-  createCard(title: string, brief: string, pipelineId: string, parentId?: string, depth = 0, projectId = 'default', deferred = false, modelOverride?: 'sonnet' | 'opus'): Card {
+  createCard(title: string, brief: string, pipelineId: string, parentId?: string, depth = 0, projectId = 'default', deferred = false, modelOverride?: 'sonnet' | 'opus', blockedBy: string[] = []): Card {
     const id = uid('card')
+    const deps = blockedBy.filter((b) => this.store.getCard(b)) // chỉ giữ dep có thật
+    const status: Card['status'] = deferred ? 'backlog' : deps.length ? 'blocked' : 'queued'
     const card: Card = {
-      id, title, brief, pipelineId, projectId, stageIndex: 0, status: deferred ? 'backlog' : 'queued', modelOverride,
-      workspace: makeWorkspace(this.store.dir, id), parentId, depth, blockedBy: [],
+      id, title, brief, pipelineId, projectId, stageIndex: 0, status, modelOverride,
+      blockKind: deps.length ? 'dep' : undefined,
+      workspace: makeWorkspace(this.store.dir, id), parentId, depth, blockedBy: deps,
       cost: { usd: 0, inTok: 0, outTok: 0 }, history: [{ ts: Date.now(), stage: '-', event: deferred ? 'created-backlog' : 'created' }],
       createdAt: Date.now(), updatedAt: Date.now(),
     }
@@ -174,6 +177,20 @@ export class Engine {
     post(this.store, threadOf(c.id), 'bill', 'decision', `✓ duyệt: ${c.pendingQuestion ?? 'tiếp tục'}`, c.id)
     c.pendingQuestion = undefined
     this.advanceCard(c)
+  }
+
+  // TRẢ LỜI câu hỏi của agent (needs_decision): chạy LẠI stage hiện tại kèm câu trả lời để agent làm tiếp.
+  // gate/cost: coi như duyệt (advance). Đây là chỗ "pick option" thật sự, không chỉ duyệt khan.
+  answer(cardId: string, text: string) {
+    const c = this.store.getCard(cardId)
+    if (!c || c.status !== 'waiting_human') return
+    const kind = c.waitKind
+    const ans = (text || '').trim()
+    post(this.store, threadOf(c.id), 'bill', 'decision', `💬 trả lời: ${ans || '(tự quyết — tiếp tục)'}`, c.id)
+    if (ans) c.reviewNotes = (c.reviewNotes || []).concat('Chủ trả lời câu hỏi: ' + ans)
+    c.pendingQuestion = undefined; c.waitKind = undefined
+    if (kind === 'decision') { c.status = 'queued'; c.history.push({ ts: Date.now(), stage: '-', event: 'answered' }); this.store.putCard(c) }
+    else this.advanceCard(c)
   }
 
   // TRẢ LẠI ở gate: bạn ghi vấn đề/yêu cầu -> card lùi về stage trước (vd review -> build)
@@ -339,7 +356,7 @@ export class Engine {
 
     // guardrail: per-card cost cap
     if (c.cost.usd >= this.perCardMaxUsd) {
-      c.status = 'waiting_human'
+      c.status = 'waiting_human'; c.waitKind = 'cost'
       c.pendingQuestion = `Card vượt cap chi phí $${this.perCardMaxUsd.toFixed(2)} (đã $${c.cost.usd.toFixed(3)}) — duyệt để chạy tiếp?`
       post(this.store, threadOf(c.id), 'engine', 'decision', `⛔ COST CAP: ${c.pendingQuestion}`, c.id)
       this.store.putCard(c)
@@ -350,7 +367,7 @@ export class Engine {
       case 'advance':
       case 'done': // 'done' = agent xong việc của STAGE này -> advanceCard (tự kết thúc card nếu là stage CUỐI); tôn trọng gate
         if (stage.gate) {
-          c.status = 'waiting_human'
+          c.status = 'waiting_human'; c.waitKind = 'gate'
           c.pendingQuestion = `Duyệt qua "${stage.name}"?`
           post(this.store, threadOf(c.id), 'engine', 'decision', `⛔ GATE: ${c.pendingQuestion} (cần bạn duyệt)`, c.id)
           this.store.putCard(c)
@@ -367,7 +384,7 @@ export class Engine {
         break
       }
       case 'needs_decision':
-        c.status = 'waiting_human'
+        c.status = 'waiting_human'; c.waitKind = 'decision'
         c.pendingQuestion = result.outcome.question ?? result.outcome.summary
         post(this.store, threadOf(c.id), 'engine', 'decision', `⛔ CẦN QUYẾT ĐỊNH: ${c.pendingQuestion}`, c.id)
         this.store.putCard(c)
@@ -384,6 +401,7 @@ export class Engine {
         const child = this.createCard(d.title, d.brief, d.pipelineId ?? c.pipelineId, c.id, c.depth + 1, c.projectId)
         c.blockedBy.push(child.id)
         c.status = 'blocked'
+        c.blockKind = 'delegate'
         // agent↔agent: người đang làm NHỜ persona khác (handoff thật, không phải log)
         post(this.store, threadOf(c.id), persona.name, 'handoff', `📨 → ${tgt?.name ?? d.personaId}: nhờ xử lý "${d.title}"`, c.id)
         this.store.putCard(c)
@@ -411,8 +429,15 @@ export class Engine {
       })
       if (!still.length) {
         c.blockedBy = []
-        post(this.store, threadOf(c.id), 'engine', 'system', `▲ dependency xong → RESUME "${c.title}"`, c.id)
-        this.advanceCard(c)
+        if (c.blockKind === 'dep') { // task phụ thuộc xong -> BẮT ĐẦU chạy stage hiện tại (không advance)
+          c.blockKind = undefined; c.status = 'queued'
+          post(this.store, threadOf(c.id), 'engine', 'system', `▲ task phụ thuộc xong → bắt đầu "${c.title}"`, c.id)
+          this.store.putCard(c)
+        } else { // delegate: con xong -> parent qua stage kế
+          c.blockKind = undefined
+          post(this.store, threadOf(c.id), 'engine', 'system', `▲ việc con xong → RESUME "${c.title}"`, c.id)
+          this.advanceCard(c)
+        }
       } else c.blockedBy = still
     }
   }

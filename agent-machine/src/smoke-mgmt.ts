@@ -153,6 +153,36 @@ async function main() {
   check('rework ghi reviewNotes', (rkAfter.reviewNotes || []).some((n) => n.includes('lỗi X')))
   clean(rk)
 
+  // ── E1: task dependency — B chờ A xong mới chạy ──
+  const de = path.join(process.cwd(), '.smoke-dep'); clean(de)
+  const dstore = new Store(de)
+  dstore.registerPersona({ id: 'eng', name: 'E', systemPrompt: 'x', model: 'sonnet' })
+  dstore.registerPipeline({ id: 'one', name: 'One', stages: [{ id: 'fix', name: 'F', personaId: 'eng' }] })
+  const deng = new Engine(dstore, new MockRunner({ fix: { decision: 'advance', summary: 'ok' } } as Record<string, Outcome>), new Budget({ windowMs: 5 * 3600e3, capUsd: 99 }), { maxLanes: 4 })
+  const da = deng.createCard('A', 'b', 'one')
+  const db = deng.createCard('B', 'b', 'one', undefined, 0, 'default', false, undefined, [da.id])
+  check('B blocked vì chờ A', dstore.getCard(db.id)!.status === 'blocked')
+  deng.tick(); await deng.drainLocal()
+  check('A chạy xong, B vẫn chờ', dstore.getCard(da.id)!.status === 'done' && dstore.getCard(db.id)!.status === 'blocked')
+  deng.tick()
+  check('A xong -> B mở khoá (queued, không advance)', dstore.getCard(db.id)!.status === 'queued' && dstore.getCard(db.id)!.stageIndex === 0)
+  clean(de)
+
+  // ── E2: needs_decision answer -> chạy LẠI stage với câu trả lời ──
+  const an = path.join(process.cwd(), '.smoke-ans'); clean(an)
+  const astore = new Store(an)
+  astore.registerPersona({ id: 'eng', name: 'E', systemPrompt: 'x', model: 'sonnet' })
+  astore.registerPipeline({ id: 'one', name: 'One', stages: [{ id: 'fix', name: 'F', personaId: 'eng' }] })
+  const aeng = new Engine(astore, new MockRunner({ fix: { decision: 'needs_decision', summary: 'A hay B?', question: 'A hay B?' } } as Record<string, Outcome>), new Budget({ windowMs: 5 * 3600e3, capUsd: 99 }), { maxLanes: 2 })
+  const ac = aeng.createCard('q', 'b', 'one')
+  aeng.tick(); await aeng.drainLocal()
+  check('needs_decision -> waiting_human + waitKind=decision', astore.getCard(ac.id)!.status === 'waiting_human' && astore.getCard(ac.id)!.waitKind === 'decision')
+  aeng.answer(ac.id, 'chọn A')
+  const af = astore.getCard(ac.id)!
+  check('answer -> queued (chạy lại stage), stage không đổi', af.status === 'queued' && af.stageIndex === 0)
+  check('answer ghi reviewNotes', (af.reviewNotes || []).some((n) => n.includes('chọn A')))
+  clean(an)
+
   // ── O2: lease — card 'working' treo quá lâu -> đưa lại hàng ──
   const ls = path.join(process.cwd(), '.smoke-lease'); clean(ls)
   const lstore = new Store(ls)

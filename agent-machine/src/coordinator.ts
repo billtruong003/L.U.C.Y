@@ -36,7 +36,7 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       }
       if (req.method === 'POST' && url === '/worker/claim') { const j = engine.claim(); return send(200, { job: j ? serializeJob(j) : null }) }
       if (req.method === 'POST' && url === '/worker/result') { const b = await readBody(req); engine.submit(b.jobId, b.result); return send(200, { ok: true }) }
-      if (req.method === 'POST' && url === '/card') { const b = await readBody(req); const mdl = (b.model === 'opus' || b.model === 'sonnet') ? b.model : undefined; return send(200, { card: engine.createCard(b.title, b.brief, b.pipelineId, undefined, 0, b.projectId || 'default', !!b.deferred, mdl) }) }
+      if (req.method === 'POST' && url === '/card') { const b = await readBody(req); const mdl = (b.model === 'opus' || b.model === 'sonnet') ? b.model : undefined; return send(200, { card: engine.createCard(b.title, b.brief, b.pipelineId, undefined, 0, b.projectId || 'default', !!b.deferred, mdl, Array.isArray(b.blockedBy) ? b.blockedBy : []) }) }
       if (req.method === 'POST' && url === '/card/remove') { const b = await readBody(req); return send(200, { ok: engine.removeCard(b.cardId) }) }
       if (req.method === 'POST' && url === '/card/activate') { const b = await readBody(req); engine.activate(b.cardId); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/project') { const b = await readBody(req); return send(200, { project: engine.createProject(b.name, { repoUrl: b.repoUrl, branch: b.branch, description: b.description, skill: b.skill }) }) }
@@ -52,6 +52,7 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       if (req.method === 'POST' && url === '/lucy/log') { const b = await readBody(req); engine.logLucy(b.projectId, b.role === 'me' ? 'me' : 'lucy', b.text || ''); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/approve') { const b = await readBody(req); engine.approve(b.cardId); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/reject') { const b = await readBody(req); engine.reject(b.cardId, b.feedback || ''); return send(200, { ok: true }) }
+      if (req.method === 'POST' && url === '/answer') { const b = await readBody(req); engine.answer(b.cardId, b.text || ''); return send(200, { ok: true }) }
       if (req.method === 'GET' && url === '/state') return send(200, {
         cards: store.listCards(),
         projects: store.listProjects(),

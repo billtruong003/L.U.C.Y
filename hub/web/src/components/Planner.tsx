@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { send, poll, amCreateCard, type AmPipeline } from '../api'
 
-export type Draft = { title: string; brief: string; pipelineId: string; model: 'sonnet' | 'opus'; defer: boolean }
+export type Draft = { title: string; brief: string; pipelineId: string; model: 'sonnet' | 'opus'; defer: boolean; dependsOn?: number }
 
 export function buildDraftPrompt(goal: string, project: string, pipes: AmPipeline[]): string {
   const plist = pipes.map((p) => `- ${p.id}: ${p.name} (${p.stages.map((s) => s.name).join(' → ')})`).join('\n')
@@ -41,6 +41,7 @@ export function parseDrafts(text: string, pipes: AmPipeline[]): Draft[] {
     pipelineId: ids.has(d.pipelineId) ? d.pipelineId : (pipes[0]?.id || ''),
     model: d.model === 'opus' ? 'opus' : 'sonnet',
     defer: false,
+    dependsOn: typeof d.dependsOn === 'number' ? d.dependsOn : undefined, // index task phải xong trước (thứ tự)
   }))
 }
 

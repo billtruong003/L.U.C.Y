@@ -50,13 +50,14 @@ export type AmCard = {
   status: string; depth: number; blockedBy: string[]; pendingQuestion?: string
   parentId?: string; cost: { usd: number }; updatedAt?: number; reviewNotes?: string[]
   workspace?: string; artifacts?: { files?: string[]; diffstat?: string; stage?: string; isRepo?: boolean }
+  lastSummary?: string; waitKind?: 'gate' | 'decision' | 'cost'; blockKind?: 'dep' | 'delegate'
   history?: { ts: number; stage: string; event: string; detail?: string }[]
 }
 export type AmMsg = { ts: number; channel: string; author: string; kind: string; text: string; cardId?: string }
 export type AmStage = { id: string; name: string; personaId: string; gate?: boolean }
 export type AmPipeline = { id: string; name: string; stages: AmStage[] }
 export type AmPersona = { id: string; name: string; avatar?: string; model?: string }
-export type AmProject = { id: string; name: string; repoUrl?: string; branch?: string; description?: string; skill?: string; channels: string[]; createdAt: number; updatedAt?: number }
+export type AmProject = { id: string; name: string; repoUrl?: string; branch?: string; description?: string; skill?: string; channels: string[]; createdAt: number; updatedAt?: number; trashed?: boolean }
 export async function amState(): Promise<{ configured: boolean; offline?: boolean; cards: AmCard[]; projects?: AmProject[]; channels: AmMsg[]; pipelines?: AmPipeline[]; personas?: AmPersona[] }> {
   const r = await fetch('/api/am/state'); return r.json()
 }
@@ -90,8 +91,8 @@ export async function amConfig(): Promise<{ configured: boolean; offline?: boole
 export async function amSetLanes(maxLanes: number) {
   const r = await fetch('/api/am/config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ maxLanes }) }); return r.json()
 }
-export async function amCreateCard(title: string, brief: string, pipelineId: string, projectId: string, deferred = false, model?: 'sonnet' | 'opus') {
-  const r = await fetch('/api/am/card', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, brief, pipelineId, projectId, deferred, model }) }); return r.json()
+export async function amCreateCard(title: string, brief: string, pipelineId: string, projectId: string, deferred = false, model?: 'sonnet' | 'opus', blockedBy?: string[]) {
+  const r = await fetch('/api/am/card', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, brief, pipelineId, projectId, deferred, model, blockedBy }) }); return r.json()
 }
 export async function amRemoveCard(cardId: string) {
   await fetch('/api/am/card/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cardId }) })
@@ -104,6 +105,9 @@ export async function amApprove(cardId: string) {
 }
 export async function amReject(cardId: string, feedback: string) {
   await fetch('/api/am/reject', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cardId, feedback }) })
+}
+export async function amAnswer(cardId: string, text: string) {
+  await fetch('/api/am/answer', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cardId, text }) })
 }
 
 export type Entry = { name: string; type: 'dir' | 'file' }
