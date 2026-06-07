@@ -75,6 +75,9 @@ export async function amAddChannel(projectId: string, name: string) {
 export async function amPostChannel(projectId: string, channel: string, text: string, mention?: string) {
   await fetch('/api/am/channel/post', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId, channel, text, mention }) })
 }
+export async function amLogLucy(projectId: string, role: 'me' | 'lucy', text: string) {
+  await fetch('/api/am/lucy/log', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId, role, text }) })
+}
 export async function amConfig(): Promise<{ configured: boolean; offline?: boolean; maxLanes?: number; perCardMaxUsd?: number; queued?: number; inFlight?: number }> {
   const r = await fetch('/api/am/config'); return r.json()
 }

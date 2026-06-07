@@ -1,7 +1,7 @@
 // LucyChat — Lucy hội thoại per-project: trò chuyện DÀI để gom ý tưởng, hỏi lại khi
 // chưa rõ, và khi đủ rõ thì đề xuất các task (card) có nút Tạo. Dùng bridge claude (send/poll).
 import { useEffect, useRef, useState } from 'react'
-import { send, poll, amCreateCard, type AmPipeline } from '../api'
+import { send, poll, amCreateCard, amState, amLogLucy, type AmPipeline } from '../api'
 import { parseDrafts, type Draft } from './Planner'
 
 type Msg = { role: 'me' | 'lucy'; text: string; drafts?: Draft[]; created?: boolean }
@@ -30,10 +30,23 @@ export default function LucyChat({ project, pipes, onCreated }: { project: strin
   const endRef = useRef<HTMLDivElement>(null)
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }) }, [msgs, busy])
 
+  // V3: nạp lại lịch sử chat đã lưu (kênh __lucy) khi mở dự án — qua F5/đa thiết bị
+  useEffect(() => {
+    let alive = true
+    amState().then((s) => {
+      if (!alive) return
+      const hist = (s.channels || []).filter((m) => m.channel === `p:${project}:__lucy`).map((m) => ({ role: m.author === 'bill' ? 'me' : 'lucy', text: m.text } as Msg))
+      if (hist.length) setMsgs(hist)
+    }).catch(() => { /* */ })
+    return () => { alive = false }
+  }, [project])
+
   const sendMsg = async () => {
     if (!draft.trim() || busy) return
-    const hist: Msg[] = [...msgs, { role: 'me', text: draft.trim() }]
+    const userText = draft.trim()
+    const hist: Msg[] = [...msgs, { role: 'me', text: userText }]
     setMsgs(hist); setDraft(''); setBusy(true); setSecs(0)
+    amLogLucy(project, 'me', userText).catch(() => { /* */ })
     const t = setInterval(() => setSecs((s) => s + 1), 1000)
     try {
       const transcript = hist.map((m) => `${m.role === 'me' ? 'Chủ' : 'Lucy'}: ${m.text}`).join('\n')
@@ -43,6 +56,7 @@ export default function LucyChat({ project, pipes, onCreated }: { project: strin
       const ds = parseDrafts(res, pipes)
       const text = res.replace(/```json[\s\S]*?```/g, '').trim() || (ds.length ? 'Em đề xuất các task dưới đây:' : '(không có nội dung)')
       setMsgs((h) => [...h, { role: 'lucy', text, drafts: ds.length ? ds : undefined }])
+      amLogLucy(project, 'lucy', text).catch(() => { /* */ })
     } catch { setMsgs((h) => [...h, { role: 'lucy', text: '⚠️ Lỗi gọi Lucy — thử lại.' }]) } finally { clearInterval(t); setBusy(false) }
   }
 

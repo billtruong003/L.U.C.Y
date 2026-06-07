@@ -91,6 +91,11 @@ export class Engine {
     const ch = (channel || '').startsWith('card-') ? channel : `p:${projectId}:${channel || 'general'}`
     post(this.store, ch, 'bill', 'chat', (mention ? `@${mention} ` : '') + text.trim())
   }
+  // V3: lưu hội thoại Lucy (kênh ẩn __lucy, không hiện trong tab Channels) -> qua F5/đa thiết bị
+  logLucy(projectId: string, role: 'me' | 'lucy', text: string) {
+    if (!(text || '').trim()) return
+    post(this.store, `p:${projectId}:__lucy`, role === 'me' ? 'bill' : 'Lucy', 'chat', text.trim())
+  }
   // backfill: mọi projectId trên card phải có Project entity (migration cho card cũ)
   private backfillProjects() {
     const have = new Set(this.store.listProjects().map((p) => p.id))
