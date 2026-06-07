@@ -49,7 +49,8 @@ export type AmCard = {
   id: string; title: string; brief: string; pipelineId: string; projectId: string; stageIndex: number
   status: string; depth: number; blockedBy: string[]; pendingQuestion?: string
   parentId?: string; cost: { usd: number }; updatedAt?: number; reviewNotes?: string[]
-  history?: { ts: number; stage: string; event: string }[]
+  workspace?: string; artifacts?: { files?: string[]; diffstat?: string; stage?: string; isRepo?: boolean }
+  history?: { ts: number; stage: string; event: string; detail?: string }[]
 }
 export type AmMsg = { ts: number; channel: string; author: string; kind: string; text: string; cardId?: string }
 export type AmStage = { id: string; name: string; personaId: string; gate?: boolean }

@@ -256,6 +256,23 @@ function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove, o
           </div>
         )}
 
+        {/* V1: BÁO CÁO — đổi gì + ở đâu */}
+        {c.artifacts && ((c.artifacts.files && c.artifacts.files.length > 0) || c.artifacts.diffstat) && (
+          <div className="rounded-xl border border-line p-3 bg-black/20">
+            <div className="text-[10px] text-grn tracking-[0.16em] mb-1.5">📋 BÁO CÁO{c.artifacts.stage ? ` · ${c.artifacts.stage}` : ''}{c.artifacts.isRepo ? ' · repo' : ''}</div>
+            {c.artifacts.files && c.artifacts.files.length > 0 && (
+              <div className="mb-2">
+                <div className="text-[10px] text-inkfaint mb-1">{c.artifacts.files.length} file {c.artifacts.isRepo ? 'thay đổi' : 'tạo ra'}:</div>
+                <div className="flex flex-col gap-0.5 max-h-40 overflow-auto">
+                  {c.artifacts.files.map((f, i) => <div key={i} className="text-[11.5px] text-inkdim mono truncate">{f}</div>)}
+                </div>
+              </div>
+            )}
+            {c.artifacts.diffstat && <pre className="text-[10px] text-inkfaint mono whitespace-pre-wrap bg-black/30 rounded p-2 max-h-32 overflow-auto">{c.artifacts.diffstat}</pre>}
+            <div className="text-[10px] text-inkfaint mt-2">Trên máy worker: <span className="mono text-cyan">agent-machine/{c.artifacts.isRepo ? `.worker/repos/${c.projectId.replace(/[^\w.-]+/g, '_')}` : `.worker/${c.id}`}</span></div>
+          </div>
+        )}
+
         {/* timeline */}
         <div>
           <div className="text-[10px] text-inkfaint tracking-[0.18em] mb-2">LỊCH SỬ</div>

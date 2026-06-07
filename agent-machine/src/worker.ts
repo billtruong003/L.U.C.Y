@@ -22,6 +22,31 @@ function ensureRepoClone(root: string, repo: { url: string; branch?: string; pro
 }
 const FAIL = (msg: string): RunResult => ({ outcome: { decision: 'fail', summary: msg }, cost: { usd: 0, inTok: 0, outTok: 0 }, raw: '' })
 
+// V1: chụp "đã đổi gì" để báo cáo — repo: git status/diff; nháp: liệt kê file.
+function captureArtifacts(ws: string, isRepo: boolean): { files?: string[]; diffstat?: string; isRepo?: boolean } {
+  try {
+    if (isRepo) {
+      const status = execFileSync('git', ['-C', ws, 'status', '--porcelain'], { encoding: 'utf8' }).trim()
+      const files = status ? status.split('\n').map((l) => l.slice(3).trim()).filter(Boolean).slice(0, 60) : []
+      let diffstat = ''
+      try { diffstat = execFileSync('git', ['-C', ws, 'diff', '--stat'], { encoding: 'utf8' }).trim().slice(0, 2000) } catch { /* */ }
+      return { files, diffstat, isRepo: true }
+    }
+    const out: string[] = []
+    const walk = (dir: string, prefix = '', depth = 0) => {
+      if (depth > 2 || out.length > 60) return
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (e.name.startsWith('.')) continue
+        const rel = prefix ? prefix + '/' + e.name : e.name
+        if (e.isDirectory()) walk(path.join(dir, e.name), rel, depth + 1)
+        else out.push(rel)
+      }
+    }
+    walk(ws)
+    return { files: out.slice(0, 60), isRepo: false }
+  } catch { return {} }
+}
+
 // 1 bước: claim -> chạy -> submit. Trả true nếu có job đã xử lý.
 export async function workerStep(coordUrl: string, runner: Runner, opts: { token?: string; localRoot?: string } = {}): Promise<boolean> {
   const headers: Record<string, string> = { 'content-type': 'application/json' }
@@ -59,6 +84,7 @@ export async function workerStep(coordUrl: string, runner: Runner, opts: { token
   try { result = await runner.run(job.card, job.stage, job.persona, ws) }
   catch (e) { result = FAIL(`worker lỗi: ${String(e).slice(0, 200)}`) }
   finally { release() }
+  try { result.artifacts = captureArtifacts(ws, !!job.repo?.url) } catch { /* */ }
   await submit(result)
   return true
 }

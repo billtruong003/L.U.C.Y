@@ -271,6 +271,7 @@ export class Engine {
     this.store.appendLedger({ ts: Date.now(), cardId: c.id, stage: stage.id, persona: persona.id, ...result.cost })
     post(this.store, threadOf(c.id), persona.name, 'status', result.outcome.summary, c.id)
     c.history.push({ ts: Date.now(), stage: stage.id, event: result.outcome.decision, detail: result.outcome.summary })
+    if (result.artifacts) c.artifacts = { ...result.artifacts, stage: stage.id } // V1: báo cáo đổi gì
 
     // guardrail: per-card cost cap
     if (c.cost.usd >= this.perCardMaxUsd) {

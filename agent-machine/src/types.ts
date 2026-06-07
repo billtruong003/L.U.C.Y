@@ -51,6 +51,7 @@ export type Card = {
   reviewNotes?: string[] // feedback khi bạn TRẢ LẠI ở gate -> chèn vào prompt cho agent sửa
   cost: Cost
   stageVisits?: Record<string, number> // loop-breaker: đếm số lần vào mỗi stage
+  artifacts?: { files?: string[]; diffstat?: string; stage?: string; isRepo?: boolean } // báo cáo: file đã tạo/đổi ở stage gần nhất
   history: { ts: number; stage: string; event: string; detail?: string }[]
   createdAt: number
   updatedAt: number
@@ -63,7 +64,7 @@ export type Outcome = {
   question?: string // khi needs_decision
   delegateTo?: { personaId: string; title: string; brief: string; pipelineId?: string } // khi delegate
 }
-export type RunResult = { outcome: Outcome; cost: Cost; raw: string }
+export type RunResult = { outcome: Outcome; cost: Cost; raw: string; artifacts?: { files?: string[]; diffstat?: string; isRepo?: boolean } }
 
 export type ChannelKind = 'chat' | 'status' | 'report' | 'decision' | 'system' | 'handoff'
 export type ChannelMsg = {
