@@ -67,6 +67,16 @@ async function main() {
   check('claim áp model = opus', spec?.persona.model === 'opus', `(got ${spec?.persona.model})`)
   check('persona gốc KHÔNG bị đổi (clone, không mutate)', store.personas.get('eng')!.model === 'sonnet')
 
+  // ── PROJECT first-class ──
+  const pj = engine.createProject('Game ABC', { repoUrl: 'https://github.com/x/abc' })
+  check('createProject lưu repoUrl', store.getProject('Game ABC')?.repoUrl === 'https://github.com/x/abc')
+  check('project có kênh "general" mặc định', store.getProject('Game ABC')!.channels.includes('general'))
+  check('createProject idempotent (cùng tên không nhân đôi)', engine.createProject('Game ABC').id === pj.id && store.listProjects().filter((p) => p.id === 'Game ABC').length === 1)
+  engine.createCard('t', 'b', 'one', undefined, 0, 'Dự án mới X')
+  check('tạo card AUTO tạo project', !!store.getProject('Dự án mới X'))
+  check('removeProject bị chặn khi còn card', engine.removeProject('Dự án mới X') === false)
+  check('removeProject rỗng OK', engine.removeProject('Game ABC') === true)
+
   clean(dir)
   console.log(`\n${fail === 0 ? '✅ ALL PASS' : '❌ FAIL'} — ${pass} pass, ${fail} fail`)
   process.exit(fail === 0 ? 0 : 1)

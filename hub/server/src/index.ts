@@ -455,7 +455,7 @@ app.get('/api/am/config', async (req, res) => {
   try { const r = await amFetch('/config'); res.json({ configured: true, ...(await r.json()) }) }
   catch { res.json({ configured: true, offline: true }) }
 })
-for (const [route, fwd] of [['/api/am/config', '/config'], ['/api/am/card', '/card'], ['/api/am/card/remove', '/card/remove'], ['/api/am/card/activate', '/card/activate'], ['/api/am/approve', '/approve'], ['/api/am/reject', '/reject']] as const) {
+for (const [route, fwd] of [['/api/am/config', '/config'], ['/api/am/card', '/card'], ['/api/am/card/remove', '/card/remove'], ['/api/am/card/activate', '/card/activate'], ['/api/am/approve', '/approve'], ['/api/am/reject', '/reject'], ['/api/am/project', '/project'], ['/api/am/project/remove', '/project/remove']] as const) {
   app.post(route, async (req, res) => {
     if (!authed(req)) return res.status(401).json({ error: 'unauth' })
     if (!amOn()) return res.status(400).json({ error: 'Agent-Machine chưa cấu hình (AM_COORD_URL)' })

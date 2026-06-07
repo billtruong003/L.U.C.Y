@@ -39,10 +39,13 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       if (req.method === 'POST' && url === '/card') { const b = await readBody(req); const mdl = (b.model === 'opus' || b.model === 'sonnet') ? b.model : undefined; return send(200, { card: engine.createCard(b.title, b.brief, b.pipelineId, undefined, 0, b.projectId || 'default', !!b.deferred, mdl) }) }
       if (req.method === 'POST' && url === '/card/remove') { const b = await readBody(req); return send(200, { ok: engine.removeCard(b.cardId) }) }
       if (req.method === 'POST' && url === '/card/activate') { const b = await readBody(req); engine.activate(b.cardId); return send(200, { ok: true }) }
+      if (req.method === 'POST' && url === '/project') { const b = await readBody(req); return send(200, { project: engine.createProject(b.name, { repoUrl: b.repoUrl, branch: b.branch, description: b.description }) }) }
+      if (req.method === 'POST' && url === '/project/remove') { const b = await readBody(req); return send(200, { ok: engine.removeProject(b.projectId) }) }
       if (req.method === 'POST' && url === '/approve') { const b = await readBody(req); engine.approve(b.cardId); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/reject') { const b = await readBody(req); engine.reject(b.cardId, b.feedback || ''); return send(200, { ok: true }) }
       if (req.method === 'GET' && url === '/state') return send(200, {
         cards: store.listCards(),
+        projects: store.listProjects(),
         channels: store.readChannel().slice(-200),
         pipelines: [...store.pipelines.values()],
         personas: [...store.personas.values()].map((p) => ({ id: p.id, name: p.name, avatar: p.avatar, model: p.model })),

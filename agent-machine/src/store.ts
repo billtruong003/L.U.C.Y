@@ -1,11 +1,12 @@
 // Store — thin file-based persistence (swappable cho Postgres+pg-boss+DBOS ở M2.1).
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Card, Persona, Pipeline, ChannelMsg, Cost } from './types'
+import type { Card, Persona, Pipeline, Project, ChannelMsg, Cost } from './types'
 
 export class Store {
   dir: string
   cards = new Map<string, Card>()
+  projects = new Map<string, Project>()
   personas = new Map<string, Persona>()
   pipelines = new Map<string, Pipeline>()
 
@@ -16,19 +17,31 @@ export class Store {
   }
 
   private cardsFile() { return path.join(this.dir, 'cards.json') }
+  private projectsFile() { return path.join(this.dir, 'projects.json') }
 
   load() {
     try {
       const arr = JSON.parse(fs.readFileSync(this.cardsFile(), 'utf8')) as Card[]
       for (const c of arr) this.cards.set(c.id, c)
     } catch { /* fresh */ }
+    try {
+      const arr = JSON.parse(fs.readFileSync(this.projectsFile(), 'utf8')) as Project[]
+      for (const p of arr) this.projects.set(p.id, p)
+    } catch { /* fresh */ }
   }
-  // atomic: ghi tmp rồi rename -> crash giữa chừng không hỏng cards.json
-  private saveCards() {
-    const tmp = this.cardsFile() + '.tmp'
-    fs.writeFileSync(tmp, JSON.stringify([...this.cards.values()], null, 2))
-    fs.renameSync(tmp, this.cardsFile())
+  // atomic: ghi tmp rồi rename -> crash giữa chừng không hỏng file
+  private atomicWrite(file: string, data: unknown) {
+    const tmp = file + '.tmp'
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2))
+    fs.renameSync(tmp, file)
   }
+  private saveCards() { this.atomicWrite(this.cardsFile(), [...this.cards.values()]) }
+  private saveProjects() { this.atomicWrite(this.projectsFile(), [...this.projects.values()]) }
+
+  putProject(p: Project) { p.updatedAt = Date.now(); this.projects.set(p.id, p); this.saveProjects() }
+  getProject(id: string) { return this.projects.get(id) }
+  listProjects() { return [...this.projects.values()] }
+  deleteProject(id: string): boolean { const ok = this.projects.delete(id); if (ok) this.saveProjects(); return ok }
 
   putCard(c: Card) { c.updatedAt = Date.now(); this.cards.set(c.id, c); this.saveCards() }
   getCard(id: string) { return this.cards.get(id) }

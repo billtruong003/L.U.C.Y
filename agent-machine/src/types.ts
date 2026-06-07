@@ -8,6 +8,18 @@ export type Stage = {
 }
 export type Pipeline = { id: string; name: string; stages: Stage[] }
 
+// Project = container thật: repo (clone được) + board + kênh + chat Lucy riêng.
+export type Project = {
+  id: string
+  name: string
+  repoUrl?: string // git repo để agent CLONE & sửa thật (R2). Trống = workspace nháp.
+  branch?: string // nhánh làm việc (mặc định nhánh chính)
+  description?: string
+  channels: string[] // kênh con Discord-style (R4). Mặc định ['general']
+  createdAt: number
+  updatedAt: number
+}
+
 export type Persona = {
   id: string
   name: string

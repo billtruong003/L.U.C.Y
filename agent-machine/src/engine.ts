@@ -6,7 +6,7 @@ import { Budget } from './budget'
 import { makeWorkspace } from './workspace'
 import { post, threadOf } from './channels'
 import type { Runner } from './runner'
-import type { Card, Stage, Persona, RunResult } from './types'
+import type { Card, Stage, Persona, Project, RunResult } from './types'
 
 let _n = 0
 const uid = (p: string) => `${p}_${Date.now().toString(36)}${(_n++).toString(36)}`
@@ -44,9 +44,39 @@ export class Engine {
       cost: { usd: 0, inTok: 0, outTok: 0 }, history: [{ ts: Date.now(), stage: '-', event: deferred ? 'created-backlog' : 'created' }],
       createdAt: Date.now(), updatedAt: Date.now(),
     }
+    this.ensureProject(projectId) // card luôn thuộc 1 project có thật
     this.store.putCard(card)
     post(this.store, 'coordination', 'engine', 'system', `+ card "${title}" → pipeline ${pipelineId}${deferred ? ' (để sau)' : ''}`, id)
     return card
+  }
+
+  // ── PROJECT: container thật (repo + board + kênh + chat) ──
+  ensureProject(id: string): Project {
+    const ex = this.store.getProject(id)
+    if (ex) return ex
+    const p: Project = { id, name: id, channels: ['general'], createdAt: Date.now(), updatedAt: Date.now() }
+    this.store.putProject(p)
+    return p
+  }
+  createProject(name: string, opts: { repoUrl?: string; branch?: string; description?: string } = {}): Project {
+    const id = (name || '').trim() || 'default'
+    const ex = this.store.getProject(id)
+    const p: Project = ex
+      ? { ...ex, repoUrl: opts.repoUrl ?? ex.repoUrl, branch: opts.branch ?? ex.branch, description: opts.description ?? ex.description }
+      : { id, name: id, repoUrl: opts.repoUrl, branch: opts.branch, description: opts.description, channels: ['general'], createdAt: Date.now(), updatedAt: Date.now() }
+    this.store.putProject(p)
+    if (!ex) post(this.store, 'coordination', 'engine', 'system', `📁 dự án mới: "${id}"${opts.repoUrl ? ' (repo thật)' : ''}`)
+    return p
+  }
+  removeProject(id: string): boolean {
+    // chỉ xoá project rỗng (không còn card) — tránh mồ côi card
+    if (this.store.listCards().some((c) => (c.projectId || 'default') === id)) return false
+    return this.store.deleteProject(id)
+  }
+  // backfill: mọi projectId trên card phải có Project entity (migration cho card cũ)
+  private backfillProjects() {
+    const have = new Set(this.store.listProjects().map((p) => p.id))
+    for (const c of this.store.listCards()) { const pid = c.projectId || 'default'; if (!have.has(pid)) { this.ensureProject(pid); have.add(pid) } }
   }
 
   // defer/backlog: card 'backlog' KHÔNG được dispatch -> bấm "Chạy" mới vào hàng.
@@ -125,6 +155,7 @@ export class Engine {
   recover(): number {
     this.pending = []
     this.inFlight.clear()
+    this.backfillProjects() // card cũ -> đảm bảo có Project entity
     let n = 0
     for (const c of this.store.listCards()) {
       if (c.status === 'working') {
