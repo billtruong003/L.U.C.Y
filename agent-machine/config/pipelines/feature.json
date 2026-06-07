@@ -1,0 +1,9 @@
+{
+  "id": "feature",
+  "name": "Feature (repo)",
+  "stages": [
+    { "id": "plan", "name": "Thiết kế cách làm", "personaId": "architect" },
+    { "id": "build", "name": "Code feature", "personaId": "builder" },
+    { "id": "review", "name": "Review & test", "personaId": "reviewer", "gate": true }
+  ]
+}
