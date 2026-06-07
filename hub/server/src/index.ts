@@ -275,6 +275,10 @@ app.get('/api/telemetry', (req, res) => {
   for (const it of integrations as any[]) {
     leaves.push({ id: it.id, label: it.label, zone: it.zone || 'z_dev', group: it.group || 'api', val: it.val || 8, active: false, status: it.status || 'planned' })
   }
+  // mỗi SCHEDULE/CRON = 1 node THẬT -> não lớn dần khi tạo thêm lịch (sáng ~8s khi vừa chạy)
+  for (const s of scheds) {
+    leaves.push({ id: 'sched_' + s.id, label: s.name, zone: 'z_dev', group: 'voice', val: 8, active: !!s.lastRun && Date.now() - (s.lastRun || 0) < 8000, status: 'live' })
+  }
 
   const nodes: any[] = [{ id: 'lucy', label: 'L.U.C.Y', group: 'core', val: 28, active: running.length > 0, status: 'live' }]
   const links: any[] = []

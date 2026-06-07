@@ -1,27 +1,87 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import SpriteText from 'three-spritetext'
 
-// ---- palette + layout ----
-// tông Iron Man: cyan ngả xanh lá
+// ════════════════════════════════════════════════════════════════════════
+//  Lucy Neural Core — plexus network sphere (giữa) + vành HUD sci-fi (ngoài)
+//  • Node data = chấm trên mặt cầu, nối nhau bằng lưới tam giác (plexus).
+//  • Core L.U.C.Y = lõi năng lượng ở tâm, sáng xuyên qua.
+//  • Vành HUD = SVG overlay nét, xoay nhiều lớp (arc-reactor frame).
+//  • Hover 1 chấm → phóng to + hiện thẻ nội dung (tên/loại/status/đang chạy).
+// ════════════════════════════════════════════════════════════════════════
+
+// ---- knobs (tinh chỉnh nhanh) ----
+const SPHERE_R = 46          // bán kính khối plexus (world)
+const CAM_Z = 210            // camera lùi xa -> khối vừa lọt lỗ HUD
+const DOT_BASE = 0.95        // bán kính chấm mặc định
+const KNN = 3                // mỗi chấm nối ~3 hàng xóm gần nhất
+
 const COLORS: Record<string, string> = {
   core: '#bff8ff', zone: '#9fe9ff', model: '#36d4d0', voice: '#41e3b0', channel: '#46c6ec', api: '#62e89a',
 }
 const col3 = (g: string) => new THREE.Color(COLORS[g] || '#7fb0d0')
-const RING = 78
-// pseudo-random ổn định theo chuỗi (FNV) -> [0,1)
 function hash01(s: string): number {
   let h = 2166136261
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619)
   return ((h >>> 0) % 1000000) / 1000000
 }
 
+// readout HUD: 4 zone chính + góc đặt text + helper cung tròn
+const ZONE_META = [
+  { id: 'z_agents', label: 'AGENTS', group: 'model' },
+  { id: 'z_channels', label: 'CHANNELS', group: 'channel' },
+  { id: 'z_money', label: 'MONEY', group: 'api' },
+  { id: 'z_dev', label: 'DEV', group: 'api' },
+]
+const ZONE_ANGLE: Record<string, number> = { z_agents: 210, z_channels: 330, z_money: 150, z_dev: 30 }
+const TOP = -Math.PI / 2
+const POL = (r: number, a: number): [number, number] => [500 + r * Math.cos(a), 500 + r * Math.sin(a)]
+const ARC = (r: number, a0: number, a1: number) => {
+  const [x0, y0] = POL(r, a0), [x1, y1] = POL(r, a1)
+  const large = a1 - a0 > Math.PI ? 1 : 0
+  return `M ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1}`
+}
+
 type GNode = { id: string; label: string; group: string; val: number; active?: boolean; load?: number; zone?: string; status?: string }
 type GLink = { source: string; target: string; active?: boolean; flow?: number }
 type Tele = { nodes: GNode[]; links: GLink[]; running: { model: string; prompt: string; elapsed: number }[] }
 
-// ---- GLSL: simplex noise 3D (Ashima) ----
+// ---- mock fallback (xem viz khi chưa có backend) ----
+const SAMPLE: Tele = {
+  running: [],
+  links: [],
+  nodes: [
+    { id: 'lucy', label: 'L.U.C.Y', group: 'core', val: 28, active: true, status: 'live' },
+    { id: 'z_agents', label: 'AGENTS', group: 'zone', val: 15, status: 'live' },
+    { id: 'z_channels', label: 'CHANNELS', group: 'zone', val: 15, status: 'live' },
+    { id: 'z_money', label: 'MONEY·DATA', group: 'zone', val: 15, status: 'live' },
+    { id: 'z_dev', label: 'DEV', group: 'zone', val: 15, status: 'live' },
+    { id: 'sonnet', label: 'Claude Sonnet', group: 'model', val: 13, zone: 'z_agents', active: true, status: 'live' },
+    { id: 'opus', label: 'Claude Opus', group: 'model', val: 13, zone: 'z_agents', status: 'live' },
+    { id: 'grok', label: 'Grok', group: 'model', val: 9, zone: 'z_agents', status: 'planned' },
+    { id: 'telegram', label: 'Telegram', group: 'channel', val: 10, zone: 'z_channels', status: 'live' },
+    { id: 'aki', label: 'Aki · Discord', group: 'channel', val: 10, zone: 'z_channels', status: 'live' },
+    { id: 'hub', label: 'Web Hub', group: 'channel', val: 11, zone: 'z_channels', active: true, status: 'live' },
+    { id: 'cmc', label: 'CoinMarketCap', group: 'api', val: 8, zone: 'z_money', status: 'planned' },
+    { id: 'gold', label: 'Gold XAU', group: 'api', val: 8, zone: 'z_money', status: 'planned' },
+    { id: 'research', label: 'Research Cron', group: 'api', val: 9, zone: 'z_money', status: 'planned' },
+    { id: 'github', label: 'GitHub', group: 'api', val: 8, zone: 'z_dev', status: 'planned' },
+    { id: 'hf', label: 'HuggingFace', group: 'api', val: 8, zone: 'z_dev', status: 'planned' },
+  ],
+}
+
+type Info = { nodes: GNode[]; zones: { id: string; label: string; group: string; n: number; active: number }[]; active: number; live: number; planned: number; total: number }
+function computeInfo(t: Tele): Info {
+  const surface = t.nodes.filter((n) => n.group !== 'core')
+  const zones = ZONE_META.map((z) => {
+    const kids = surface.filter((n) => n.zone === z.id)
+    return { ...z, n: kids.length, active: kids.filter((k) => k.active).length }
+  }).filter((z) => z.n > 0)
+  const planned = surface.filter((n) => n.status && n.status !== 'live').length
+  return { nodes: surface, zones, active: surface.filter((n) => n.active).length, planned, live: surface.length - planned, total: surface.length }
+}
+
+// ---- GLSL: simplex noise 3D (Ashima) + fbm ----
 const SNOISE = `
 vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x,289.0);}
 vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
@@ -45,9 +105,7 @@ float snoise(vec3 v){
   vec4 m=max(0.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0); m=m*m;
   return 42.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
 }`
-
-const FBM = `
-float fbm(vec3 p){ float a=0.5,s=0.0; for(int i=0;i<4;i++){ s+=a*snoise(p); p*=2.02; a*=0.5; } return s; }`
+const FBM = `float fbm(vec3 p){ float a=0.5,s=0.0; for(int i=0;i<4;i++){ s+=a*snoise(p); p*=2.02; a*=0.5; } return s; }`
 const ORB_VERT = `
 varying vec3 vN; varying vec3 vView; varying vec3 vPos;
 void main(){
@@ -56,33 +114,7 @@ void main(){
   vView = normalize(-mv.xyz); vPos = position;
   gl_Position = projectionMatrix*mv;
 }`
-const ORB_FRAG = SNOISE + FBM + `
-uniform vec3 uColor; uniform float uTime; uniform float uActive; uniform float uCore;
-varying vec3 vN; varying vec3 vView; varying vec3 vPos;
-void main(){
-  vec3 d = normalize(vPos);                                  // mẫu noise trên mặt cầu -> đều theo bán kính
-  float n  = fbm(d*3.2 + vec3(0.0,uTime*0.45,0.0));
-  float n2 = fbm(d*8.0 - vec3(uTime*0.35,0.0,uTime*0.2));
-  float e = (n*0.6 + n2*0.4)*0.5 + 0.5;
-  float fres = pow(1.0-max(dot(vN,vView),0.0), 2.0);
-  float pulse = 0.5+0.5*sin(uTime*2.2);
-  vec3 col = uColor*(0.12 + 0.95*e);                         // tương phản rõ -> thấy vân plasma
-  col += uColor*fres*(1.2 + uActive*1.6);
-  col += vec3(1.0)*fres*0.15;
-  col += smoothstep(0.74,0.96,n2)*0.7;                       // đốm sáng lấp lánh
-  float lum = 0.55 + uActive*(0.35+0.3*pulse);
-  gl_FragColor = vec4(col*lum, 1.0);
-}`
-const GLOW_FRAG = `
-uniform vec3 uColor; uniform float uActive; uniform float uTime;
-varying vec3 vN; varying vec3 vView; varying vec3 vPos;
-void main(){
-  float fres = pow(1.0-max(dot(vN,vView),0.0), 6.0);   // NÉT: rim mỏng sắc
-  float pulse = 0.5+0.5*sin(uTime*2.2);
-  float a = fres*(0.4 + uActive*(0.3+0.25*pulse));
-  gl_FragColor = vec4(uColor*1.15, a);
-}`
-// năng lượng volumetric: sáng giữa mờ rìa (cảm giác khối) + noise cuộn, additive
+// chấm/lõi năng lượng volumetric: sáng giữa mờ rìa + noise cuộn, additive
 const ENERGY_FRAG = SNOISE + FBM + `
 uniform vec3 uColor; uniform float uTime; uniform float uActive; uniform float uBoost; uniform float uSeed;
 varying vec3 vN; varying vec3 vView; varying vec3 vPos;
@@ -93,71 +125,65 @@ void main(){
   n = n*0.5+0.5;
   float core = pow(ndv, 1.2);
   float rim  = pow(1.0-ndv, 2.3);
-  float energy = 0.06 + core*(0.42 + 0.85*n) + rim*0.5;     // nền vừa -> nổi nhưng không cháy
-  float pulse = 0.82 + 0.18*sin(uTime*2.0 + uSeed*6.2831);  // breathing lệch pha mỗi node
-  energy *= (0.92 + uBoost*0.7 + uActive*0.75) * pulse;
+  float energy = 0.10 + core*(0.42 + 0.85*n) + rim*0.6;
+  float pulse = 0.82 + 0.18*sin(uTime*2.0 + uSeed*6.2831);
+  energy *= (0.92 + uBoost*0.7 + uActive*0.85) * pulse;
   vec3 col = uColor * energy;
-  col += vec3(1.0) * pow(n,3.0) * 0.2 * (core+0.2);
+  col += vec3(1.0) * pow(n,3.0) * 0.22 * (core+0.2);
   gl_FragColor = vec4(col, clamp(energy,0.0,1.0));
 }`
-const GLOW_VERT = ORB_VERT
-const LINK_VERT = `
-varying vec2 vUv;
-void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`
-const LINK_FRAG = `
-uniform vec3 uColor; uniform float uTime; uniform float uActive; uniform float uFlow; uniform float uSeed;
-varying vec2 vUv;
+// lõi L.U.C.Y: plasma cuộn chảy RÕ (domain warp), KHÔNG cháy trắng, không pulse chói
+const CORE_FRAG = SNOISE + FBM + `
+uniform vec3 uColor; uniform float uTime;
+varying vec3 vN; varying vec3 vView; varying vec3 vPos;
 void main(){
-  float base = 0.06;                                   // dây nổi nhẹ trên nền
-  float speed = (uActive>0.5 ? 1.2 + uFlow*0.5 : 0.55);
-  float amt   = (uActive>0.5 ? 1.2 : 0.45);            // idle VẪN có synapse chạy (firing nền)
-  // 2 hạt synapse lệch pha cho cảm giác xung liên tục
-  float p1 = fract(vUv.y*1.6 - uTime*speed - uSeed*3.1);
-  float p2 = fract(vUv.y*1.6 - uTime*speed - uSeed*3.1 + 0.5);
-  float bead = (smoothstep(0.0,0.10,p1)*smoothstep(0.36,0.10,p1) + 0.6*smoothstep(0.0,0.08,p2)*smoothstep(0.30,0.08,p2)) * amt;
-  float a = base + bead;
-  gl_FragColor = vec4(uColor*(0.45+bead), a);
+  vec3 d = normalize(vPos);
+  vec3 q = d*2.2;
+  // domain warp -> dòng plasma cuộn, thấy rõ chuyển động
+  vec3 w = vec3(
+    fbm(q + vec3(0.0, uTime*0.28, 0.0)),
+    fbm(q + vec3(5.2, uTime*0.22, 1.3)),
+    fbm(q + vec3(1.7, uTime*0.25, 8.3)));
+  float n   = fbm(q*1.5 + w*1.9 + vec3(0.0, uTime*0.32, 0.0)); n = n*0.5 + 0.5;
+  float fil = fbm(d*6.0 + w*2.2 - vec3(uTime*0.45));            // sợi sáng chạy ngang
+  float ndv = max(dot(normalize(vN), normalize(vView)), 0.0);
+  float rim = pow(1.0 - ndv, 2.0);
+  vec3 deep = uColor*0.30;
+  vec3 col  = mix(deep, uColor, smoothstep(0.22, 0.82, n));     // tối-sáng theo noise -> có chiều sâu
+  col += uColor * smoothstep(0.62, 0.95, fil) * 0.7;            // tia plasma chạy
+  col += vec3(0.65,0.92,1.0) * rim * 0.8;                       // rim năng lượng mảnh
+  col *= (0.42 + 0.58*n);                                       // KHÔNG đồng đều -> hết "khối cứng cheap"
+  float a = clamp(0.5 + n*0.42 + rim*0.5, 0.0, 1.0);
+  gl_FragColor = vec4(col, a);
 }`
 
-// ---- METAL bling (stylized: specular + highlight + rim + sweep óng ánh) ----
-const METAL_VERT = `
-varying vec3 vWN; varying vec3 vWP;
-void main(){ vWN=normalize(mat3(modelMatrix)*normal); vec4 wp=modelMatrix*vec4(position,1.0); vWP=wp.xyz; gl_Position=projectionMatrix*viewMatrix*wp; }`
-const METAL_FRAG = SNOISE + FBM + `
-uniform vec3 uBase; uniform vec3 uSpec; uniform vec3 uHigh; uniform vec3 uRim; uniform vec3 uLight; uniform float uTime; uniform float uBoost; uniform float uActive;
-varying vec3 vWN; varying vec3 vWP;
-void main(){
-  vec3 N=normalize(vWN); vec3 V=normalize(cameraPosition-vWP); vec3 L=normalize(uLight);
-  vec3 d = normalize(vWP);
-  float ndv=max(dot(N,V),0.0);
-  float marb = fbm(d*4.0)*0.10;
-  float spec=smoothstep(0.48+marb,0.60+marb,ndv);
-  vec3 H=normalize(V+L);
-  float hi=smoothstep(0.85,0.93,max(dot(N,H),0.0));
-  float rim=pow(1.0-ndv,2.4);
-  float spark=smoothstep(0.74,0.97, fbm(d*16.0 + uTime*0.7));
-  float sweep=0.5+0.5*sin(atan(d.z,d.x)*4.0 + uTime*1.5);
-  vec3 col=mix(uBase,uSpec,spec);
-  col+=uHigh*hi*(1.5+uBoost*0.7);
-  col+=uRim*rim*0.85;
-  col+=uSpec*(sweep*0.35 + spark*(1.4+uBoost*1.1));
-  col*= (1.0 + uBoost*0.3 + uActive*0.5);                 // active/lõi sáng hơn
-  gl_FragColor=vec4(col,1.0);
-}`
+// Fibonacci sphere — rải đều điểm trên mặt cầu
+function fibSphere(i: number, n: number): THREE.Vector3 {
+  const ga = Math.PI * (3 - Math.sqrt(5))
+  const y = 1 - (i / Math.max(1, n - 1)) * 2
+  const rr = Math.sqrt(Math.max(0, 1 - y * y))
+  const phi = i * ga
+  return new THREE.Vector3(Math.cos(phi) * rr, y, Math.sin(phi) * rr)
+}
+
+type Hover = { label: string; group: string; status: string; active: boolean; load: number; x: number; y: number } | null
 
 export default function BrainViz({ visible }: { visible: boolean }) {
   const mountRef = useRef<HTMLDivElement>(null)
   const [running, setRunning] = useState<Tele['running']>([])
-  const R = useRef<any>({})   // three refs giữ qua render
+  const [hover, setHover] = useState<Hover>(null)
+  const [mock, setMock] = useState(false)
+  const [info, setInfo] = useState<Info>({ nodes: [], zones: [], active: 0, live: 0, planned: 0, total: 0 })
+  const R = useRef<any>({})
 
-  // init three một lần
+  // ---- init three (1 lần) ----
   useEffect(() => {
     const mount = mountRef.current
     if (!mount) return
     const scene = new THREE.Scene()
-    scene.fog = new THREE.FogExp2(0x060912, 0.0016)
-    const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 4000)
-    camera.position.set(0, 95, 165)
+    scene.fog = new THREE.FogExp2(0x05070e, 0.0014)
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 4000)
+    camera.position.set(0, 0, CAM_Z)
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
     renderer.domElement.style.display = 'block'
@@ -165,51 +191,48 @@ export default function BrainViz({ visible }: { visible: boolean }) {
     renderer.setSize(iw0, ih0); camera.aspect = iw0 / ih0; camera.updateProjectionMatrix()
     mount.appendChild(renderer.domElement)
     const controls = new OrbitControls(camera, renderer.domElement)
-    controls.enableDamping = true; controls.autoRotate = true; controls.autoRotateSpeed = 0.45
-    controls.enablePan = false; controls.minDistance = 70; controls.maxDistance = 480
+    controls.enableDamping = true; controls.autoRotate = false
+    controls.enablePan = false; controls.minDistance = 165; controls.maxDistance = 300; controls.zoomSpeed = 0.7
 
-    // sao nền
-    const N = 1300, pos = new Float32Array(N * 3)
-    for (let i = 0; i < N * 3; i++) pos[i] = (Math.random() - 0.5) * 2200
-    const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-    scene.add(new THREE.Points(sg, new THREE.PointsMaterial({ color: 0x5f9fd0, size: 1.4, transparent: true, opacity: 0.4, sizeAttenuation: true })))
-    // (không khung cầu — node tự rải trong khối không gian như cụm thiên thạch)
+    // ── nền: nhiều sao bay flow (3 lớp parallax, additive glow) ──
+    const mkStars = (n: number, spread: number, size: number, op: number, color: number) => {
+      const a = new Float32Array(n * 3); for (let i = 0; i < n * 3; i++) a[i] = (Math.random() - 0.5) * spread
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(a, 3))
+      const pts = new THREE.Points(g, new THREE.PointsMaterial({ color, size, transparent: true, opacity: op, sizeAttenuation: true, depthWrite: false, blending: THREE.AdditiveBlending }))
+      scene.add(pts); return pts
+    }
+    const stars1 = mkStars(1500, 3000, 1.1, 0.35, 0x6f9fcf)  // xa, mờ
+    const stars2 = mkStars(900, 2000, 1.7, 0.5, 0x8fc4ee)    // giữa
+    const stars3 = mkStars(420, 1150, 2.5, 0.7, 0xcdecff)    // gần, sáng
 
-    R.current = { scene, camera, renderer, controls, nodes: new Map(), links: new Map(), labels: new Map(), tmats: [], topo: '', clock: new THREE.Clock() }
+    const globe = new THREE.Group()           // khối plexus tự xoay
+    scene.add(globe)
 
-    // render loop
-    let raf = 0
-    const tmp = new THREE.Vector3(); const dir = new THREE.Vector3(); const UP = new THREE.Vector3(0, 1, 0)
+    R.current = { scene, camera, renderer, controls, globe, dots: new Map(), tmats: [], topo: '', clock: new THREE.Clock(), hoverId: null, edgeMat: null, stars1, stars2, stars3 }
+
+    // ---- render loop ----
+    const tmpW = new THREE.Vector3()
     const tick = () => {
-      raf = requestAnimationFrame(tick)
+      R.current.raf = requestAnimationFrame(tick)
       const r = R.current
       if (!r.visible) return
       const t = r.clock.getElapsedTime()
       for (const m of r.tmats) m.uniforms.uTime.value = t
-      // physics bouncy: lò xo về home + trôi sin nhẹ; kéo thả -> nảy về
-      if (r.home) {
-        for (const [id, g] of r.nodes) {
-          const pos = r.pos.get(id), home = r.home.get(id), ph = r.phase.get(id) || 0
-          if (id !== r.dragId && pos && home) {
-            const amp = id === r.coreId ? 1.6 : 3.6   // trôi nhẹ, tần số thấp
-            tmp.set(home.x + Math.sin(t * 0.5 + ph) * amp, home.y + Math.cos(t * 0.42 + ph) * amp, home.z + Math.sin(t * 0.6 + ph) * amp)
-            pos.lerp(tmp, 0.08)   // ease mượt -> hết jitter, kéo thả về cũng êm
-          }
-          if (pos) g.position.copy(pos)
-          const lbl = r.labels.get(id); if (lbl && pos) lbl.position.set(pos.x, pos.y + (r.rad.get(id) || 6) + 6, pos.z)
-        }
-        for (const lr of r.linkRefs) {
-          const a = r.pos.get(lr.a), b = r.pos.get(lr.b); if (!a || !b) continue
-          dir.subVectors(b, a); const len = dir.length() || 0.001
-          lr.mesh.position.copy(a).addScaledVector(dir, 0.5)         // xoay cylinder sẵn -> KHÔNG tạo geometry mỗi frame
-          lr.mesh.quaternion.setFromUnitVectors(UP, dir.normalize())
-          lr.mesh.scale.set(1, len, 1)
-        }
+      if (r.stars1) { r.stars1.rotation.y = t * 0.006; r.stars1.rotation.x = t * 0.003 }
+      if (r.stars2) { r.stars2.rotation.y = -t * 0.012; r.stars2.rotation.x = t * 0.004 }
+      if (r.stars3) r.stars3.rotation.y = t * 0.022
+      if (r.edgeMat) r.edgeMat.opacity = 0.12 + 0.05 * Math.sin(t * 1.4)
+      globe.rotation.y = t * 0.12
+      globe.rotation.x = Math.sin(t * 0.18) * 0.18
+      // hover: lerp scale chấm + cập nhật vị trí thẻ
+      for (const [id, d] of r.dots) {
+        const target = id === r.hoverId ? d.hoverScale : 1
+        d.mesh.scale.lerp(tmpW.set(target, target, target), 0.18)
       }
       controls.update()
       renderer.render(scene, camera)
     }
-    raf = requestAnimationFrame(tick)
+    R.current.raf = requestAnimationFrame(tick)
 
     const ro = new ResizeObserver(() => {
       const w = mount.clientWidth, h = mount.clientHeight
@@ -218,163 +241,222 @@ export default function BrainViz({ visible }: { visible: boolean }) {
     })
     ro.observe(mount)
 
-    // ---- kéo node (raycast) — dây thẳng tự nối lại ----
+    // ---- hover (raycast) ----
     const ray = new THREE.Raycaster(); const ndc = new THREE.Vector2()
-    let drag: { id: string; plane: THREE.Plane } | null = null
-    const setNdc = (e: PointerEvent) => {
+    const onMove = (e: PointerEvent) => {
+      const r = R.current; if (!r.visible || r.dragging || !r.dotPick?.length) return
       const b = renderer.domElement.getBoundingClientRect()
       ndc.set(((e.clientX - b.left) / b.width) * 2 - 1, -((e.clientY - b.top) / b.height) * 2 + 1)
+      ray.setFromCamera(ndc, camera)
+      const hits = ray.intersectObjects(r.dotPick, false)
+      const id = hits.length ? r.dots.get(hits[0].object.userData.id) ? hits[0].object.userData.id : null : null
+      if (id !== r.hoverId) {
+        r.hoverId = id
+        const d = id && r.dots.get(id)
+        renderer.domElement.style.cursor = id ? 'pointer' : 'grab'
+        setHover(d ? { label: d.n.label, group: d.n.group, status: d.n.status || 'live', active: !!d.n.active, load: d.n.load || 0, x: 0, y: 0 } : null)
+      }
     }
-    const onDown = (e: PointerEvent) => {
-      const r = R.current; if (!r.visible || !r.orbPick) return
-      setNdc(e); ray.setFromCamera(ndc, camera)
-      const hits = ray.intersectObjects(r.orbPick.map((o: any) => o.mesh), false)
-      if (!hits.length) return
-      const id = r.orbPick.find((o: any) => o.mesh === hits[0].object)?.id; if (!id) return
-      const n = new THREE.Vector3(); camera.getWorldDirection(n)
-      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n, r.pos.get(id).clone())
-      drag = { id, plane }; r.dragId = id; r.vel.get(id)?.set(0, 0, 0)
-      controls.enabled = false; r.autoSave = controls.autoRotate; controls.autoRotate = false
-    }
-    const onMove = (e: PointerEvent) => {
-      if (!drag) return; const r = R.current
-      setNdc(e); ray.setFromCamera(ndc, camera)
-      const hit = new THREE.Vector3()
-      if (ray.ray.intersectPlane(drag.plane, hit)) r.pos.get(drag.id)?.copy(hit)   // loop lo phần còn lại
-    }
-    const onUp = () => { if (drag) { R.current.dragId = null; drag = null; controls.enabled = true; controls.autoRotate = R.current.autoSave ?? true } }
+    const onLeave = () => { R.current.hoverId = null; setHover(null) }
+    // kéo/zoom -> tắt hover (đừng pop thẻ khi đang xoay)
+    const onDown = () => { R.current.dragging = true; if (R.current.hoverId) { R.current.hoverId = null; setHover(null) } }
+    const onUpW = () => { R.current.dragging = false }
+    renderer.domElement.addEventListener('pointermove', onMove)
+    renderer.domElement.addEventListener('pointerleave', onLeave)
     renderer.domElement.addEventListener('pointerdown', onDown)
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointerup', onUpW)
 
     return () => {
-      cancelAnimationFrame(raf); ro.disconnect()
+      cancelAnimationFrame(R.current.raf); ro.disconnect()
+      renderer.domElement.removeEventListener('pointermove', onMove)
+      renderer.domElement.removeEventListener('pointerleave', onLeave)
       renderer.domElement.removeEventListener('pointerdown', onDown)
-      window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointerup', onUpW)
       renderer.dispose(); mount.removeChild(renderer.domElement)
     }
   }, [])
 
-  // bật/tắt loop theo tab
   useEffect(() => { if (R.current) R.current.visible = visible }, [visible])
 
-  // poll telemetry
+  // ---- poll telemetry (mock fallback nếu fail) ----
   useEffect(() => {
     if (!visible) return
     let alive = true
     const pull = async () => {
       try {
-        const res = await fetch('/api/telemetry'); if (!res.ok) return
+        const res = await fetch('/api/telemetry'); if (!res.ok) throw 0
         const t: Tele = await res.json(); if (!alive) return
-        setRunning(t.running || []); sync(t)
-      } catch { /* */ }
+        setMock(false); setRunning(t.running || []); setInfo(computeInfo(t)); sync(t)
+      } catch {
+        if (!alive) return
+        setMock(true); setRunning([]); setInfo(computeInfo(SAMPLE)); sync(SAMPLE)
+      }
     }
     pull(); const iv = setInterval(pull, 1500)
     return () => { alive = false; clearInterval(iv) }
   }, [visible])
 
-  function posOf(nodes: GNode[]): Map<string, THREE.Vector3> {
-    const map = new Map<string, THREE.Vector3>()
-    map.set(nodes.find((n) => n.group === 'core')?.id || 'lucy', new THREE.Vector3(0, 0, 0))
-    // PHÂN VÙNG: zone toả quanh lõi, node con cụm quanh zone của nó
-    const zones = nodes.filter((n) => n.group === 'zone')
-    const Z = Math.max(1, zones.length); const ga = Math.PI * (3 - Math.sqrt(5))
-    const zoneAnchor = new Map<string, THREE.Vector3>()
-    zones.forEach((z, i) => {
-      const y = 1 - (i / Math.max(1, Z - 1)) * 2, rr = Math.sqrt(Math.max(0, 1 - y * y)), phi = i * ga
-      const v = new THREE.Vector3(Math.cos(phi) * rr, y, Math.sin(phi) * rr).multiplyScalar(RING * 0.55)
-      zoneAnchor.set(z.id, v); map.set(z.id, v)
-    })
-    for (const n of nodes) {
-      if (n.group === 'core' || n.group === 'zone') continue
-      const anchor = (n.zone && zoneAnchor.get(n.zone)) || new THREE.Vector3()
-      const u = hash01(n.id + 'x'), v = hash01(n.id + 'y'), w = hash01(n.id + 'z')
-      const theta = u * Math.PI * 2, phi = Math.acos(2 * v - 1), rad = RING * 0.32 * (0.4 + 0.6 * Math.cbrt(w))
-      const off = new THREE.Vector3(Math.sin(phi) * Math.cos(theta), Math.cos(phi), Math.sin(phi) * Math.sin(theta)).multiplyScalar(rad)
-      map.set(n.id, anchor.clone().add(off))
-    }
-    return map
-  }
-
+  // ---- dựng/đồng bộ khối plexus ----
   function sync(t: Tele) {
-    const r = R.current; if (!r?.scene) return
-    const topo = t.nodes.map((n) => n.id).sort().join(',') + '|' + t.links.map((l) => l.source + '>' + l.target).sort().join(',')
-    const P = posOf(t.nodes)
-
+    const r = R.current; if (!r?.globe) return
+    const topo = t.nodes.map((n) => n.id + (n.status || '')).sort().join(',')
     if (topo !== r.topo) {
       r.topo = topo
-      // dọn cũ
-      for (const o of r.nodes.values()) r.scene.remove(o)
-      for (const o of r.links.values()) r.scene.remove(o)
-      for (const o of r.labels.values()) r.scene.remove(o)
-      r.nodes.clear(); r.links.clear(); r.labels.clear(); r.tmats = []
-      r.pos = new Map(); r.home = new Map(); r.vel = new Map(); r.phase = new Map()
-      r.orbPick = []; r.linkRefs = []; r.rad = new Map(); r.coreId = 'lucy'
+      for (const c of [...r.globe.children]) r.globe.remove(c)
+      r.dots = new Map(); r.dotPick = []; r.tmats = []
 
-      for (const n of t.nodes) {
-        const isCore = n.group === 'core'
-        const isZone = n.group === 'zone'
-        const planned = !!n.status && n.status !== 'live'   // idea/roadmap -> mờ + wireframe
-        if (isCore) r.coreId = n.id
-        const c = col3(n.group); const rad = Math.cbrt(n.val || 8) * 1.7 * (isCore ? 1.7 : isZone ? 1.18 : 1) * (planned ? 0.85 : 1)
-        const anchor = (P.get(n.id) || new THREE.Vector3()).clone()
-        const p = isCore ? anchor.clone() : anchor.clone().multiplyScalar(0.12)   // bung ra = nảy
-        r.home.set(n.id, anchor); r.pos.set(n.id, p); r.vel.set(n.id, new THREE.Vector3())
-        r.phase.set(n.id, hash01(n.id) * Math.PI * 2); r.rad.set(n.id, rad)
-        const g = new THREE.Group(); g.position.copy(p)
+      const surface = t.nodes.filter((n) => n.group !== 'core')
+      const core = t.nodes.find((n) => n.group === 'core')
+      const Reff = SPHERE_R * Math.cbrt(Math.max(6, surface.length) / 10)   // não LỚN DẦN theo số node (cron thêm node → to ra)
+      const positions: { id: string; p: THREE.Vector3 }[] = []
 
-        const orbColor = planned ? c.clone().multiplyScalar(0.72) : c.clone()
-        const orbMat = new THREE.ShaderMaterial({ vertexShader: ORB_VERT, fragmentShader: ENERGY_FRAG, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, uniforms: {
-          uColor: { value: orbColor }, uTime: { value: 0 }, uActive: { value: n.active ? 1 : 0 }, uBoost: { value: isCore ? 0.3 : isZone ? 0.12 : 0 }, uSeed: { value: hash01(n.id) } } })
-        const orbMesh = new THREE.Mesh(new THREE.SphereGeometry(rad, isCore ? 96 : 48, isCore ? 96 : 48), orbMat)
-        g.add(orbMesh)
-        const glowMat = new THREE.ShaderMaterial({ vertexShader: GLOW_VERT, fragmentShader: GLOW_FRAG, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide, uniforms: { uColor: { value: c.clone() }, uTime: { value: 0 }, uActive: { value: planned ? 0 : (isCore || isZone ? 1 : (n.active ? 1 : 0)) } } })
-        g.add(new THREE.Mesh(new THREE.SphereGeometry(rad * 1.12, 32, 32), glowMat))
-        // node "idea/planned" -> wireframe blueprint
-        if (planned) {
-          g.add(new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.SphereGeometry(rad * 1.02, 12, 9)), new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: 0.32 })))
+      // chấm bề mặt — rải Fibonacci, jitter nhẹ theo hash cho tự nhiên
+      surface.forEach((n, i) => {
+        const dir = fibSphere(i, surface.length)
+        const jit = 1 + (hash01(n.id) - 0.5) * 0.12
+        const p = dir.multiplyScalar(Reff * jit)
+        positions.push({ id: n.id, p })
+        const planned = !!n.status && n.status !== 'live'
+        const c = planned ? col3(n.group).multiplyScalar(0.7) : col3(n.group)
+        const rad = DOT_BASE * (0.8 + Math.cbrt(n.val || 8) * 0.34) * (planned ? 0.85 : 1)
+        const mat = new THREE.ShaderMaterial({
+          vertexShader: ORB_VERT, fragmentShader: ENERGY_FRAG, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+          uniforms: { uColor: { value: c }, uTime: { value: 0 }, uActive: { value: n.active ? 1 : 0 }, uBoost: { value: 0 }, uSeed: { value: hash01(n.id) } },
+        })
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(rad, 18, 18), mat)
+        mesh.position.copy(p); mesh.userData.id = n.id
+        r.globe.add(mesh); r.tmats.push(mat)
+        r.dots.set(n.id, { mesh, mat, n, hoverScale: 2.4 }); r.dotPick.push(mesh)
+      })
+
+      // lưới plexus — nối ~KNN hàng xóm gần nhất, lưới tam giác
+      const segs: number[] = []; const seen = new Set<string>()
+      for (let i = 0; i < positions.length; i++) {
+        const near = positions.map((q, j) => ({ j, d: positions[i].p.distanceTo(q.p) })).filter((o) => o.j !== i).sort((a, b) => a.d - b.d)
+        for (let k = 0; k < Math.min(KNN, near.length); k++) {
+          const j = near[k].j; const key = i < j ? `${i}-${j}` : `${j}-${i}`
+          if (seen.has(key)) continue; seen.add(key)
+          segs.push(positions[i].p.x, positions[i].p.y, positions[i].p.z, positions[j].p.x, positions[j].p.y, positions[j].p.z)
         }
-        r.scene.add(g); r.nodes.set(n.id, g); r.tmats.push(orbMat, glowMat)
-        ;(g as any).__mats = { orb: orbMat, glow: glowMat }
-        r.orbPick.push({ mesh: orbMesh, id: n.id })
-
-        const label = new SpriteText(n.label)
-        label.color = isZone ? '#dff6ff' : planned ? '#7f97ac' : '#cfe6f5'
-        label.textHeight = isCore ? 5.5 : isZone ? 4.8 : n.val > 12 ? 3.6 : 3
-        ;(label.material as THREE.Material).depthWrite = false
-        label.position.copy(p).add(new THREE.Vector3(0, rad + 6, 0))
-        r.scene.add(label); r.labels.set(n.id, label)
       }
-      for (const l of t.links) {
-        const geo = new THREE.CylinderGeometry(0.22, 0.22, 1, 6, 1, true)   // unit cylinder, xoay mỗi frame
-        const mat = new THREE.ShaderMaterial({ vertexShader: LINK_VERT, fragmentShader: LINK_FRAG, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, uniforms: { uColor: { value: col3(t.nodes.find((n) => n.id === l.target)?.group || 'model') }, uTime: { value: 0 }, uActive: { value: l.active ? 1 : 0 }, uFlow: { value: l.flow || 0 }, uSeed: { value: hash01(l.source + '>' + l.target) } } })
-        const mesh = new THREE.Mesh(geo, mat)
-        r.scene.add(mesh); r.links.set(l.source + '>' + l.target, mesh); r.tmats.push(mat)
-        r.linkRefs.push({ a: l.source, b: l.target, mesh })
+      const eg = new THREE.BufferGeometry(); eg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(segs), 3))
+      const edgeMat = new THREE.LineBasicMaterial({ color: 0x3fd3ff, transparent: true, opacity: 0.15, blending: THREE.AdditiveBlending, depthWrite: false })
+      r.edgeMat = edgeMat
+      r.globe.add(new THREE.LineSegments(eg, edgeMat))
+
+      // lõi L.U.C.Y ở tâm
+      if (core) {
+        const coreCol = new THREE.Color('#46d8ff')
+        const cMat = new THREE.ShaderMaterial({
+          vertexShader: ORB_VERT, fragmentShader: CORE_FRAG, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+          uniforms: { uColor: { value: coreCol }, uTime: { value: 0 } },
+        })
+        const cMesh = new THREE.Mesh(new THREE.SphereGeometry(Reff * 0.26, 64, 64), cMat)
+        cMesh.userData.id = core.id
+        r.globe.add(cMesh); r.tmats.push(cMat)
+        r.dots.set(core.id, { mesh: cMesh, mat: cMat, n: core, hoverScale: 1.2 }); r.dotPick.push(cMesh)
       }
     }
     // cập nhật active (không rebuild)
     for (const n of t.nodes) {
-      const g = r.nodes.get(n.id)
-      if (g?.__mats) {
-        const planned = !!n.status && n.status !== 'live'
-        if (g.__mats.orb.uniforms.uActive) g.__mats.orb.uniforms.uActive.value = n.active ? 1 : 0
-        g.__mats.glow.uniforms.uActive.value = planned ? 0 : (n.group === 'core' || n.group === 'zone' ? 1 : (n.active ? 1 : 0))
-      }
-    }
-    for (const l of t.links) {
-      const m = r.links.get(l.source + '>' + l.target) as any
-      if (m) { m.material.uniforms.uActive.value = l.active ? 1 : 0; m.material.uniforms.uFlow.value = l.flow || 0 }
+      const d = r.dots.get(n.id)
+      if (d?.mat?.uniforms?.uActive && n.group !== 'core') d.mat.uniforms.uActive.value = n.active ? 1 : 0
     }
   }
 
+  // viền HUD — vạch tick sinh động trình
+  const ticks = (r: number, count: number, len: number, w = 1) =>
+    Array.from({ length: count }, (_, i) => {
+      const a = (i / count) * Math.PI * 2
+      return <line key={i} x1={500 + Math.cos(a) * r} y1={500 + Math.sin(a) * r} x2={500 + Math.cos(a) * (r - len)} y2={500 + Math.sin(a) * (r - len)} stroke="#3fd3ff" strokeWidth={w} />
+    })
+
   return (
-    <div ref={mountRef} className="relative h-full w-full overflow-hidden" style={{ background: 'radial-gradient(120% 120% at 50% 46%, #0b1322 0%, #070b14 55%, #05070d 100%)' }}>
-      <div className="absolute top-3 left-4 pointer-events-none select-none">
-        <div className="text-cyan tracking-[0.3em] text-sm" style={{ fontFamily: 'Orbitron, sans-serif', textShadow: '0 0 12px rgba(63,211,255,.6)' }}>NEURAL CORE</div>
-        <div className="text-[11px] mt-1" style={{ color: running.length ? '#7fe6b0' : '#5b7287' }}>
-          {running.length ? `⚡ ${running.length} luồng đang chạy` : '○ idle — chờ lệnh'}
-        </div>
+    <div ref={mountRef} className="relative h-full w-full overflow-hidden"
+      style={{ background: 'radial-gradient(120% 120% at 50% 46%, #0b1322 0%, #070b14 55%, #05070d 100%)', cursor: 'grab' }}>
+
+      {/* ── VÀNH HUD: vòng MỎNG + thông tin THẬT (không filler) ── */}
+      <svg viewBox="-130 -130 1260 1260" preserveAspectRatio="xMidYMid meet"
+        className="absolute inset-0 w-full h-full pointer-events-none select-none">
+        {/* vòng ngoài mảnh — texture xoay chậm, nét nhỏ */}
+        <g style={{ transformOrigin: '500px 500px', animation: 'lucy-spin 120s linear infinite' }}>
+          <circle cx="500" cy="500" r="478" fill="none" stroke="#3fd3ff" strokeWidth="0.7" opacity="0.22" />
+          {ticks(478, 120, 6, 0.7)}
+        </g>
+
+        {/* SPIKES chỉa ra ngoài — pulsing lệch pha (vòng quay rất chậm cho có hồn) */}
+        <g style={{ transformOrigin: '500px 500px', animation: 'lucy-spin 240s linear infinite' }}>
+          {Array.from({ length: 60 }, (_, i) => {
+            const a = (i / 60) * Math.PI * 2
+            const long = i % 5 === 0
+            const [x1, y1] = POL(488, a)
+            const [x2, y2] = POL(488 + (long ? 32 : 16), a)
+            return <line key={`spk${i}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#3fd3ff" strokeWidth={long ? 2 : 1} strokeLinecap="round"
+              style={{ animation: 'brain-spike 2.6s ease-in-out infinite', animationDelay: `${(i % 12) * 0.12}s` }} />
+          })}
+        </g>
+
+        {/* INFO — cung sáng = tỉ lệ node ĐANG ACTIVE / tổng */}
+        <circle cx="500" cy="500" r="458" fill="none" stroke="#214a5e" strokeWidth="2.5" opacity="0.4" />
+        {info.active > 0 && (
+          <path d={ARC(458, TOP, TOP + Math.min(0.999, info.active / Math.max(1, info.total)) * Math.PI * 2)}
+            fill="none" stroke="#5fe6ff" strokeWidth="3" strokeLinecap="round" strokeDasharray="3 13"
+            style={{ filter: 'drop-shadow(0 0 5px #3fd3ff)', animation: 'brain-flow 0.9s linear infinite' }} />
+        )}
+
+        {/* INFO — mỗi VẠCH = 1 node thật (màu theo loại, dài+sáng = active) */}
+        {info.nodes.map((n, i) => {
+          const a = TOP + (i / Math.max(1, info.nodes.length)) * Math.PI * 2
+          const planned = !!n.status && n.status !== 'live'
+          const len = n.active ? 20 : 11
+          const [x1, y1] = POL(432, a); const [x2, y2] = POL(432 - len, a)
+          return <line key={n.id} x1={x1} y1={y1} x2={x2} y2={y2} stroke={COLORS[n.group] || '#3fd3ff'}
+            strokeWidth={n.active ? 2.4 : 1.1} opacity={n.active ? 1 : planned ? 0.3 : 0.6} />
+        })}
+        <circle cx="500" cy="500" r="432" fill="none" stroke="#3fd3ff" strokeWidth="0.6" opacity="0.2" />
+        <circle cx="500" cy="500" r="408" fill="none" stroke="#3fd3ff" strokeWidth="0.5" opacity="0.14" />
+
+        {/* vành mịn trong — texture xoay nhẹ, nét nhỏ */}
+        <g style={{ transformOrigin: '500px 500px', animation: 'lucy-spin 52s linear infinite reverse' }}>
+          <circle cx="500" cy="500" r="330" fill="none" stroke="#3fd3ff" strokeWidth="0.7" opacity="0.2" />
+          {ticks(328, 80, 12, 0.8)}
+        </g>
+
+        {/* INFO — readout SỐ thật (đếm theo zone, live/planned) */}
+        {info.zones.map((z) => {
+          const a = (ZONE_ANGLE[z.id] ?? 0) * Math.PI / 180
+          const [x, y] = POL(462, a)
+          return (
+            <g key={z.id} style={{ fontFamily: '"Share Tech Mono", monospace' }}>
+              <text x={x} y={y} textAnchor="middle" fontSize="20" fill={COLORS[z.group] || '#9fe9ff'} opacity="0.92">{z.label}</text>
+              <text x={x} y={y + 19} textAnchor="middle" fontSize="15" fill="#9fb4c9">{z.active > 0 ? `${z.active}/${z.n} ⚡` : `${z.n}`}</text>
+            </g>
+          )
+        })}
+        <text x="500" y="966" textAnchor="middle" fontSize="15" fill="#5e748b" style={{ fontFamily: '"Share Tech Mono", monospace' }}>
+          LIVE {info.live} · PLANNED {info.planned}{mock ? ' · preview' : ''}
+        </text>
+      </svg>
+
+      {/* ── VÙNG INFO top-center: default = tổng quan, hover = chi tiết node ── */}
+      <div className="absolute left-1/2 -translate-x-1/2 top-5 z-20 pointer-events-none select-none text-center">
+        {hover ? (
+          <div key={hover.label}>
+            <div className="text-[15px] font-semibold tracking-wide" style={{ color: COLORS[hover.group] || '#cfe6f5', fontFamily: 'Orbitron, sans-serif', textShadow: `0 0 12px ${(COLORS[hover.group] || '#3fd3ff')}88` }}>{hover.label}</div>
+            <div className="text-[11px] mt-1 flex items-center justify-center gap-2" style={{ color: '#9fb4c9' }}>
+              <span>{hover.group}</span>
+              <span style={{ color: hover.active ? '#5fe39a' : hover.status === 'planned' ? '#5e748b' : '#7fb0d0' }}>{hover.active ? '⚡ active' : hover.status === 'planned' ? '○ planned' : '· live'}</span>
+              {hover.load > 0 && <span style={{ color: '#62e89a' }}>load {hover.load}</span>}
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div className="text-cyan tracking-[0.3em] text-sm" style={{ fontFamily: 'Orbitron, sans-serif', textShadow: '0 0 12px rgba(63,211,255,.6)' }}>NEURAL CORE</div>
+            <div className="text-[11px] mt-1" style={{ color: running.length ? '#7fe6b0' : '#5b7287' }}>
+              {info.total} nodes · {info.active} active · {running.length} running{mock ? ' · preview' : ''}
+            </div>
+          </div>
+        )}
       </div>
       <div className="absolute bottom-3 left-4 right-4 flex flex-col gap-1 pointer-events-none">
         {running.slice(0, 4).map((j, i) => (
