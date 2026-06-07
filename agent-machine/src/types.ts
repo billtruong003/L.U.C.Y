@@ -30,6 +30,7 @@ export type Persona = {
   model: 'sonnet' | 'opus'
   allowedTools?: string[] // least-privilege (FS defense)
   timeoutSec?: number
+  maxTurns?: number // số turn claude -p được phép (cho agent tự iterate sâu)
 }
 
 export type CardStatus = 'backlog' | 'queued' | 'working' | 'waiting_human' | 'blocked' | 'done' | 'failed'
@@ -50,6 +51,7 @@ export type Card = {
   pendingQuestion?: string
   modelOverride?: 'sonnet' | 'opus' // ép model cho CARD này (đè model mặc định của persona) — orchestrator/bạn chọn
   reviewNotes?: string[] // feedback khi bạn TRẢ LẠI ở gate -> chèn vào prompt cho agent sửa
+  lastSummary?: string // báo cáo bước TRƯỚC -> agent bước sau đọc để nối mạch (D4)
   cost: Cost
   stageVisits?: Record<string, number> // loop-breaker: đếm số lần vào mỗi stage
   artifacts?: { files?: string[]; diffstat?: string; stage?: string; isRepo?: boolean } // báo cáo: file đã tạo/đổi ở stage gần nhất
@@ -58,7 +60,7 @@ export type Card = {
   updatedAt: number
 }
 
-export type Decision = 'advance' | 'done' | 'needs_decision' | 'delegate' | 'fail'
+export type Decision = 'advance' | 'done' | 'needs_decision' | 'delegate' | 'fail' | 'rework'
 export type Outcome = {
   decision: Decision
   summary: string

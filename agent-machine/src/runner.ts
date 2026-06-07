@@ -30,10 +30,11 @@ const OUTCOME_CONTRACT = `
 QUY TẮC KẾT THÚC (BẮT BUỘC): bạn chỉ đang làm 1 BƯỚC trong quy trình nhiều bước. Làm xong phần việc của
 BƯỚC HIỆN TẠI thì kết thúc câu trả lời bằng ĐÚNG MỘT khối JSON (không thêm chữ nào sau nó):
 \`\`\`json
-{"decision":"advance|needs_decision|delegate|fail","summary":"tóm tắt 1 câu","question":"(chỉ khi needs_decision)"}
+{"decision":"advance|rework|needs_decision|delegate|fail","summary":"tóm tắt 1 câu","question":"(chỉ khi needs_decision)"}
 \`\`\`
 - "advance" = xong việc bước này, CHUYỂN sang bước kế (DÙNG mặc định khi hoàn thành tốt — KHÔNG tự kết thúc cả quy trình).
-- "needs_decision" = cần người quyết · "delegate" = nhờ persona khác · "fail" = thất bại.`
+- "rework" = (review/test) PHÁT HIỆN LỖI / CHƯA ĐẠT → TRẢ LẠI bước trước sửa. BẮT BUỘC liệt kê vấn đề cụ thể (file:dòng + cách sửa) trong summary.
+- "needs_decision" = cần người quyết · "delegate" = nhờ persona khác · "fail" = hỏng nặng không cứu được.`
 
 // HOUSE_SKILL — kỷ luật kỹ sư UNIVERSAL gắn cho MỌI persona (chắt từ bộ SKILL.md chuẩn
 // của Bill: arena-server/arena-unity + SOUL Hermes). Phần identity/domain riêng nằm ở persona.
@@ -67,11 +68,13 @@ export class ClaudeRunner implements Runner {
   async run(card: Card, stage: Stage, persona: Persona, ws: string): Promise<RunResult> {
     const personaFile = path.join(ws, '.persona.md')
     fs.writeFileSync(personaFile, persona.systemPrompt + HOUSE_SKILL + OUTCOME_CONTRACT)
-    const notes = card.reviewNotes?.length ? `\n\n⚠️ PHẢN HỒI cần SỬA (bạn bị trả lại từ review — fix kỹ những điểm này):\n- ${card.reviewNotes.join('\n- ')}` : ''
-    const prompt = `Card: ${card.title}\n\n${card.brief}\n\nStage: ${stage.name}.${notes}`
+    const notes = card.reviewNotes?.length ? `\n\n⚠️ PHẢN HỒI cần SỬA (bị trả lại — fix kỹ những điểm này):\n- ${card.reviewNotes.join('\n- ')}` : ''
+    const prev = card.lastSummary ? `\n\n↪ Bước TRƯỚC đã làm: ${card.lastSummary}\n(đọc kết quả bước trước trong workspace, nối tiếp — đừng làm lại từ đầu.)` : ''
+    const prompt = `Card: ${card.title}\n\n${card.brief}\n\nStage hiện tại: ${stage.name}.${prev}${notes}`
     const args = [
       '-p', prompt, '--output-format', 'json', '--permission-mode', 'bypassPermissions',
       '--model', persona.model, '--append-system-prompt-file', personaFile,
+      '--max-turns', String(persona.maxTurns ?? 40), // cho agent tự iterate sâu (đọc→sửa→test→fix)
       '--allowedTools', (persona.allowedTools ?? ['Read', 'Write', 'Edit', 'Bash']).join(','),
     ]
     const raw = await new Promise<string>((resolve) => {

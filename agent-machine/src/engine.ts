@@ -308,8 +308,10 @@ export class Engine {
     const base = stage ? this.store.personas.get(stage.personaId) : undefined
     if (!pipe || !stage || !base) { this.inFlight.delete(j.id); c.status = 'failed'; this.store.putCard(c); return null }
     const proj = this.store.getProject(c.projectId)
-    // model override + SKILL dự án -> nhồi vào persona (clone, không mutate gốc)
-    let persona = c.modelOverride ? { ...base, model: c.modelOverride } : base
+    // model: override per-card NHƯNG không HẠ CẤP stage mạnh — reviewer/architect default opus thì GIỮ opus
+    // (chống "coder sonnet review chính mình"). Override chỉ nâng sonnet->opus, không hạ opus->sonnet.
+    const model = c.modelOverride ? (base.model === 'opus' ? 'opus' : c.modelOverride) : base.model
+    let persona = model !== base.model ? { ...base, model } : base
     if (proj?.skill) persona = { ...persona, systemPrompt: persona.systemPrompt + `\n\n--- SKILL DỰ ÁN "${proj.name}" ---\n${proj.skill}` }
     // repo: nếu project có repoUrl -> worker clone & làm việc trong repo thật (R2)
     const repo = proj?.repoUrl ? { url: proj.repoUrl, branch: proj.branch, projectId: proj.id } : undefined
@@ -333,6 +335,7 @@ export class Engine {
     post(this.store, threadOf(c.id), persona.name, 'status', result.outcome.summary, c.id)
     c.history.push({ ts: Date.now(), stage: stage.id, event: result.outcome.decision, detail: result.outcome.summary })
     if (result.artifacts) c.artifacts = { ...result.artifacts, stage: stage.id } // V1: báo cáo đổi gì
+    c.lastSummary = result.outcome.summary // D4: bước sau đọc được bước trước đã làm gì
 
     // guardrail: per-card cost cap
     if (c.cost.usd >= this.perCardMaxUsd) {
@@ -353,6 +356,16 @@ export class Engine {
           this.store.putCard(c)
         } else this.advanceCard(c)
         break
+      case 'rework': { // D3: review/test phát hiện lỗi -> tự trả về bước trước sửa (loop tới khi đạt; loop-breaker chặn vô hạn)
+        c.reviewNotes = (c.reviewNotes || []).concat(result.outcome.summary)
+        c.stageIndex = Math.max(0, c.stageIndex - 1)
+        c.status = 'queued'
+        const back = pipe.stages[c.stageIndex]
+        c.history.push({ ts: Date.now(), stage: back.id, event: 'rework', detail: result.outcome.summary })
+        post(this.store, threadOf(c.id), persona.name, 'handoff', `↩ REWORK → "${back.name}": ${result.outcome.summary}`, c.id)
+        this.store.putCard(c)
+        break
+      }
       case 'needs_decision':
         c.status = 'waiting_human'
         c.pendingQuestion = result.outcome.question ?? result.outcome.summary

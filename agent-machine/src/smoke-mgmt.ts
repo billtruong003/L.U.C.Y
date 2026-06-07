@@ -68,6 +68,18 @@ async function main() {
   check('persona gốc KHÔNG bị đổi (clone, không mutate)', store.personas.get('eng')!.model === 'sonnet')
   check('project KHÔNG repo -> claim.repo undefined', spec?.repo === undefined)
 
+  // ── D1: override KHÔNG hạ cấp stage opus (reviewer/architect) — engine riêng để khỏi bẩn state ──
+  const d1 = path.join(process.cwd(), '.smoke-d1'); clean(d1)
+  const d1store = new Store(d1)
+  d1store.registerPersona({ id: 'rev', name: 'Rev', systemPrompt: 'r', model: 'opus' })
+  d1store.registerPipeline({ id: 'rv', name: 'Rv', stages: [{ id: 'r', name: 'R', personaId: 'rev' }] })
+  const d1eng = new Engine(d1store, new MockRunner({}), new Budget({ windowMs: 5 * 3600e3, capUsd: 99 }), { maxLanes: 2 })
+  const dc = d1eng.createCard('downgrade?', 'b', 'rv', undefined, 0, 'default', false, 'sonnet')
+  d1eng.tick()
+  const dsp = d1eng.claim()
+  check('override sonnet KHÔNG hạ reviewer opus -> giữ opus', dsp?.persona.model === 'opus', `(got ${dsp?.persona.model})`)
+  clean(d1)
+
   // ── PROJECT first-class ──
   const pj = engine.createProject('Game ABC', { repoUrl: 'https://github.com/x/abc' })
   check('createProject lưu repoUrl', store.getProject('Game ABC')?.repoUrl === 'https://github.com/x/abc')
@@ -123,6 +135,23 @@ async function main() {
   check('flow giữ gate đúng', store.pipelines.get('my-flow')!.stages[1].gate === true)
   check('upsertPipeline bỏ stage persona không tồn tại -> null', engine.upsertPipeline({ name: 'Bad', stages: [{ name: 'x', personaId: 'nope' }] }) === null)
   check('deletePipeline xoá flow tự tạo', engine.deletePipeline('my-flow') === true && store.pipelines.get('my-flow') === undefined)
+
+  // ── D3/D4: rework -> card về bước trước + reviewNotes; lastSummary set ──
+  const rk = path.join(process.cwd(), '.smoke-rework'); clean(rk)
+  const rkStore = new Store(rk)
+  rkStore.registerPersona({ id: 'eng', name: 'E', systemPrompt: 'x', model: 'sonnet' })
+  rkStore.registerPipeline({ id: 'br', name: 'BR', stages: [{ id: 'b', name: 'Build', personaId: 'eng' }, { id: 'r', name: 'Review', personaId: 'eng' }] })
+  const rkRunner = new MockRunner({ b: { decision: 'advance', summary: 'đã build' }, r: { decision: 'rework', summary: 'lỗi X ở foo.ts:10' } } as Record<string, Outcome>)
+  const rkEng = new Engine(rkStore, rkRunner, new Budget({ windowMs: 5 * 3600e3, capUsd: 99 }), { maxLanes: 2 })
+  const rkc = rkEng.createCard('feat', 'b', 'br')
+  rkEng.tick(); await rkEng.drainLocal()
+  check('build advance -> sang stage review', rkStore.getCard(rkc.id)!.stageIndex === 1)
+  check('lastSummary set sau build (D4)', rkStore.getCard(rkc.id)!.lastSummary === 'đã build')
+  rkEng.tick(); await rkEng.drainLocal()
+  const rkAfter = rkStore.getCard(rkc.id)!
+  check('rework -> về lại stage build (index 0)', rkAfter.stageIndex === 0, `(got ${rkAfter.stageIndex})`)
+  check('rework ghi reviewNotes', (rkAfter.reviewNotes || []).some((n) => n.includes('lỗi X')))
+  clean(rk)
 
   // ── O2: lease — card 'working' treo quá lâu -> đưa lại hàng ──
   const ls = path.join(process.cwd(), '.smoke-lease'); clean(ls)
