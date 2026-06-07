@@ -24,10 +24,14 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
   const server = http.createServer(async (req, res) => {
     const send = (code: number, obj: unknown) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)) }
     const url = (req.url || '').split('?')[0]
-    // auth token cho endpoint worker (worker gửi header x-worker-token)
-    if (opts.token && url.startsWith('/worker') && req.headers['x-worker-token'] !== opts.token) return send(401, { error: 'bad token' })
+    // auth token cho endpoint worker + config admin (gửi header x-worker-token)
+    if (opts.token && (url.startsWith('/worker') || url === '/config') && req.headers['x-worker-token'] !== opts.token) return send(401, { error: 'bad token' })
     try {
       if (req.method === 'POST' && url === '/tick') return send(200, { did: engine.tick() })
+      if (url === '/config') {
+        if (req.method === 'POST') { const b = await readBody(req); engine.setLimits(b) }
+        return send(200, engine.limits()) // GET hoặc POST đều trả limits hiện tại (dynamic)
+      }
       if (req.method === 'POST' && url === '/worker/claim') { const j = engine.claim(); return send(200, { job: j ? serializeJob(j) : null }) }
       if (req.method === 'POST' && url === '/worker/result') { const b = await readBody(req); engine.submit(b.jobId, b.result); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/card') { const b = await readBody(req); return send(200, { card: engine.createCard(b.title, b.brief, b.pipelineId) }) }

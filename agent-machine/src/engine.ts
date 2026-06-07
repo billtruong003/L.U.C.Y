@@ -71,6 +71,15 @@ export class Engine {
     this.store.putCard(c)
   }
 
+  // chỉnh giới hạn LÚC ĐANG CHẠY (dynamic): tăng/giảm queue width, cost cap...
+  setLimits(p: { maxLanes?: number; perCardMaxUsd?: number; maxDepth?: number; maxStageVisits?: number }) {
+    if (p.maxLanes != null) this.maxLanes = Math.max(1, Math.floor(p.maxLanes))
+    if (p.perCardMaxUsd != null) this.perCardMaxUsd = p.perCardMaxUsd
+    if (p.maxDepth != null) this.maxDepth = Math.max(0, Math.floor(p.maxDepth))
+    if (p.maxStageVisits != null) this.maxStageVisits = Math.max(1, Math.floor(p.maxStageVisits))
+  }
+  limits() { return { maxLanes: this.maxLanes, perCardMaxUsd: this.perCardMaxUsd, maxDepth: this.maxDepth, maxStageVisits: this.maxStageVisits, queued: this.store.listCards().filter((c) => c.status === 'queued').length, inFlight: this.inFlight.size } }
+
   private working(): number { return this.inFlight.size }
 
   // ── DISPATCH: tìm card actionable -> đẩy vào queue (mark working). KHÔNG chạy ở đây. ──

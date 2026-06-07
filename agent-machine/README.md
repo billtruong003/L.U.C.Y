@@ -40,8 +40,12 @@ AM_TOKEN=<secret> AM_PORT=8780 AM_DATA=~/.agent-machine npm run coordinator
 AM_COORD_URL=http://<vps-ip>:8780 AM_TOKEN=<secret> AM_RUNNER=claude npm run worker
 ```
 Coordinator giữ board/queue/channels (KHÔNG spawn claude). Worker claim job qua HTTP → chạy
-`claude -p` trên máy local → submit kết quả. Máy local tắt → card xếp hàng; bật → worker hút tiếp.
+`claude -p` trên máy local → submit kết quả. Máy local tắt → **VPS worker (cap 2) gánh**; bật → worker nặng hút bulk.
 `AM_RUNNER=mock` (mặc định) để test đường truyền không đốt token. `npm run smoke:remote` kiểm topology.
+
+**Queue dynamic + stacking:** mỗi worker chạy `AM_WORKER_CONCURRENCY` claude -p song song. Khi cap đầy,
+việc mới **xếp hàng (`queued`) chạy sau — KHÔNG bị bỏ**. Chỉnh queue width LÚC ĐANG CHẠY:
+`POST /config {"maxLanes":N}` (header `x-worker-token`); `GET /config` xem hiện tại + số `queued`/`inFlight`.
 
 ## Cấu trúc
 ```
