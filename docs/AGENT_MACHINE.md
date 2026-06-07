@@ -129,6 +129,8 @@ Sau đó MÁY LOCAL của tôi chạy worker NẶNG (bulk dev):
 (local tắt → VPS worker cap 2 vẫn gánh cron + fallback.)
 ````
 
-## 9. Trạng thái (cập nhật 2026-06-07)
-- ✅ Engine queue (dispatch/claim/submit) + 6 guardrail · config-là-data · **coordinator↔worker dial-out HTTP** (tested 2 process).
-- ⏳ Tiếp: Postgres + pg-boss + DBOS (durable) · git worktree + restricted user (FS defense đầy đủ) · wire hub UI (Board + Channels).
+## 9. Trạng thái (cập nhật 2026-06-08)
+- ✅ Engine queue (dispatch/claim/submit) + 6 guardrail · config-là-data · coordinator↔worker dial-out + concurrency cap (VPS cap 2 fallback) · FS blast-radius.
+- ✅ **Durable single-node**: atomic snapshot (tmp+rename) + **crash recovery** (card 'working' mồ côi → queued lại khi restart). Đủ cho 1 VPS — giống store file WAL+snapshot của radiant-bot. Postgres+pg-boss+DBOS = để dành khi **multi-node/scale** (chưa cần, tránh over-engineer trên box 2GB).
+- ✅ Hub UI: Board (Kanban + drawer chi tiết + duyệt) + Channels (hội thoại agent) + project scoping; font Space Grotesk.
+- ⏳ Tiếp: **deploy VPS** (coordinator + vps-worker cap 2) · ClaudeRunner → git worktree + Claude deny-hook (enforce FS đầy đủ, cần claude thật để test).

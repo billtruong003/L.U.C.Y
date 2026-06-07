@@ -80,6 +80,24 @@ export class Engine {
   }
   limits() { return { maxLanes: this.maxLanes, perCardMaxUsd: this.perCardMaxUsd, maxDepth: this.maxDepth, maxStageVisits: this.maxStageVisits, queued: this.store.listCards().filter((c) => c.status === 'queued').length, inFlight: this.inFlight.size } }
 
+  // crash recovery: card 'working' (đã dispatch nhưng mất kết quả khi restart) -> queued lại.
+  // Cards persist trong store; status là source-of-truth -> gate/blocked/done resume tự nhiên sau restart.
+  recover(): number {
+    this.pending = []
+    this.inFlight.clear()
+    let n = 0
+    for (const c of this.store.listCards()) {
+      if (c.status === 'working') {
+        c.status = 'queued'
+        c.history.push({ ts: Date.now(), stage: '-', event: 'recovered' })
+        this.store.putCard(c)
+        n++
+      }
+    }
+    if (n) post(this.store, 'coordination', 'engine', 'system', `♻ recovery: ${n} card 'working' mồ côi → queued lại`)
+    return n
+  }
+
   private working(): number { return this.inFlight.size }
 
   // ── DISPATCH: tìm card actionable -> đẩy vào queue (mark working). KHÔNG chạy ở đây. ──

@@ -23,7 +23,12 @@ export class Store {
       for (const c of arr) this.cards.set(c.id, c)
     } catch { /* fresh */ }
   }
-  private saveCards() { fs.writeFileSync(this.cardsFile(), JSON.stringify([...this.cards.values()], null, 2)) }
+  // atomic: ghi tmp rồi rename -> crash giữa chừng không hỏng cards.json
+  private saveCards() {
+    const tmp = this.cardsFile() + '.tmp'
+    fs.writeFileSync(tmp, JSON.stringify([...this.cards.values()], null, 2))
+    fs.renameSync(tmp, this.cardsFile())
+  }
 
   putCard(c: Card) { c.updatedAt = Date.now(); this.cards.set(c.id, c); this.saveCards() }
   getCard(id: string) { return this.cards.get(id) }
