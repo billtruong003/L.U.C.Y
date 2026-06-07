@@ -18,7 +18,7 @@ export type Persona = {
   timeoutSec?: number
 }
 
-export type CardStatus = 'queued' | 'working' | 'waiting_human' | 'blocked' | 'done' | 'failed'
+export type CardStatus = 'backlog' | 'queued' | 'working' | 'waiting_human' | 'blocked' | 'done' | 'failed'
 export type Cost = { usd: number; inTok: number; outTok: number }
 
 export type Card = {

@@ -10,6 +10,7 @@
     "smoke:fs": "tsx src/smoke-fs.ts",
     "smoke:conc": "tsx src/smoke-conc.ts",
     "smoke:recover": "tsx src/smoke-recover.ts",
+    "smoke:mgmt": "tsx src/smoke-mgmt.ts",
     "test:blog": "tsx src/test-blog.ts",
     "coordinator": "tsx src/coordinator-main.ts",
     "worker": "tsx src/worker-main.ts",

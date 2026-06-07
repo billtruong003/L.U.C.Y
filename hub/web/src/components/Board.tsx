@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { amState, amSetLanes, amCreateCard, amApprove, amReject, type AmCard, type AmPipeline, type AmPersona } from '../api'
+import { amState, amSetLanes, amCreateCard, amApprove, amReject, amRemoveCard, amActivate, type AmCard, type AmPipeline, type AmPersona } from '../api'
 
 const STATUS: Record<string, { label: string; color: string; icon: string }> = {
+  backlog: { label: 'ĐỂ SAU', color: '#8aa0b5', icon: '🕓' },
   queued: { label: 'XẾP HÀNG', color: '#9fb4c9', icon: '◦' },
   working: { label: 'ĐANG CHẠY', color: '#3fd3ff', icon: '⏳' },
   waiting_human: { label: 'CHỜ BẠN DUYỆT', color: '#ff5d9e', icon: '⛔' },
@@ -9,8 +10,8 @@ const STATUS: Record<string, { label: string; color: string; icon: string }> = {
   done: { label: 'XONG', color: '#5fe39a', icon: '✓' },
   failed: { label: 'LỖI', color: '#ff6b6b', icon: '✕' },
 }
-const ORDER = ['queued', 'working', 'waiting_human', 'blocked', 'done', 'failed']
-const EVENT_ICON: Record<string, string> = { created: '✚', 'enter-stage': '→', advance: '↑', done: '🏁', delegate: '📨', needs_decision: '⛔', fail: '✕', 'reject-rework': '↩', recovered: '♻' }
+const ORDER = ['backlog', 'queued', 'working', 'waiting_human', 'blocked', 'done', 'failed']
+const EVENT_ICON: Record<string, string> = { created: '✚', 'created-backlog': '🕓', activated: '▶', 'enter-stage': '→', advance: '↑', done: '🏁', delegate: '📨', needs_decision: '⛔', fail: '✕', 'reject-rework': '↩', recovered: '♻' }
 
 export default function Board() {
   const [cards, setCards] = useState<AmCard[]>([])
@@ -20,7 +21,7 @@ export default function Board() {
   const [cfgState, setCfgState] = useState<'ok' | 'unconfigured' | 'offline'>('ok')
   const [sel, setSel] = useState<string | null>(null)
   const [proj, setProj] = useState('all')
-  const [form, setForm] = useState({ title: '', brief: '', pipeline: 'course', project: '', open: false })
+  const [form, setForm] = useState({ title: '', brief: '', pipeline: 'course', project: '', defer: false, open: false })
   const [lanes, setLanes] = useState('')
   const busy = useRef(false)
 
@@ -46,9 +47,11 @@ export default function Board() {
   const waiting = shown.filter((c) => c.status === 'waiting_human')
   const selected = cards.find((c) => c.id === sel) || null
 
-  const create = async () => { if (!form.title.trim()) return; const pj = form.project.trim() || (proj !== 'all' ? proj : 'default'); await amCreateCard(form.title.trim(), form.brief.trim(), form.pipeline.trim() || 'course', pj); setForm({ ...form, title: '', brief: '', open: false }); pull() }
+  const create = async () => { if (!form.title.trim()) return; const pj = form.project.trim() || (proj !== 'all' ? proj : 'default'); await amCreateCard(form.title.trim(), form.brief.trim(), form.pipeline.trim() || 'course', pj, form.defer); setForm({ ...form, title: '', brief: '', open: false }); pull() }
   const approve = async (id: string) => { await amApprove(id); pull() }
   const reject = async (id: string, fb: string) => { await amReject(id, fb); pull() }
+  const remove = async (id: string) => { await amRemoveCard(id); setSel(null); pull() }
+  const activate = async (id: string) => { await amActivate(id); pull() }
   const setLanesNow = async () => { const n = Number(lanes); if (n >= 1) { await amSetLanes(n); pull() } }
 
   if (cfgState === 'unconfigured') return <Empty icon="📋" msg="Agent-Machine chưa cấu hình — đặt AM_COORD_URL + AM_TOKEN cho hub server." />
@@ -72,10 +75,16 @@ export default function Board() {
       {projects.length > 0 && (
         <div className="shrink-0 px-4 sm:px-5 py-2 border-b border-line flex items-center gap-1.5 overflow-x-auto">
           <span className="text-[10px] text-inkfaint tracking-[0.16em] shrink-0 mr-1">DỰ ÁN</span>
-          <button onClick={() => setProj('all')} className={'chip shrink-0 transition ' + (proj === 'all' ? '!text-cyan !border-cyan/50 bg-cyan/5' : 'hover:text-ink')}>Tất cả</button>
-          {projects.map((p) => (
-            <button key={p} onClick={() => setProj(p)} className={'chip shrink-0 transition ' + (proj === p ? '!text-cyan !border-cyan/50 bg-cyan/5' : 'hover:text-ink')}>{p}</button>
-          ))}
+          <button onClick={() => setProj('all')} className={'chip shrink-0 transition ' + (proj === 'all' ? '!text-cyan !border-cyan/50 bg-cyan/5' : 'hover:text-ink')}>Tất cả <span className="opacity-50 ml-0.5">{cards.length}</span></button>
+          {projects.map((p) => {
+            const n = cards.filter((c) => (c.projectId || 'default') === p).length
+            const act = cards.filter((c) => (c.projectId || 'default') === p && (c.status === 'working' || c.status === 'waiting_human')).length
+            return (
+              <button key={p} onClick={() => setProj(p)} className={'chip shrink-0 transition ' + (proj === p ? '!text-cyan !border-cyan/50 bg-cyan/5' : 'hover:text-ink')}>
+                {p} <span className="opacity-50 ml-0.5">{n}</span>{act > 0 && <span className="ml-1 text-cyan">●{act}</span>}
+              </button>
+            )
+          })}
         </div>
       )}
 
@@ -89,6 +98,9 @@ export default function Board() {
             {pipes.length === 0 && <option value="">(chưa có pipeline)</option>}
             {pipes.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
+          <label className="flex items-center gap-1.5 px-2 text-[12px] text-inkdim cursor-pointer select-none" title="Tạo nhưng KHÔNG chạy ngay — để backlog, khi nào muốn bấm Chạy">
+            <input type="checkbox" checked={form.defer} onChange={(e) => setForm({ ...form, defer: e.target.checked })} /> 🕓 để sau
+          </label>
           <button className="btn btn-primary" onClick={create}>Tạo</button>
         </div>
       )}
@@ -153,23 +165,34 @@ export default function Board() {
         </div>
 
         {/* detail drawer */}
-        {selected && <Detail c={selected} stage={stageOf(selected)} persona={personaOf(selected)} pipeName={pipeMap.get(selected.pipelineId)?.name} personaMap={personaMap} onClose={() => setSel(null)} onApprove={() => approve(selected.id)} onReject={(fb) => reject(selected.id, fb)} />}
+        {selected && <Detail c={selected} stage={stageOf(selected)} persona={personaOf(selected)} pipeName={pipeMap.get(selected.pipelineId)?.name} personaMap={personaMap} onClose={() => setSel(null)} onApprove={() => approve(selected.id)} onReject={(fb) => reject(selected.id, fb)} onRemove={() => remove(selected.id)} onActivate={() => activate(selected.id)} />}
       </div>
     </div>
   )
 }
 
-function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove, onReject }: { c: AmCard; stage: any; persona: any; pipeName?: string; personaMap: Map<string, AmPersona>; onClose: () => void; onApprove: () => void; onReject: (feedback: string) => void }) {
+function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove, onReject, onRemove, onActivate }: { c: AmCard; stage: any; persona: any; pipeName?: string; personaMap: Map<string, AmPersona>; onClose: () => void; onApprove: () => void; onReject: (feedback: string) => void; onRemove: () => void; onActivate: () => void }) {
   const [fb, setFb] = useState('')
+  const [confirmDel, setConfirmDel] = useState(false)
   const meta = STATUS[c.status]
   return (
     <div className="w-[330px] sm:w-[360px] shrink-0 border-l border-line bg-panel/40 backdrop-blur flex flex-col">
       <div className="h-12 shrink-0 flex items-center gap-2 px-4 border-b border-line">
         <span className="h-2 w-2 rounded-full" style={{ background: meta.color, boxShadow: `0 0 8px ${meta.color}` }} />
         <span className="display text-[12px] tracking-[0.14em]" style={{ color: meta.color }}>{meta.label}</span>
-        <button className="btn btn-icon !w-7 !h-7 ml-auto" onClick={onClose}>✕</button>
+        <button className="btn btn-icon !w-7 !h-7 ml-auto" title="Xoá card" onClick={() => setConfirmDel(true)}>🗑</button>
+        <button className="btn btn-icon !w-7 !h-7" onClick={onClose}>✕</button>
       </div>
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+        {confirmDel && (
+          <div className="rounded-xl border p-3" style={{ borderColor: '#ff6b6b66', background: '#ff6b6b12' }}>
+            <div className="text-[12.5px] text-ink mb-2">Xoá hẳn card <b>"{c.title}"</b>? Không hoàn tác.</div>
+            <div className="flex gap-2">
+              <button className="btn flex-1" style={{ borderColor: '#ff6b6b88', color: '#ff8a8a' }} onClick={onRemove}>🗑 Xoá thật</button>
+              <button className="btn flex-1" onClick={() => setConfirmDel(false)}>Huỷ</button>
+            </div>
+          </div>
+        )}
         <div className="text-[15px] font-semibold text-ink leading-tight">{c.title}</div>
         {c.brief && <div className="text-[12.5px] text-inkdim">{c.brief}</div>}
 
@@ -182,6 +205,11 @@ function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove, o
           {c.depth > 0 && <Field k="Delegate depth" v={String(c.depth)} />}
           {c.blockedBy?.length > 0 && <Field k="Đang chờ" v={`${c.blockedBy.length} việc con`} />}
         </div>
+
+        {/* backlog: để sau -> kích hoạt chạy */}
+        {c.status === 'backlog' && (
+          <button className="btn btn-primary w-full" onClick={onActivate}>▶ Chạy ngay (đang để sau)</button>
+        )}
 
         {/* khối DUYỆT — rõ ràng chỗ phải làm */}
         {c.status === 'waiting_human' && (

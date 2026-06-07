@@ -33,6 +33,7 @@ export class Store {
   putCard(c: Card) { c.updatedAt = Date.now(); this.cards.set(c.id, c); this.saveCards() }
   getCard(id: string) { return this.cards.get(id) }
   listCards() { return [...this.cards.values()] }
+  deleteCard(id: string): boolean { const ok = this.cards.delete(id); if (ok) this.saveCards(); return ok }
 
   registerPersona(p: Persona) { this.personas.set(p.id, p) }
   registerPipeline(p: Pipeline) { this.pipelines.set(p.id, p) }

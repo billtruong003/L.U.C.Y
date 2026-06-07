@@ -36,17 +36,38 @@ export class Engine {
     this.maxDepth = opts.maxDepth ?? 6
   }
 
-  createCard(title: string, brief: string, pipelineId: string, parentId?: string, depth = 0, projectId = 'default'): Card {
+  createCard(title: string, brief: string, pipelineId: string, parentId?: string, depth = 0, projectId = 'default', deferred = false): Card {
     const id = uid('card')
     const card: Card = {
-      id, title, brief, pipelineId, projectId, stageIndex: 0, status: 'queued',
+      id, title, brief, pipelineId, projectId, stageIndex: 0, status: deferred ? 'backlog' : 'queued',
       workspace: makeWorkspace(this.store.dir, id), parentId, depth, blockedBy: [],
-      cost: { usd: 0, inTok: 0, outTok: 0 }, history: [{ ts: Date.now(), stage: '-', event: 'created' }],
+      cost: { usd: 0, inTok: 0, outTok: 0 }, history: [{ ts: Date.now(), stage: '-', event: deferred ? 'created-backlog' : 'created' }],
       createdAt: Date.now(), updatedAt: Date.now(),
     }
     this.store.putCard(card)
-    post(this.store, 'coordination', 'engine', 'system', `+ card "${title}" → pipeline ${pipelineId}`, id)
+    post(this.store, 'coordination', 'engine', 'system', `+ card "${title}" → pipeline ${pipelineId}${deferred ? ' (để sau)' : ''}`, id)
     return card
+  }
+
+  // defer/backlog: card 'backlog' KHÔNG được dispatch -> bấm "Chạy" mới vào hàng.
+  activate(cardId: string) {
+    const c = this.store.getCard(cardId)
+    if (!c || c.status !== 'backlog') return
+    c.status = 'queued'
+    c.history.push({ ts: Date.now(), stage: '-', event: 'activated' })
+    post(this.store, threadOf(c.id), 'engine', 'system', `▶ kích hoạt "${c.title}" → vào hàng chạy`, c.id)
+    this.store.putCard(c)
+  }
+
+  // xoá card (rác/lỗi). Dọn luôn job đang chờ/bay của nó để không mồ côi.
+  removeCard(cardId: string): boolean {
+    const c = this.store.getCard(cardId)
+    if (!c) return false
+    this.pending = this.pending.filter((j) => j.cardId !== cardId)
+    for (const [jid, cid] of [...this.inFlight]) if (cid === cardId) this.inFlight.delete(jid)
+    const ok = this.store.deleteCard(cardId)
+    if (ok) post(this.store, 'coordination', 'engine', 'system', `🗑 xoá card "${c.title}"`, cardId)
+    return ok
   }
 
   approve(cardId: string) {
