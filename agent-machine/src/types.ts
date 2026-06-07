@@ -26,6 +26,7 @@ export type Card = {
   title: string
   brief: string
   pipelineId: string
+  projectId: string // 1 hệ chạy NHIỀU dự án — card thuộc 1 project
   stageIndex: number
   status: CardStatus
   workspace: string // dir cô lập (blast-radius)

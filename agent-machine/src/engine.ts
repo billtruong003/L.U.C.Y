@@ -36,10 +36,10 @@ export class Engine {
     this.maxDepth = opts.maxDepth ?? 6
   }
 
-  createCard(title: string, brief: string, pipelineId: string, parentId?: string, depth = 0): Card {
+  createCard(title: string, brief: string, pipelineId: string, parentId?: string, depth = 0, projectId = 'default'): Card {
     const id = uid('card')
     const card: Card = {
-      id, title, brief, pipelineId, stageIndex: 0, status: 'queued',
+      id, title, brief, pipelineId, projectId, stageIndex: 0, status: 'queued',
       workspace: makeWorkspace(this.store.dir, id), parentId, depth, blockedBy: [],
       cost: { usd: 0, inTok: 0, outTok: 0 }, history: [{ ts: Date.now(), stage: '-', event: 'created' }],
       createdAt: Date.now(), updatedAt: Date.now(),
@@ -188,7 +188,7 @@ export class Engine {
           break
         }
         const tgt = this.store.personas.get(d.personaId)
-        const child = this.createCard(d.title, d.brief, d.pipelineId ?? c.pipelineId, c.id, c.depth + 1)
+        const child = this.createCard(d.title, d.brief, d.pipelineId ?? c.pipelineId, c.id, c.depth + 1, c.projectId)
         c.blockedBy.push(child.id)
         c.status = 'blocked'
         // agent↔agent: người đang làm NHỜ persona khác (handoff thật, không phải log)

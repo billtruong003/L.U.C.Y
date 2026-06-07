@@ -30,9 +30,15 @@ const engine = new Engine(store, new MockRunner(script), new Budget({ windowMs: 
 startCoordinator(engine, store, PORT, { token: TOKEN, autoTickMs: 600 })
 console.log(`🌱 seed coordinator: http://127.0.0.1:${PORT}  (token=${TOKEN}) — đang chạy demo cards...`)
 
-// tạo card rải theo thời gian -> board nhiều trạng thái (working/gate/done)
-const titles = ['Course HTML cơ bản', 'Course CSS Flexbox', 'Course Vue căn bản']
-titles.forEach((t, i) => setTimeout(() => engine.createCard(t, 'Viết course + feature render web demo.', 'course'), 1000 + i * 2000))
+// tạo card rải theo thời gian, dưới NHIỀU dự án -> board scope theo project
+const demo: [string, string][] = [
+  ['Course HTML cơ bản', 'Portal học'],
+  ['Course CSS Flexbox', 'Portal học'],
+  ['Course Vue căn bản', 'Portal học'],
+  ['Refactor engine queue', 'Lucy core'],
+  ['Viết test coordinator', 'Lucy core'],
+]
+demo.forEach(([t, pj], i) => setTimeout(() => engine.createCard(t, 'Demo brief — viết + feature render web.', 'course', undefined, 0, pj), 1000 + i * 1500))
 
 // worker mock (cap 2) lái card chạy — KHÔNG đốt token
 runWorker(`http://127.0.0.1:${PORT}`, new MockRunner(script), { token: TOKEN, concurrency: 2, pollMs: 500 })

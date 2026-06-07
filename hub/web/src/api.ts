@@ -46,7 +46,7 @@ export async function jobs(): Promise<{ jobs: JobRow[] }> {
 
 // ---- Agent-Machine (Board + Channels) ----
 export type AmCard = {
-  id: string; title: string; brief: string; pipelineId: string; stageIndex: number
+  id: string; title: string; brief: string; pipelineId: string; projectId: string; stageIndex: number
   status: string; depth: number; blockedBy: string[]; pendingQuestion?: string
   parentId?: string; cost: { usd: number }
   history?: { ts: number; stage: string; event: string }[]
@@ -64,8 +64,8 @@ export async function amConfig(): Promise<{ configured: boolean; offline?: boole
 export async function amSetLanes(maxLanes: number) {
   const r = await fetch('/api/am/config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ maxLanes }) }); return r.json()
 }
-export async function amCreateCard(title: string, brief: string, pipelineId: string) {
-  const r = await fetch('/api/am/card', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, brief, pipelineId }) }); return r.json()
+export async function amCreateCard(title: string, brief: string, pipelineId: string, projectId: string) {
+  const r = await fetch('/api/am/card', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, brief, pipelineId, projectId }) }); return r.json()
 }
 export async function amApprove(cardId: string) {
   await fetch('/api/am/approve', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cardId }) })

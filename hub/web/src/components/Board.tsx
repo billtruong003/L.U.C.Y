@@ -19,7 +19,8 @@ export default function Board() {
   const [limits, setLimits] = useState<{ maxLanes?: number; queued?: number; inFlight?: number }>({})
   const [cfgState, setCfgState] = useState<'ok' | 'unconfigured' | 'offline'>('ok')
   const [sel, setSel] = useState<string | null>(null)
-  const [form, setForm] = useState({ title: '', brief: '', pipeline: 'course', open: false })
+  const [proj, setProj] = useState('all')
+  const [form, setForm] = useState({ title: '', brief: '', pipeline: 'course', project: '', open: false })
   const [lanes, setLanes] = useState('')
   const busy = useRef(false)
 
@@ -40,10 +41,12 @@ export default function Board() {
   const personaMap = useMemo(() => new Map(personas.map((p) => [p.id, p])), [personas])
   const stageOf = (c: AmCard) => pipeMap.get(c.pipelineId)?.stages[c.stageIndex]
   const personaOf = (c: AmCard) => { const st = stageOf(c); return st ? personaMap.get(st.personaId) : undefined }
-  const waiting = cards.filter((c) => c.status === 'waiting_human')
+  const projects = useMemo(() => [...new Set(cards.map((c) => c.projectId || 'default'))].sort(), [cards])
+  const shown = proj === 'all' ? cards : cards.filter((c) => (c.projectId || 'default') === proj)
+  const waiting = shown.filter((c) => c.status === 'waiting_human')
   const selected = cards.find((c) => c.id === sel) || null
 
-  const create = async () => { if (!form.title.trim()) return; await amCreateCard(form.title.trim(), form.brief.trim(), form.pipeline.trim() || 'course'); setForm({ ...form, title: '', brief: '', open: false }); pull() }
+  const create = async () => { if (!form.title.trim()) return; const pj = form.project.trim() || (proj !== 'all' ? proj : 'default'); await amCreateCard(form.title.trim(), form.brief.trim(), form.pipeline.trim() || 'course', pj); setForm({ ...form, title: '', brief: '', open: false }); pull() }
   const approve = async (id: string) => { await amApprove(id); pull() }
   const setLanesNow = async () => { const n = Number(lanes); if (n >= 1) { await amSetLanes(n); pull() } }
 
@@ -64,11 +67,23 @@ export default function Board() {
         <button className="btn btn-primary" onClick={() => setForm({ ...form, open: !form.open })}>{form.open ? 'Đóng' : '+ Card'}</button>
       </div>
 
+      {/* ── project selector (1 hệ, nhiều dự án) ── */}
+      {projects.length > 0 && (
+        <div className="shrink-0 px-4 sm:px-5 py-2 border-b border-line flex items-center gap-1.5 overflow-x-auto">
+          <span className="text-[10px] text-inkfaint tracking-[0.16em] shrink-0 mr-1">DỰ ÁN</span>
+          <button onClick={() => setProj('all')} className={'chip shrink-0 transition ' + (proj === 'all' ? '!text-cyan !border-cyan/50 bg-cyan/5' : 'hover:text-ink')}>Tất cả</button>
+          {projects.map((p) => (
+            <button key={p} onClick={() => setProj(p)} className={'chip shrink-0 transition ' + (proj === p ? '!text-cyan !border-cyan/50 bg-cyan/5' : 'hover:text-ink')}>{p}</button>
+          ))}
+        </div>
+      )}
+
       {/* ── create form ── */}
       {form.open && (
         <div className="shrink-0 px-4 sm:px-5 py-3 border-b border-line bg-panel/30 flex flex-col sm:flex-row gap-2">
           <input className="input sm:!w-56" placeholder="Tên việc…" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && create()} autoFocus />
           <input className="input flex-1" placeholder="Mô tả / brief…" value={form.brief} onChange={(e) => setForm({ ...form, brief: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && create()} />
+          <input className="input sm:!w-32" placeholder="dự án" value={form.project} onChange={(e) => setForm({ ...form, project: e.target.value })} />
           <input className="input sm:!w-32 mono" placeholder="pipeline" value={form.pipeline} onChange={(e) => setForm({ ...form, pipeline: e.target.value })} />
           <button className="btn btn-primary" onClick={create}>Tạo</button>
         </div>
@@ -97,7 +112,7 @@ export default function Board() {
         <div className="flex-1 min-w-0 overflow-x-auto p-3 sm:p-4">
           <div className="h-full grid grid-flow-col auto-cols-[minmax(230px,1fr)] gap-3">
             {ORDER.map((s) => {
-              const meta = STATUS[s]; const list = cards.filter((c) => c.status === s)
+              const meta = STATUS[s]; const list = shown.filter((c) => c.status === s)
               if (s === 'failed' && list.length === 0) return null
               return (
                 <div key={s} className="flex flex-col min-h-0">
@@ -154,6 +169,7 @@ function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove }:
         {c.brief && <div className="text-[12.5px] text-inkdim">{c.brief}</div>}
 
         <div className="grid grid-cols-2 gap-2 text-[11.5px]">
+          <Field k="Dự án" v={c.projectId} />
           <Field k="Pipeline" v={pipeName || c.pipelineId} />
           <Field k="Stage" v={stage ? `${stage.name}${stage.gate ? ' 🔒' : ''}` : `#${c.stageIndex}`} />
           <Field k="Agent" v={persona?.name || '—'} />

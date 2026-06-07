@@ -26,7 +26,7 @@ body {
 @keyframes brain-flow { to { stroke-dashoffset: -16; } }
 
 @layer components {
-  .display { font-family: Orbitron, sans-serif; }
+  .display { font-family: "Space Grotesk", sans-serif; letter-spacing: -0.01em; }
   .mono { font-family: "Share Tech Mono", ui-monospace, monospace; }
 
   .card {

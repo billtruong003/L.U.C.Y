@@ -442,7 +442,7 @@ export default function BrainViz({ visible }: { visible: boolean }) {
       <div className="absolute left-1/2 -translate-x-1/2 top-5 z-20 pointer-events-none select-none text-center">
         {hover ? (
           <div key={hover.label}>
-            <div className="text-[15px] font-semibold tracking-wide" style={{ color: COLORS[hover.group] || '#cfe6f5', fontFamily: 'Orbitron, sans-serif', textShadow: `0 0 12px ${(COLORS[hover.group] || '#3fd3ff')}88` }}>{hover.label}</div>
+            <div className="text-[15px] font-semibold tracking-wide" style={{ color: COLORS[hover.group] || '#cfe6f5', fontFamily: '"Space Grotesk", sans-serif', textShadow: `0 0 12px ${(COLORS[hover.group] || '#3fd3ff')}88` }}>{hover.label}</div>
             <div className="text-[11px] mt-1 flex items-center justify-center gap-2" style={{ color: '#9fb4c9' }}>
               <span>{hover.group}</span>
               <span style={{ color: hover.active ? '#5fe39a' : hover.status === 'planned' ? '#5e748b' : '#7fb0d0' }}>{hover.active ? '⚡ active' : hover.status === 'planned' ? '○ planned' : '· live'}</span>
@@ -451,7 +451,7 @@ export default function BrainViz({ visible }: { visible: boolean }) {
           </div>
         ) : (
           <div>
-            <div className="text-cyan tracking-[0.3em] text-sm" style={{ fontFamily: 'Orbitron, sans-serif', textShadow: '0 0 12px rgba(63,211,255,.6)' }}>NEURAL CORE</div>
+            <div className="text-cyan tracking-[0.3em] text-sm" style={{ fontFamily: '"Space Grotesk", sans-serif', textShadow: '0 0 12px rgba(63,211,255,.6)' }}>NEURAL CORE</div>
             <div className="text-[11px] mt-1" style={{ color: running.length ? '#7fe6b0' : '#5b7287' }}>
               {info.total} nodes · {info.active} active · {running.length} running{mock ? ' · preview' : ''}
             </div>

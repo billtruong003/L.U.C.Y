@@ -19,7 +19,7 @@ export default {
       fontFamily: {
         mono: ['"Share Tech Mono"', "ui-monospace", "monospace"],
         sans: ['Inter', "system-ui", "sans-serif"],
-        display: ['Orbitron', "sans-serif"],
+        display: ['"Space Grotesk"', "sans-serif"],
       },
       boxShadow: {
         glow: "0 0 22px rgba(63,211,255,0.18)",
