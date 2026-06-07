@@ -5,6 +5,7 @@
   "description": "Lucy Agent Machine — Kanban autonomous multi-agent engine (walking skeleton)",
   "scripts": {
     "demo": "tsx src/demo.ts",
+    "smoke": "tsx src/smoke.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

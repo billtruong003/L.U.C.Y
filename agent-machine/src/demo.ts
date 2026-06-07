@@ -36,8 +36,8 @@ const script: Record<string, Outcome> = {
   ship: { decision: 'advance', summary: 'Đã xuất bản course lên portal' },
 }
 
-const budget = new Budget({ windowMs: 5 * 3600 * 1000, capUsd: 5.0, softUsd: 3.0 }) // cửa 5h, cap $5
-const engine = new Engine(store, new MockRunner(script), budget, 3)
+const budget = new Budget({ windowMs: 5 * 3600 * 1000, capUsd: 5.0, softUsd: 3.0, weeklyMs: 7 * 24 * 3600 * 1000, weeklyCapUsd: 40 }) // cửa 5h + tuần
+const engine = new Engine(store, new MockRunner(script), budget, { maxLanes: 3, perCardMaxUsd: 5, maxStageVisits: 5 })
 
 function dump(tag: string) {
   console.log(`\n──────── ${tag} ────────`)

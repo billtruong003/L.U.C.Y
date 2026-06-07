@@ -9,7 +9,19 @@ durable infra thật (Postgres + pg-boss + DBOS) ở M2.1.
 cd lucy/agent-machine
 npm install
 npm run demo        # MockRunner — KHÔNG gọi claude, không tốn token
+npm run smoke       # smoke test có assertion (exit 1 nếu fail) — 13 check
+npm run typecheck   # tsc --noEmit
 ```
+
+## Guardrails (token + an toàn)
+- **Budget**: cộng dồn theo cửa **5h + tuần**, chạm cap → engine **PAUSE** (ngừng phát card).
+- **Per-card cost cap**: 1 card đốt quá ngưỡng → `waiting_human` (chờ duyệt).
+- **Depth-breaker**: delegate vòng quá sâu → HALT (chống đẻ card vô hạn).
+- **Workspace cô lập** mỗi card (→ git worktree ở M2.1) + path-guard.
+
+## Config-là-DATA (cửa extend)
+`config/personas/*.json` + `config/pipelines/*.json` → nạp bằng `loadConfig()`. Thêm persona/pipeline =
+thêm file, KHÔNG sửa engine. Lucy tự ghi file này từ prompt + ảnh (M2.6).
 
 ## Demo chứng minh (đúng ví dụ portal)
 `content soạn course → STUCK web không render → delegate sang engineer → HOLD →

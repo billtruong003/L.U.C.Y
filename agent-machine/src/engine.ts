@@ -15,20 +15,26 @@ export class Engine {
   runner: Runner
   budget: Budget
   maxLanes: number
+  perCardMaxUsd: number // guardrail: 1 card không được đốt quá ngần này
+  maxStageVisits: number // loop-breaker: 1 stage vào quá ngần này lần -> halt
+  maxDepth: number // depth-breaker: delegate sâu quá -> halt (chống delegate vô hạn)
   paused = false
 
-  constructor(store: Store, runner: Runner, budget: Budget, maxLanes = 3) {
+  constructor(store: Store, runner: Runner, budget: Budget, opts: { maxLanes?: number; perCardMaxUsd?: number; maxStageVisits?: number; maxDepth?: number } = {}) {
     this.store = store
     this.runner = runner
     this.budget = budget
-    this.maxLanes = maxLanes
+    this.maxLanes = opts.maxLanes ?? 3
+    this.perCardMaxUsd = opts.perCardMaxUsd ?? Infinity
+    this.maxStageVisits = opts.maxStageVisits ?? 5
+    this.maxDepth = opts.maxDepth ?? 6
   }
 
-  createCard(title: string, brief: string, pipelineId: string, parentId?: string): Card {
+  createCard(title: string, brief: string, pipelineId: string, parentId?: string, depth = 0): Card {
     const id = uid('card')
     const card: Card = {
       id, title, brief, pipelineId, stageIndex: 0, status: 'queued',
-      workspace: makeWorkspace(this.store.dir, id), parentId, blockedBy: [],
+      workspace: makeWorkspace(this.store.dir, id), parentId, depth, blockedBy: [],
       cost: { usd: 0, inTok: 0, outTok: 0 }, history: [{ ts: Date.now(), stage: '-', event: 'created' }],
       createdAt: Date.now(), updatedAt: Date.now(),
     }
@@ -90,6 +96,16 @@ export class Engine {
     const stage = pipe.stages[c.stageIndex]
     const persona = this.store.personas.get(stage.personaId)!
 
+    // guardrail: loop-breaker — stage vào quá nhiều lần -> halt
+    c.stageVisits = c.stageVisits || {}
+    c.stageVisits[stage.id] = (c.stageVisits[stage.id] || 0) + 1
+    if (c.stageVisits[stage.id] > this.maxStageVisits) {
+      c.status = 'failed'
+      post(this.store, threadOf(c.id), 'engine', 'system', `⛔ loop-breaker: stage "${stage.name}" chạy quá ${this.maxStageVisits} lần → HALT`, c.id)
+      this.store.putCard(c)
+      return
+    }
+
     c.status = 'working'
     this.store.putCard(c)
     post(this.store, threadOf(c.id), persona.name, 'status', `▶ ${persona.name} bắt đầu "${stage.name}"`, c.id)
@@ -101,6 +117,15 @@ export class Engine {
     this.store.appendLedger({ ts: Date.now(), cardId: c.id, stage: stage.id, persona: persona.id, ...res.cost })
     post(this.store, threadOf(c.id), persona.name, 'status', res.outcome.summary, c.id)
     c.history.push({ ts: Date.now(), stage: stage.id, event: res.outcome.decision, detail: res.outcome.summary })
+
+    // guardrail: per-card cost cap -> chặn lại hỏi người
+    if (c.cost.usd >= this.perCardMaxUsd) {
+      c.status = 'waiting_human'
+      c.pendingQuestion = `Card vượt cap chi phí $${this.perCardMaxUsd.toFixed(2)} (đã $${c.cost.usd.toFixed(3)}) — duyệt để chạy tiếp?`
+      post(this.store, threadOf(c.id), 'engine', 'decision', `⛔ COST CAP: ${c.pendingQuestion}`, c.id)
+      this.store.putCard(c)
+      return
+    }
 
     switch (res.outcome.decision) {
       case 'advance':
@@ -124,7 +149,13 @@ export class Engine {
         break
       case 'delegate': {
         const d = res.outcome.delegateTo!
-        const child = this.createCard(d.title, d.brief, d.pipelineId ?? c.pipelineId, c.id)
+        if (c.depth >= this.maxDepth) {
+          c.status = 'failed'
+          post(this.store, threadOf(c.id), 'engine', 'system', `⛔ depth-breaker: delegate quá sâu (depth ${c.depth} ≥ ${this.maxDepth}) → HALT`, c.id)
+          this.store.putCard(c)
+          break
+        }
+        const child = this.createCard(d.title, d.brief, d.pipelineId ?? c.pipelineId, c.id, c.depth + 1)
         c.blockedBy.push(child.id)
         c.status = 'blocked'
         post(this.store, threadOf(c.id), 'engine', 'system', `↪ delegate → ${child.id} ("${d.title}"); HOLD "${c.title}"`, c.id)

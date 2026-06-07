@@ -30,9 +30,11 @@ export type Card = {
   status: CardStatus
   workspace: string // dir cô lập (blast-radius)
   parentId?: string
+  depth: number // độ sâu delegate (root=0) — depth-breaker chống delegate vô hạn
   blockedBy: string[] // DAG: card này chờ các card này xong (hold/resume)
   pendingQuestion?: string
   cost: Cost
+  stageVisits?: Record<string, number> // loop-breaker: đếm số lần vào mỗi stage
   history: { ts: number; stage: string; event: string; detail?: string }[]
   createdAt: number
   updatedAt: number
