@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { amState, amSetLanes, amCreateCard, amApprove, type AmCard, type AmPipeline, type AmPersona } from '../api'
+import { amState, amSetLanes, amCreateCard, amApprove, amReject, type AmCard, type AmPipeline, type AmPersona } from '../api'
 
 const STATUS: Record<string, { label: string; color: string; icon: string }> = {
   queued: { label: 'XẾP HÀNG', color: '#9fb4c9', icon: '◦' },
@@ -10,7 +10,7 @@ const STATUS: Record<string, { label: string; color: string; icon: string }> = {
   failed: { label: 'LỖI', color: '#ff6b6b', icon: '✕' },
 }
 const ORDER = ['queued', 'working', 'waiting_human', 'blocked', 'done', 'failed']
-const EVENT_ICON: Record<string, string> = { created: '✚', 'enter-stage': '→', advance: '↑', done: '🏁', delegate: '📨', needs_decision: '⛔', fail: '✕' }
+const EVENT_ICON: Record<string, string> = { created: '✚', 'enter-stage': '→', advance: '↑', done: '🏁', delegate: '📨', needs_decision: '⛔', fail: '✕', 'reject-rework': '↩', recovered: '♻' }
 
 export default function Board() {
   const [cards, setCards] = useState<AmCard[]>([])
@@ -48,6 +48,7 @@ export default function Board() {
 
   const create = async () => { if (!form.title.trim()) return; const pj = form.project.trim() || (proj !== 'all' ? proj : 'default'); await amCreateCard(form.title.trim(), form.brief.trim(), form.pipeline.trim() || 'course', pj); setForm({ ...form, title: '', brief: '', open: false }); pull() }
   const approve = async (id: string) => { await amApprove(id); pull() }
+  const reject = async (id: string, fb: string) => { await amReject(id, fb); pull() }
   const setLanesNow = async () => { const n = Number(lanes); if (n >= 1) { await amSetLanes(n); pull() } }
 
   if (cfgState === 'unconfigured') return <Empty icon="📋" msg="Agent-Machine chưa cấu hình — đặt AM_COORD_URL + AM_TOKEN cho hub server." />
@@ -152,13 +153,14 @@ export default function Board() {
         </div>
 
         {/* detail drawer */}
-        {selected && <Detail c={selected} stage={stageOf(selected)} persona={personaOf(selected)} pipeName={pipeMap.get(selected.pipelineId)?.name} personaMap={personaMap} onClose={() => setSel(null)} onApprove={() => approve(selected.id)} />}
+        {selected && <Detail c={selected} stage={stageOf(selected)} persona={personaOf(selected)} pipeName={pipeMap.get(selected.pipelineId)?.name} personaMap={personaMap} onClose={() => setSel(null)} onApprove={() => approve(selected.id)} onReject={(fb) => reject(selected.id, fb)} />}
       </div>
     </div>
   )
 }
 
-function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove }: { c: AmCard; stage: any; persona: any; pipeName?: string; personaMap: Map<string, AmPersona>; onClose: () => void; onApprove: () => void }) {
+function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove, onReject }: { c: AmCard; stage: any; persona: any; pipeName?: string; personaMap: Map<string, AmPersona>; onClose: () => void; onApprove: () => void; onReject: (feedback: string) => void }) {
+  const [fb, setFb] = useState('')
   const meta = STATUS[c.status]
   return (
     <div className="w-[330px] sm:w-[360px] shrink-0 border-l border-line bg-panel/40 backdrop-blur flex flex-col">
@@ -184,9 +186,16 @@ function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove }:
         {/* khối DUYỆT — rõ ràng chỗ phải làm */}
         {c.status === 'waiting_human' && (
           <div className="rounded-xl border p-3" style={{ borderColor: '#ff5d9e55', background: '#ff5d9e10' }}>
-            <div className="text-[11px] text-pink font-semibold mb-1">⛔ Cần bạn duyệt để chạy tiếp</div>
-            <div className="text-[13px] text-ink mb-3">{c.pendingQuestion || 'Duyệt để tiếp tục?'}</div>
-            <button className="btn btn-primary w-full" onClick={onApprove}>✓ Duyệt & chạy tiếp</button>
+            <div className="text-[11px] text-pink font-semibold mb-1">⛔ Cần bạn quyết định</div>
+            <div className="text-[13px] text-ink mb-2">{c.pendingQuestion || 'Duyệt để tiếp tục?'}</div>
+            <textarea className="input w-full !h-auto mb-2 text-[12.5px]" rows={3}
+              placeholder="Có vấn đề? Ghi yêu cầu / lỗi cần sửa rồi bấm 'Trả lại' — agent sẽ làm lại theo feedback…"
+              value={fb} onChange={(e) => setFb(e.target.value)} />
+            <div className="flex gap-2">
+              <button className="btn btn-primary flex-1" onClick={onApprove}>✓ Duyệt & tiếp</button>
+              <button className="btn flex-1" style={{ borderColor: '#ff9d5c66', color: '#ff9d5c' }}
+                onClick={() => onReject(fb)} title="Trả card về cho agent sửa theo feedback">↩ Trả lại sửa</button>
+            </div>
           </div>
         )}
 

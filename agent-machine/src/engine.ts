@@ -57,6 +57,25 @@ export class Engine {
     this.advanceCard(c)
   }
 
+  // TRẢ LẠI ở gate: bạn ghi vấn đề/yêu cầu -> card lùi về stage trước (vd review -> build)
+  // để agent (Max) SỬA theo feedback, rồi review lại. Loop-breaker chặn lặp vô hạn.
+  reject(cardId: string, feedback: string) {
+    const c = this.store.getCard(cardId)
+    if (!c || c.status !== 'waiting_human') return
+    const pipe = this.store.pipelines.get(c.pipelineId)
+    if (!pipe) { c.status = 'failed'; this.store.putCard(c); return }
+    const note = (feedback || '').trim() || 'Có vấn đề — làm lại kỹ hơn.'
+    c.reviewNotes = (c.reviewNotes || []).concat(note)
+    c.pendingQuestion = undefined
+    c.stageIndex = Math.max(0, c.stageIndex - 1) // lùi về stage trước gate (thường = build)
+    c.status = 'queued'
+    const back = pipe.stages[c.stageIndex]
+    post(this.store, threadOf(c.id), 'bill', 'decision', `✗ TRẢ LẠI: ${note}`, c.id)
+    post(this.store, threadOf(c.id), 'engine', 'system', `↩ về "${back.name}" để sửa theo feedback`, c.id)
+    c.history.push({ ts: Date.now(), stage: back.id, event: 'reject-rework', detail: note })
+    this.store.putCard(c)
+  }
+
   private advanceCard(c: Card) {
     const pipe = this.store.pipelines.get(c.pipelineId)!
     if (c.stageIndex >= pipe.stages.length - 1) {

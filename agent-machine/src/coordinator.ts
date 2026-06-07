@@ -6,7 +6,7 @@ import type { Store } from './store'
 
 function serializeJob(j: JobSpec) {
   // worker không cần workspace của coordinator — nó tự tạo workspace local
-  return { jobId: j.jobId, cardId: j.cardId, card: { id: j.card.id, title: j.card.title, brief: j.card.brief }, stage: j.stage, persona: j.persona }
+  return { jobId: j.jobId, cardId: j.cardId, card: { id: j.card.id, title: j.card.title, brief: j.card.brief, reviewNotes: j.card.reviewNotes }, stage: j.stage, persona: j.persona }
 }
 
 async function readBody(req: http.IncomingMessage): Promise<any> {
@@ -37,6 +37,7 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       if (req.method === 'POST' && url === '/worker/result') { const b = await readBody(req); engine.submit(b.jobId, b.result); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/card') { const b = await readBody(req); return send(200, { card: engine.createCard(b.title, b.brief, b.pipelineId, undefined, 0, b.projectId || 'default') }) }
       if (req.method === 'POST' && url === '/approve') { const b = await readBody(req); engine.approve(b.cardId); return send(200, { ok: true }) }
+      if (req.method === 'POST' && url === '/reject') { const b = await readBody(req); engine.reject(b.cardId, b.feedback || ''); return send(200, { ok: true }) }
       if (req.method === 'GET' && url === '/state') return send(200, {
         cards: store.listCards(),
         channels: store.readChannel().slice(-200),

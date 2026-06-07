@@ -42,7 +42,8 @@ export class ClaudeRunner implements Runner {
   async run(card: Card, stage: Stage, persona: Persona, ws: string): Promise<RunResult> {
     const personaFile = path.join(ws, '.persona.md')
     fs.writeFileSync(personaFile, persona.systemPrompt + OUTCOME_CONTRACT)
-    const prompt = `Card: ${card.title}\n\n${card.brief}\n\nStage: ${stage.name}.`
+    const notes = card.reviewNotes?.length ? `\n\n⚠️ PHẢN HỒI cần SỬA (bạn bị trả lại từ review — fix kỹ những điểm này):\n- ${card.reviewNotes.join('\n- ')}` : ''
+    const prompt = `Card: ${card.title}\n\n${card.brief}\n\nStage: ${stage.name}.${notes}`
     const args = [
       '-p', prompt, '--output-format', 'json', '--permission-mode', 'bypassPermissions',
       '--model', persona.model, '--append-system-prompt-file', personaFile,

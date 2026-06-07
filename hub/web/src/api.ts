@@ -70,6 +70,9 @@ export async function amCreateCard(title: string, brief: string, pipelineId: str
 export async function amApprove(cardId: string) {
   await fetch('/api/am/approve', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cardId }) })
 }
+export async function amReject(cardId: string, feedback: string) {
+  await fetch('/api/am/reject', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cardId, feedback }) })
+}
 
 export type Entry = { name: string; type: 'dir' | 'file' }
 export async function tree(p: string): Promise<{ root: string; path: string; entries: Entry[] }> {

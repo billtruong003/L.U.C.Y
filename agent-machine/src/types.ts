@@ -34,6 +34,7 @@ export type Card = {
   depth: number // độ sâu delegate (root=0) — depth-breaker chống delegate vô hạn
   blockedBy: string[] // DAG: card này chờ các card này xong (hold/resume)
   pendingQuestion?: string
+  reviewNotes?: string[] // feedback khi bạn TRẢ LẠI ở gate -> chèn vào prompt cho agent sửa
   cost: Cost
   stageVisits?: Record<string, number> // loop-breaker: đếm số lần vào mỗi stage
   history: { ts: number; stage: string; event: string; detail?: string }[]
