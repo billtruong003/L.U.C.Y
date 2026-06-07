@@ -30,7 +30,7 @@ const engine = new Engine(store, new MockRunner({}), new Budget({
 
 if (!TOKEN) console.warn('⚠ AM_TOKEN trống — endpoint /worker KHÔNG có auth. Đặt AM_TOKEN cho production.')
 const recovered = engine.recover() // crash recovery: card 'working' mồ côi -> queued lại
-const co = startCoordinator(engine, store, PORT, { token: TOKEN || undefined, autoTickMs: Number(process.env.AM_TICK_MS || 800) })
+const co = startCoordinator(engine, store, PORT, { token: TOKEN || undefined, host: process.env.AM_HOST || '127.0.0.1', autoTickMs: Number(process.env.AM_TICK_MS || 800) })
 console.log(`🧠 Lucy Agent-Machine coordinator: http://127.0.0.1:${PORT}  (personas ${loaded.personas}, pipelines ${loaded.pipelines}, data ${DATA}${recovered ? `, recovered ${recovered}` : ''})`)
 process.on('SIGINT', () => { co.stop(); process.exit(0) })
 process.on('SIGTERM', () => { co.stop(); process.exit(0) })

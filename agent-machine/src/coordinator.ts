@@ -17,7 +17,7 @@ async function readBody(req: http.IncomingMessage): Promise<any> {
   })
 }
 
-export function startCoordinator(engine: Engine, store: Store, port: number, opts: { autoTickMs?: number; token?: string } = {}) {
+export function startCoordinator(engine: Engine, store: Store, port: number, opts: { autoTickMs?: number; token?: string; host?: string } = {}) {
   let timer: ReturnType<typeof setInterval> | null = null
   if (opts.autoTickMs) timer = setInterval(() => { try { engine.tick() } catch { /* */ } }, opts.autoTickMs)
 
@@ -48,6 +48,6 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       send(404, { error: 'not found' })
     } catch (e) { send(500, { error: String(e) }) }
   })
-  server.listen(port)
+  server.listen(port, opts.host || '127.0.0.1') // mặc định CHỈ localhost — nginx/overlay mới là mặt tiền public
   return { server, stop: () => { if (timer) clearInterval(timer); server.close() } }
 }
