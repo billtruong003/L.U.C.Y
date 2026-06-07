@@ -58,12 +58,12 @@ export class Engine {
     this.store.putProject(p)
     return p
   }
-  createProject(name: string, opts: { repoUrl?: string; branch?: string; description?: string } = {}): Project {
+  createProject(name: string, opts: { repoUrl?: string; branch?: string; description?: string; skill?: string } = {}): Project {
     const id = (name || '').trim() || 'default'
     const ex = this.store.getProject(id)
     const p: Project = ex
-      ? { ...ex, repoUrl: opts.repoUrl ?? ex.repoUrl, branch: opts.branch ?? ex.branch, description: opts.description ?? ex.description }
-      : { id, name: id, repoUrl: opts.repoUrl, branch: opts.branch, description: opts.description, channels: ['general'], createdAt: Date.now(), updatedAt: Date.now() }
+      ? { ...ex, repoUrl: opts.repoUrl ?? ex.repoUrl, branch: opts.branch ?? ex.branch, description: opts.description ?? ex.description, skill: opts.skill ?? ex.skill }
+      : { id, name: id, repoUrl: opts.repoUrl, branch: opts.branch, description: opts.description, skill: opts.skill, channels: ['general'], createdAt: Date.now(), updatedAt: Date.now() }
     this.store.putProject(p)
     if (!ex) post(this.store, 'coordination', 'engine', 'system', `📁 dự án mới: "${id}"${opts.repoUrl ? ' (repo thật)' : ''}`)
     return p
@@ -246,10 +246,11 @@ export class Engine {
     const stage = pipe?.stages[c.stageIndex]
     const base = stage ? this.store.personas.get(stage.personaId) : undefined
     if (!pipe || !stage || !base) { this.inFlight.delete(j.id); c.status = 'failed'; this.store.putCard(c); return null }
-    // modelOverride: card ép model riêng -> đè model persona (áp cho CẢ local lẫn remote worker)
-    const persona = c.modelOverride ? { ...base, model: c.modelOverride } : base
-    // repo: nếu project có repoUrl -> worker clone & làm việc trong repo thật (R2)
     const proj = this.store.getProject(c.projectId)
+    // model override + SKILL dự án -> nhồi vào persona (clone, không mutate gốc)
+    let persona = c.modelOverride ? { ...base, model: c.modelOverride } : base
+    if (proj?.skill) persona = { ...persona, systemPrompt: persona.systemPrompt + `\n\n--- SKILL DỰ ÁN "${proj.name}" ---\n${proj.skill}` }
+    // repo: nếu project có repoUrl -> worker clone & làm việc trong repo thật (R2)
     const repo = proj?.repoUrl ? { url: proj.repoUrl, branch: proj.branch, projectId: proj.id } : undefined
     return { jobId: j.id, cardId: c.id, card: c, stage, persona, repo }
   }

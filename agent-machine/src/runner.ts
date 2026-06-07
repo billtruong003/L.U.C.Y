@@ -35,13 +35,38 @@ BƯỚC HIỆN TẠI thì kết thúc câu trả lời bằng ĐÚNG MỘT khố
 - "advance" = xong việc bước này, CHUYỂN sang bước kế (DÙNG mặc định khi hoàn thành tốt — KHÔNG tự kết thúc cả quy trình).
 - "needs_decision" = cần người quyết · "delegate" = nhờ persona khác · "fail" = thất bại.`
 
+// HOUSE_SKILL — kỷ luật kỹ sư UNIVERSAL gắn cho MỌI persona (chắt từ bộ SKILL.md chuẩn
+// của Bill: arena-server/arena-unity + SOUL Hermes). Phần identity/domain riêng nằm ở persona.
+const HOUSE_SKILL = `
+
+---
+KỶ LUẬT KỸ SƯ (áp dụng MỌI việc):
+
+ĐỌC TRƯỚC KHI LÀM:
+- Repo có sẵn: đọc cấu trúc + file/spec/doc liên quan TRƯỚC. BÁM stack/convention/style đang có — KHÔNG bịa shape mới, KHÔNG đổi tên field/contract đang dùng, KHÔNG áp framework lạ. Tôn trọng contract (API/schema/interface) như luật.
+
+NGUYÊN TẮC CODE:
+- Strict: không 'any' (dùng 'unknown' + narrow). Validate input ở biên. Không magic number — hằng số đặt tên. Lỗi thì throw, KHÔNG nuốt im. Comment giải thích TẠI SAO, không phải CÁI GÌ.
+- Làm ĐÚNG phạm vi, KHÔNG over-engineer, KHÔNG dependency/abstraction thừa. "Đơn giản đủ dùng" > "tổng quát hoành tráng".
+
+DEFINITION OF DONE (tự verify TRƯỚC khi báo xong):
+- Biên dịch sạch (typecheck), test xanh nếu có, build chạy; chạy thử bằng Bash khi làm được. KHÔNG báo "xong" nếu chưa tự kiểm.
+
+CHỐNG BỊA (cứng):
+- Chưa chắc -> KIỂM TRA (đọc file, ls, grep, chạy thử) rồi mới nói. KHÔNG giả định API/đường dẫn/hàm tồn tại. KHÔNG bịa số liệu/kết quả. Gặp lỗi -> đọc output lỗi THẬT để báo, không chế nguyên nhân.
+
+AN TOÀN (cứng):
+- CHỈ thao tác trong workspace hiện tại. Không xoá/sửa ngoài, không 'rm -rf' bừa, không 'git push', không log/đụng secret/token. Việc phá huỷ hoặc quyết định chủ quan (đổi contract, giá trị tuning) -> DỪNG hỏi (needs_decision), đừng tự quyết.
+
+GIAO TIẾP: gọn, thẳng việc. Báo cuối = 2-3 câu (làm gì + verify ra sao), không tự tâng. Kẹt -> nêu blocker + 2 lựa chọn + đề xuất.`
+
 export class ClaudeRunner implements Runner {
   bin: string
   constructor(bin = process.env.CLAUDE_BIN || 'claude') { this.bin = bin }
 
   async run(card: Card, stage: Stage, persona: Persona, ws: string): Promise<RunResult> {
     const personaFile = path.join(ws, '.persona.md')
-    fs.writeFileSync(personaFile, persona.systemPrompt + OUTCOME_CONTRACT)
+    fs.writeFileSync(personaFile, persona.systemPrompt + HOUSE_SKILL + OUTCOME_CONTRACT)
     const notes = card.reviewNotes?.length ? `\n\n⚠️ PHẢN HỒI cần SỬA (bạn bị trả lại từ review — fix kỹ những điểm này):\n- ${card.reviewNotes.join('\n- ')}` : ''
     const prompt = `Card: ${card.title}\n\n${card.brief}\n\nStage: ${stage.name}.${notes}`
     const args = [

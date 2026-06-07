@@ -98,6 +98,15 @@ async function main() {
   check('removeChannel "general" bị chặn', engine.removeChannel('ChanProj', 'general') === false)
   check('removeChannel "testing" OK', engine.removeChannel('ChanProj', 'testing') === true)
 
+  // ── R6: SKILL dự án nhồi vào persona khi claim (clone, không mutate gốc) ──
+  engine.createProject('SkillProj', { skill: 'DOMAIN: chuyên gia Unity.' })
+  const sc = engine.createCard('w', 'b', 'one', undefined, 0, 'SkillProj')
+  engine.tick()
+  let ss = engine.claim(); let g2 = 0
+  while (ss && ss.cardId !== sc.id && g2++ < 14) ss = engine.claim()
+  check('SKILL dự án nhồi vào persona prompt', !!ss && ss.persona.systemPrompt.includes('DOMAIN: chuyên gia Unity.'))
+  check('persona gốc KHÔNG bị nhồi (clone)', store.personas.get('eng')!.systemPrompt === 'x')
+
   clean(dir)
   console.log(`\n${fail === 0 ? '✅ ALL PASS' : '❌ FAIL'} — ${pass} pass, ${fail} fail`)
   process.exit(fail === 0 ? 0 : 1)

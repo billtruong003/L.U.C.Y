@@ -15,6 +15,7 @@ export type Project = {
   repoUrl?: string // git repo để agent CLONE & sửa thật (R2). Trống = workspace nháp.
   branch?: string // nhánh làm việc (mặc định nhánh chính)
   description?: string
+  skill?: string // SKILL.md domain của dự án (vd Unity/Colyseus) -> chèn vào prompt MỌI agent dự án này
   channels: string[] // kênh con Discord-style (R4). Mặc định ['general']
   createdAt: number
   updatedAt: number

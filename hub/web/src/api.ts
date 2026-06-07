@@ -55,12 +55,12 @@ export type AmMsg = { ts: number; channel: string; author: string; kind: string;
 export type AmStage = { id: string; name: string; personaId: string; gate?: boolean }
 export type AmPipeline = { id: string; name: string; stages: AmStage[] }
 export type AmPersona = { id: string; name: string; avatar?: string; model?: string }
-export type AmProject = { id: string; name: string; repoUrl?: string; branch?: string; description?: string; channels: string[]; createdAt: number; updatedAt?: number }
+export type AmProject = { id: string; name: string; repoUrl?: string; branch?: string; description?: string; skill?: string; channels: string[]; createdAt: number; updatedAt?: number }
 export async function amState(): Promise<{ configured: boolean; offline?: boolean; cards: AmCard[]; projects?: AmProject[]; channels: AmMsg[]; pipelines?: AmPipeline[]; personas?: AmPersona[] }> {
   const r = await fetch('/api/am/state'); return r.json()
 }
-export async function amCreateProject(name: string, repoUrl?: string, branch?: string, description?: string) {
-  const r = await fetch('/api/am/project', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, repoUrl, branch, description }) }); return r.json()
+export async function amCreateProject(name: string, opts: { repoUrl?: string; branch?: string; description?: string; skill?: string } = {}) {
+  const r = await fetch('/api/am/project', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, ...opts }) }); return r.json()
 }
 export async function amRemoveProject(projectId: string) {
   await fetch('/api/am/project/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId }) })

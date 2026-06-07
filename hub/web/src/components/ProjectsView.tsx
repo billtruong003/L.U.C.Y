@@ -13,7 +13,7 @@ export default function ProjectsView() {
   const [active, setActive] = useState<string | null>(null)
   const [tab, setTab] = useState<'kanban' | 'lucy' | 'channels'>('kanban')
   const [configured, setConfigured] = useState(true)
-  const [nf, setNf] = useState({ open: false, name: '', repoUrl: '' })
+  const [nf, setNf] = useState({ open: false, name: '', repoUrl: '', skill: '' })
 
   const pull = async () => {
     try { const s = await amState(); setConfigured(s.configured !== false); setProjects(s.projects || []); setCards(s.cards || []); setPipes(s.pipelines || []) } catch { /* */ }
@@ -31,7 +31,7 @@ export default function ProjectsView() {
     return m
   }, [cards])
 
-  const createProject = async () => { if (!nf.name.trim()) return; await amCreateProject(nf.name.trim(), nf.repoUrl.trim() || undefined); setNf({ open: false, name: '', repoUrl: '' }); pull() }
+  const createProject = async () => { if (!nf.name.trim()) return; await amCreateProject(nf.name.trim(), { repoUrl: nf.repoUrl.trim() || undefined, skill: nf.skill.trim() || undefined }); setNf({ open: false, name: '', repoUrl: '', skill: '' }); pull() }
   const removeProject = async (id: string) => { await amRemoveProject(id); pull() }
 
   if (configured === false) return <div className="h-full grid place-items-center text-inkfaint text-sm p-6">Agent-Machine chưa cấu hình — đặt AM_COORD_URL + AM_TOKEN cho hub server.</div>
@@ -73,10 +73,13 @@ export default function ProjectsView() {
         <button className="btn btn-primary ml-auto" onClick={() => setNf({ ...nf, open: !nf.open })}>{nf.open ? 'Đóng' : '+ Dự án'}</button>
       </div>
       {nf.open && (
-        <div className="card p-3 mb-4 flex flex-col sm:flex-row gap-2">
-          <input className="input sm:!w-56" placeholder="Tên dự án…" value={nf.name} onChange={(e) => setNf({ ...nf, name: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && createProject()} autoFocus />
-          <input className="input flex-1" placeholder="Repo URL (tuỳ chọn — agent sẽ CLONE & sửa repo thật)" value={nf.repoUrl} onChange={(e) => setNf({ ...nf, repoUrl: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && createProject()} />
-          <button className="btn btn-primary" onClick={createProject}>Tạo</button>
+        <div className="card p-3 mb-4 flex flex-col gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input className="input sm:!w-56" placeholder="Tên dự án…" value={nf.name} onChange={(e) => setNf({ ...nf, name: e.target.value })} autoFocus />
+            <input className="input flex-1" placeholder="Repo URL (tuỳ chọn — agent sẽ CLONE & sửa repo thật)" value={nf.repoUrl} onChange={(e) => setNf({ ...nf, repoUrl: e.target.value })} />
+            <button className="btn btn-primary shrink-0" onClick={createProject}>Tạo</button>
+          </div>
+          <textarea className="input w-full !h-auto text-[12px]" rows={3} placeholder="SKILL dự án (tuỳ chọn) — dán nguyên SKILL.md domain (vd Unity/Colyseus) để MỌI agent dự án này thành chuyên gia…" value={nf.skill} onChange={(e) => setNf({ ...nf, skill: e.target.value })} />
         </div>
       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
