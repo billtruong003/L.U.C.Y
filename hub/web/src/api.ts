@@ -48,7 +48,7 @@ export async function jobs(): Promise<{ jobs: JobRow[] }> {
 export type AmCard = {
   id: string; title: string; brief: string; pipelineId: string; projectId: string; stageIndex: number
   status: string; depth: number; blockedBy: string[]; pendingQuestion?: string
-  parentId?: string; cost: { usd: number }
+  parentId?: string; cost: { usd: number }; updatedAt?: number; reviewNotes?: string[]
   history?: { ts: number; stage: string; event: string }[]
 }
 export type AmMsg = { ts: number; channel: string; author: string; kind: string; text: string; cardId?: string }

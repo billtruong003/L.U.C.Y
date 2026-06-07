@@ -12,6 +12,7 @@ const STATUS: Record<string, { label: string; color: string; icon: string }> = {
 }
 const ORDER = ['backlog', 'queued', 'working', 'waiting_human', 'blocked', 'done', 'failed']
 const EVENT_ICON: Record<string, string> = { created: '✚', 'created-backlog': '🕓', activated: '▶', 'enter-stage': '→', advance: '↑', done: '🏁', delegate: '📨', needs_decision: '⛔', fail: '✕', 'reject-rework': '↩', recovered: '♻' }
+const fmtElapsed = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); const m = Math.floor(s / 60); return m > 0 ? `${m}:${String(s % 60).padStart(2, '0')}` : `${s}s` }
 
 export default function Board() {
   const [cards, setCards] = useState<AmCard[]>([])
@@ -37,6 +38,8 @@ export default function Board() {
     } catch { /* */ } finally { busy.current = false }
   }
   useEffect(() => { pull(); const iv = setInterval(pull, 2000); return () => clearInterval(iv) }, [])
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv) }, [])
 
   const pipeMap = useMemo(() => new Map(pipes.map((p) => [p.id, p])), [pipes])
   const personaMap = useMemo(() => new Map(personas.map((p) => [p.id, p])), [personas])
@@ -151,6 +154,7 @@ export default function Board() {
                           </div>
                           <div className="mt-2 flex items-center gap-2 text-[10.5px]">
                             {pr && <span className="flex items-center gap-1 text-inkdim"><Dot s={pr.name} /> {pr.name.replace(/·.*/, '').trim()}</span>}
+                            {c.status === 'working' && c.updatedAt && <span className="flex items-center gap-1 text-cyan mono"><span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan animate-pulse" />{fmtElapsed(now - c.updatedAt)}</span>}
                             <span className="text-inkfaint ml-auto mono">${c.cost?.usd?.toFixed(3) ?? '0'}</span>
                           </div>
                         </button>
@@ -165,13 +169,13 @@ export default function Board() {
         </div>
 
         {/* detail drawer */}
-        {selected && <Detail c={selected} stage={stageOf(selected)} persona={personaOf(selected)} pipeName={pipeMap.get(selected.pipelineId)?.name} personaMap={personaMap} onClose={() => setSel(null)} onApprove={() => approve(selected.id)} onReject={(fb) => reject(selected.id, fb)} onRemove={() => remove(selected.id)} onActivate={() => activate(selected.id)} />}
+        {selected && <Detail c={selected} stage={stageOf(selected)} persona={personaOf(selected)} pipeName={pipeMap.get(selected.pipelineId)?.name} personaMap={personaMap} onClose={() => setSel(null)} onApprove={() => approve(selected.id)} onReject={(fb) => reject(selected.id, fb)} onRemove={() => remove(selected.id)} onActivate={() => activate(selected.id)} now={now} />}
       </div>
     </div>
   )
 }
 
-function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove, onReject, onRemove, onActivate }: { c: AmCard; stage: any; persona: any; pipeName?: string; personaMap: Map<string, AmPersona>; onClose: () => void; onApprove: () => void; onReject: (feedback: string) => void; onRemove: () => void; onActivate: () => void }) {
+function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove, onReject, onRemove, onActivate, now }: { c: AmCard; stage: any; persona: any; pipeName?: string; personaMap: Map<string, AmPersona>; onClose: () => void; onApprove: () => void; onReject: (feedback: string) => void; onRemove: () => void; onActivate: () => void; now: number }) {
   const [fb, setFb] = useState('')
   const [confirmDel, setConfirmDel] = useState(false)
   const meta = STATUS[c.status]
@@ -205,6 +209,21 @@ function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove, o
           {c.depth > 0 && <Field k="Delegate depth" v={String(c.depth)} />}
           {c.blockedBy?.length > 0 && <Field k="Đang chờ" v={`${c.blockedBy.length} việc con`} />}
         </div>
+
+        {/* đang chạy: trấn an "không chết" + đồng hồ */}
+        {c.status === 'working' && (
+          <div className="rounded-xl border p-3 flex items-center gap-2" style={{ borderColor: '#3fd3ff44', background: '#3fd3ff0c' }}>
+            <span className="inline-block h-2 w-2 rounded-full bg-cyan animate-pulse shrink-0" />
+            <span className="text-[12.5px] text-cyan mono">{c.updatedAt ? fmtElapsed(now - c.updatedAt) : ''}</span>
+            <span className="text-[10.5px] text-inkfaint ml-auto text-right">agent đang chạy — kết quả hiện khi xong stage</span>
+          </div>
+        )}
+        {c.reviewNotes && c.reviewNotes.length > 0 && (
+          <div className="rounded-xl border p-3" style={{ borderColor: '#ff9d5c44', background: '#ff9d5c0c' }}>
+            <div className="text-[10px] text-[#ff9d5c] tracking-[0.16em] mb-1">↩ FEEDBACK ĐÃ TRẢ LẠI</div>
+            {c.reviewNotes.map((n, i) => <div key={i} className="text-[12px] text-inkdim">• {n}</div>)}
+          </div>
+        )}
 
         {/* backlog: để sau -> kích hoạt chạy */}
         {c.status === 'backlog' && (
