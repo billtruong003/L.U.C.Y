@@ -163,7 +163,7 @@ export default function Board({ projectId }: { projectId?: string } = {}) {
                             {st && <span className="text-inkdim">· {st.name}</span>}
                           </div>
                           <div className="mt-2 flex items-center gap-2 text-[10.5px]">
-                            {pr && <span className="flex items-center gap-1 text-inkdim"><Dot s={pr.name} /> {pr.name.replace(/·.*/, '').trim()}</span>}
+                            {pr && <span className="flex items-center gap-1 text-inkdim">{pr.avatar ? <img src={pr.avatar} alt="" className="h-4 w-4 rounded-full object-cover" /> : <Dot s={pr.name} />} {pr.name.replace(/·.*/, '').trim()}</span>}
                             {c.status === 'working' && c.updatedAt && <span className="flex items-center gap-1 text-cyan mono"><span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan animate-pulse" />{fmtElapsed(now - c.updatedAt)}</span>}
                             <span className="text-inkfaint ml-auto mono">${c.cost?.usd?.toFixed(3) ?? '0'}</span>
                           </div>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { amState, amAddChannel, amPostChannel, type AmMsg, type AmCard, type AmProject } from '../api'
+import { amState, amAddChannel, amPostChannel, type AmMsg, type AmCard, type AmProject, type AmPersona } from '../api'
 
 // màu/avatar theo "ai nói" — agent là thành viên của kênh (như Discord)
 const AGENT_PALETTE = ['#3fd3ff', '#5fe39a', '#ff9d5c', '#b78cff', '#46c6ec', '#f5d76e']
@@ -13,6 +13,7 @@ export default function Channels({ projectId }: { projectId?: string } = {}) {
   const [msgs, setMsgs] = useState<AmMsg[]>([])
   const [cards, setCards] = useState<AmCard[]>([])
   const [projects, setProjects] = useState<AmProject[]>([])
+  const [personas, setPersonas] = useState<AmPersona[]>([])
   const [cur, setCur] = useState<string>(projectId ? `p:${projectId}:general` : 'coordination')
   const [configured, setConfigured] = useState(true)
   const [offline, setOffline] = useState(false)
@@ -24,9 +25,10 @@ export default function Channels({ projectId }: { projectId?: string } = {}) {
 
   const pull = async () => {
     if (busy.current) return; busy.current = true
-    try { const s = await amState(); setConfigured(s.configured !== false); setOffline(!!s.offline); setMsgs(s.channels || []); setCards(s.cards || []); setProjects(s.projects || []) } catch { /* */ } finally { busy.current = false }
+    try { const s = await amState(); setConfigured(s.configured !== false); setOffline(!!s.offline); setMsgs(s.channels || []); setCards(s.cards || []); setProjects(s.projects || []); setPersonas(s.personas || []) } catch { /* */ } finally { busy.current = false }
   }
   useEffect(() => { pull(); const iv = setInterval(pull, 2000); return () => clearInterval(iv) }, [])
+  const avatarOf = (author: string) => personas.find((p) => p.name === author)?.avatar
 
   const project = projects.find((p) => p.id === projectId)
   const cnt = (id: string) => msgs.filter((m) => m.channel === id).length
@@ -98,12 +100,14 @@ export default function Channels({ projectId }: { projectId?: string } = {}) {
         <div className="h-11 shrink-0 flex items-center gap-3 px-4 border-b border-line">
           <span className="display tracking-[0.16em] text-[13px] text-ink truncate">{curMeta ? (curMeta.kind === 'task' ? '🧩 ' + curMeta.label : curMeta.label) : cur}</span>
           <div className="flex items-center gap-1 ml-auto">
-            {members.map((a) => <span key={a} title={a} className="h-5 w-5 rounded-full grid place-items-center text-[10px] font-bold" style={{ background: authorColor(a) + '22', color: authorColor(a), border: `1px solid ${authorColor(a)}55` }}>{initials(a)}</span>)}
+            {members.map((a) => { const av = avatarOf(a); return av
+              ? <img key={a} src={av} title={a} alt={a} className="h-5 w-5 rounded-full object-cover" style={{ border: `1px solid ${authorColor(a)}88` }} />
+              : <span key={a} title={a} className="h-5 w-5 rounded-full grid place-items-center text-[10px] font-bold" style={{ background: authorColor(a) + '22', color: authorColor(a), border: `1px solid ${authorColor(a)}55` }}>{initials(a)}</span> })}
           </div>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2 flex flex-col gap-0.5">
           {list.length === 0 && <div className="text-[12px] text-inkfaint/60 m-auto">— chưa có tin nhắn —</div>}
-          {list.map((m, i) => <Row key={i} m={m} prev={list[i - 1]} />)}
+          {list.map((m, i) => <Row key={i} m={m} prev={list[i - 1]} avatar={avatarOf(m.author)} />)}
           <div ref={endRef} />
         </div>
         {/* ô gõ — điều hướng AI (chỉ project-mode) */}
@@ -119,7 +123,7 @@ export default function Channels({ projectId }: { projectId?: string } = {}) {
   )
 }
 
-function Row({ m, prev }: { m: AmMsg; prev?: AmMsg }) {
+function Row({ m, prev, avatar }: { m: AmMsg; prev?: AmMsg; avatar?: string }) {
   const col = authorColor(m.author)
   const time = new Date(m.ts).toISOString().slice(11, 19)
   const sameAuthor = prev && prev.author === m.author && prev.kind !== 'decision' && m.kind !== 'decision' && m.ts - prev.ts < 60000
@@ -138,7 +142,9 @@ function Row({ m, prev }: { m: AmMsg; prev?: AmMsg }) {
   return (
     <div className={'flex items-start gap-2.5 ' + (sameAuthor ? 'mt-0' : 'mt-2')}>
       <div className="w-8 shrink-0 flex justify-center">
-        {!sameAuthor && <span className="h-7 w-7 rounded-full grid place-items-center text-[11px] font-bold mt-0.5" style={{ background: col + '22', color: col, border: `1px solid ${col}55` }}>{initials(m.author)}</span>}
+        {!sameAuthor && (avatar
+          ? <img src={avatar} alt={m.author} className="h-7 w-7 rounded-full object-cover mt-0.5" style={{ border: `1px solid ${col}88` }} />
+          : <span className="h-7 w-7 rounded-full grid place-items-center text-[11px] font-bold mt-0.5" style={{ background: col + '22', color: col, border: `1px solid ${col}55` }}>{initials(m.author)}</span>)}
       </div>
       <div className="min-w-0 flex-1">
         {!sameAuthor && (
