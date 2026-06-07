@@ -33,14 +33,19 @@ export async function workerStep(coordUrl: string, runner: Runner, opts: { token
   return true
 }
 
-// Vòng worker: poll coordinator liên tục (dial-out). stopWhenIdle=true cho test.
-export async function runWorker(coordUrl: string, runner: Runner, opts: { token?: string; pollMs?: number; localRoot?: string; stopWhenIdle?: boolean } = {}) {
+// Vòng worker: poll coordinator (dial-out). concurrency = số claude -p CHẠY SONG SONG tối đa
+// trên MÁY NÀY (vd VPS cap 2, local cap nhiều hơn). stopWhenIdle=true cho test.
+export async function runWorker(coordUrl: string, runner: Runner, opts: { token?: string; pollMs?: number; localRoot?: string; stopWhenIdle?: boolean; concurrency?: number } = {}) {
   const pollMs = opts.pollMs ?? 500
-  for (;;) {
-    const did = await workerStep(coordUrl, runner, opts)
-    if (!did) {
-      if (opts.stopWhenIdle) return
-      await new Promise((s) => setTimeout(s, pollMs))
+  const concurrency = Math.max(1, opts.concurrency ?? 1)
+  const lane = async () => {
+    for (;;) {
+      const did = await workerStep(coordUrl, runner, opts)
+      if (!did) {
+        if (opts.stopWhenIdle) return
+        await new Promise((s) => setTimeout(s, pollMs))
+      }
     }
   }
+  await Promise.all(Array.from({ length: concurrency }, () => lane()))
 }

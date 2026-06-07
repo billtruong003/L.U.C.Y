@@ -8,6 +8,7 @@
     "smoke": "tsx src/smoke.ts",
     "smoke:remote": "tsx src/smoke-remote.ts",
     "smoke:fs": "tsx src/smoke-fs.ts",
+    "smoke:conc": "tsx src/smoke-conc.ts",
     "coordinator": "tsx src/coordinator-main.ts",
     "worker": "tsx src/worker-main.ts",
     "typecheck": "tsc --noEmit"

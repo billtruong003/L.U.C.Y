@@ -18,7 +18,7 @@ VPS 2GB (always-on, NHẸ) = COORDINATOR/COCKPIT        MÁY LOCAL (mạnh) = WO
  Postgres (pg-boss + DBOS)                              dial OUT → pull card → làm → stream về
  KHÔNG spawn claude -p  ◄────── pull / result ─────────
 ```
-**Nguyên tắc cứng: VPS KHÔNG BAO GIỜ chạy `claude -p`** (sẽ OOM cạnh radiant-bot). Worker đến/đi tự do; máy tắt → card xếp hàng; bật → hút tiếp. (WoL bật-từ-xa = remote phase sau.)
+**Nguyên tắc: VPS chạy worker GIỚI HẠN (cap ~2 lane `claude -p`)** — cho cron/research + chat + **fallback khi local tắt** (đủ nhẹ, không OOM). **Máy local = worker NẶNG (cap cao)** cho bulk dev, on-demand. Cả hai đều quay vào coordinator: local tắt → VPS gánh (chậm hơn, capped); local bật → hút bulk. (WoL bật-từ-xa = remote phase sau.)
 
 ## 2. Mô hình lõi — config-là-DATA (Open/Closed)
 Engine generic & đóng; mọi tuỳ biến là **data** (thêm persona/pipeline = thêm data, không sửa code). Lucy tự ghi config từ prompt + ảnh.
@@ -120,11 +120,13 @@ Các bước:
 5. Nginx TLS (để worker local nối an toàn): proxy `https://<domain-hoặc-subdomain>` → `127.0.0.1:8780`
    (read/send timeout 1200s). `nginx -t && systemctl reload nginx`; `certbot --nginx -d <domain>`.
    (Hoặc tạm: mở firewall 8780 — chỉ khi tin mạng; token là lớp auth duy nhất, nên dùng TLS.)
-6. Báo tôi URL coordinator + xác nhận `GET /health` ok. KHÔNG commit .env.
+6. **VPS worker cap 2** (cron/chat/fallback khi local tắt) — claude CLI phải đã login trên VPS:
+   `AM_COORD_URL=http://127.0.0.1:8780 AM_TOKEN=$AM_TOKEN AM_RUNNER=claude AM_WORKER_CONCURRENCY=2 pm2 start "npx tsx src/worker-main.ts" --name lucy-vps-worker --cwd ~/lucy/agent-machine && pm2 save`
+7. Nginx TLS cho coordinator (để worker LOCAL nối từ xa) như bước 5. Báo tôi URL + `GET /health` ok. KHÔNG commit .env.
 
-Sau đó MÁY LOCAL của tôi chạy worker:
-  AM_COORD_URL=https://<domain> AM_TOKEN=<token> AM_RUNNER=claude npm run worker
-(worker mới là chỗ chạy claude -p; coordinator chỉ điều phối.)
+Sau đó MÁY LOCAL của tôi chạy worker NẶNG (bulk dev):
+  AM_COORD_URL=https://<domain> AM_TOKEN=<token> AM_RUNNER=claude AM_WORKER_CONCURRENCY=4 npm run worker
+(local tắt → VPS worker cap 2 vẫn gánh cron + fallback.)
 ````
 
 ## 9. Trạng thái (cập nhật 2026-06-07)
