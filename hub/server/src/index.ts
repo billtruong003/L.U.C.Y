@@ -251,7 +251,7 @@ app.get('/api/jobs', (req, res) => {
 })
 
 // Brain-viz telemetry: graph state THẬT (node/link) từ jobs đang chạy + integrations + voice.
-app.get('/api/telemetry', (req, res) => {
+app.get('/api/telemetry', async (req, res) => {
   if (!authed(req)) return res.status(401).json({ error: 'unauth' })
   const running = [...jobs.values()].filter((j) => j.status === 'running')
   const sonnetN = running.filter((j) => j.model === 'sonnet').length
@@ -283,7 +283,25 @@ app.get('/api/telemetry', (req, res) => {
     leaves.push({ id: 'sched_' + s.id, label: s.name, zone: 'z_dev', group: 'voice', val: 8, active: !!s.lastRun && Date.now() - (s.lastRun || 0) < 8000, status: 'live' })
   }
 
-  const nodes: any[] = [{ id: 'lucy', label: 'L.U.C.Y', group: 'core', val: 28, active: running.length > 0, status: 'live' }]
+  // agent-machine: mỗi DỰ ÁN = 1 node (z_dev) — task chạy -> sáng + vào running. (Neural lớn dần theo số dự án.)
+  const amRunning: { model: string; prompt: string; elapsed: number }[] = []
+  try {
+    const r = await amFetch('/state'); const st: any = await r.json()
+    const cards: any[] = st.cards || []
+    const working = cards.filter((c) => c.status === 'working')
+    for (const p of (st.projects || []) as any[]) {
+      if (p.trashed) continue
+      const pc = cards.filter((c) => (c.projectId || 'default') === p.id)
+      leaves.push({ id: 'proj_' + p.id, label: p.name, zone: 'z_dev', group: 'api', val: 10, active: pc.some((c) => c.status === 'working' || c.status === 'waiting_human'), load: pc.filter((c) => c.status === 'working').length, status: 'live' })
+    }
+    for (const c of working) amRunning.push({ model: c.modelOverride === 'opus' ? 'opus' : 'sonnet', prompt: c.title, elapsed: c.updatedAt ? Math.floor((Date.now() - c.updatedAt) / 1000) : 0 })
+    const amSon = working.filter((c) => c.modelOverride !== 'opus').length
+    const amOpu = working.filter((c) => c.modelOverride === 'opus').length
+    const son = leaves.find((l) => l.id === 'sonnet'); if (son && amSon) { son.active = true; son.load = (son.load || 0) + amSon }
+    const opu = leaves.find((l) => l.id === 'opus'); if (opu && amOpu) { opu.active = true; opu.load = (opu.load || 0) + amOpu }
+  } catch { /* agent-machine offline -> bỏ qua */ }
+
+  const nodes: any[] = [{ id: 'lucy', label: 'L.U.C.Y', group: 'core', val: 28, active: running.length > 0 || amRunning.length > 0, status: 'live' }]
   const links: any[] = []
   for (const z of ZONES) {
     const kids = leaves.filter((l) => l.zone === z.id)
@@ -303,7 +321,7 @@ app.get('/api/telemetry', (req, res) => {
   }
   res.json({
     nodes, links, ts: Date.now(),
-    running: running.map((j) => ({ model: j.model, prompt: j.prompt, elapsed: Math.floor((Date.now() - j.t0) / 1000) })),
+    running: [...running.map((j) => ({ model: j.model, prompt: j.prompt, elapsed: Math.floor((Date.now() - j.t0) / 1000) })), ...amRunning],
   })
 })
 
