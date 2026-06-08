@@ -27,6 +27,7 @@ const engine = new Engine(store, new MockRunner({}), new Budget({
 }), {
   maxLanes: Number(process.env.AM_MAX_LANES || 3),
   perCardMaxUsd: Number(process.env.AM_PER_CARD_USD || 2), // $5 cũ quá cao → 1 card đốt nhiều mới dừng. Env đè được.
+  maxStageVisits: Number(process.env.AM_MAX_STAGE_VISITS || 3), // rework tối đa ~2 vòng rồi hỏi người (chống lặp đốt token)
   leaseMs: Number(process.env.AM_LEASE_MS || 20 * 60e3),
 })
 

@@ -51,7 +51,7 @@ export type AmCard = {
   status: string; depth: number; blockedBy: string[]; pendingQuestion?: string
   parentId?: string; cost: { usd: number }; updatedAt?: number; reviewNotes?: string[]
   workspace?: string; artifacts?: { files?: string[]; diffstat?: string; stage?: string; isRepo?: boolean }
-  lastSummary?: string; waitKind?: 'gate' | 'decision' | 'cost'; blockKind?: 'dep' | 'delegate'
+  lastSummary?: string; waitKind?: 'gate' | 'decision' | 'cost' | 'loop'; blockKind?: 'dep' | 'delegate'
   history?: { ts: number; stage: string; event: string; detail?: string }[]
   reports?: { stage: string; persona: string; text: string; ts: number }[] // C1: narrative đầy đủ agent đã làm gì mỗi stage
 }

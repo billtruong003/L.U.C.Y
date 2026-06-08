@@ -33,7 +33,7 @@ export class Engine {
     this.budget = budget
     this.maxLanes = opts.maxLanes ?? 3
     this.perCardMaxUsd = opts.perCardMaxUsd ?? Infinity
-    this.maxStageVisits = opts.maxStageVisits ?? 5
+    this.maxStageVisits = opts.maxStageVisits ?? 3 // build↔test rework tối đa ~2 vòng rồi hỏi người (5 cũ → lặp 6× đốt token)
     this.maxDepth = opts.maxDepth ?? 6
     this.leaseMs = opts.leaseMs ?? 20 * 60e3 // card 'working' quá 20' -> coi như treo, đưa lại hàng
   }
@@ -175,7 +175,8 @@ export class Engine {
     const c = this.store.getCard(cardId)
     if (!c || c.status !== 'waiting_human') return
     post(this.store, threadOf(c.id), 'bill', 'decision', `✓ duyệt: ${c.pendingQuestion ?? 'tiếp tục'}`, c.id)
-    c.pendingQuestion = undefined
+    c.pendingQuestion = undefined; c.waitKind = undefined
+    c.stageVisits = {} // người đã can thiệp -> reset đếm loop (khỏi gate lại ngay)
     this.advanceCard(c)
   }
 
@@ -202,7 +203,8 @@ export class Engine {
     if (!pipe) { c.status = 'failed'; this.store.putCard(c); return }
     const note = (feedback || '').trim() || 'Có vấn đề — làm lại kỹ hơn.'
     c.reviewNotes = (c.reviewNotes || []).concat(note)
-    c.pendingQuestion = undefined
+    c.pendingQuestion = undefined; c.waitKind = undefined
+    c.stageVisits = {} // người trả lại kèm feedback -> reset đếm loop, cho thêm lượt sửa
     c.stageIndex = Math.max(0, c.stageIndex - 1) // lùi về stage trước gate (thường = build)
     c.status = 'queued'
     const back = pipe.stages[c.stageIndex]
@@ -297,8 +299,11 @@ export class Engine {
       c.stageVisits = c.stageVisits || {}
       c.stageVisits[stage.id] = (c.stageVisits[stage.id] || 0) + 1
       if (c.stageVisits[stage.id] > this.maxStageVisits) {
-        c.status = 'failed'
-        post(this.store, threadOf(c.id), 'engine', 'system', `⛔ loop-breaker: stage "${stage.name}" chạy quá ${this.maxStageVisits} lần → HALT`, c.id)
+        // loop-cap: KHÔNG fail (mất việc) cũng KHÔNG lặp tiếp (đốt token) → HỎI người. Duyệt=cho qua, Trả lại=cho thêm lượt sửa tay.
+        c.status = 'waiting_human'; c.waitKind = 'loop'
+        const lastBug = c.reviewNotes?.slice(-1)[0] || c.lastSummary || '—'
+        c.pendingQuestion = `Stage "${stage.name}" rework ${this.maxStageVisits} lần vẫn chưa đạt — bug còn: ${String(lastBug).slice(0, 200)}. Duyệt cho qua / Trả lại sửa (cho thêm lượt)?`
+        post(this.store, threadOf(c.id), 'engine', 'decision', `⛔ LOOP-CAP: ${c.pendingQuestion}`, c.id)
         this.store.putCard(c)
         continue
       }

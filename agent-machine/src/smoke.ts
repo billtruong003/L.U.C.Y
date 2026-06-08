@@ -82,9 +82,26 @@ async function t4() {
   check('bounded — không nổ vô hạn (card < 15)', store.listCards().length < 15, `(cards=${store.listCards().length})`)
 }
 
+async function t5() {
+  console.log('\nT5 — loop-cap: rework quá nhiều → GATE người (không fail, không lặp vô hạn đốt token)')
+  const store = new Store(tmp('t5'))
+  loadConfig(store, CONFIG)
+  store.registerPipeline({ id: 'bt', name: 'Build-Test', stages: [{ id: 'b', name: 'Build', personaId: 'builder' }, { id: 't', name: 'Test', personaId: 'tester' }] })
+  const s: Record<string, Outcome> = { b: { decision: 'advance', summary: 'built' }, t: { decision: 'rework', summary: 'bug X chưa fix' } } // test cứ rework
+  const engine = new Engine(store, new MockRunner(s, { usd: 0.001, inTok: 1, outTok: 1 }), new Budget({ windowMs: 5 * 3600e3, capUsd: 999 }), { maxStageVisits: 3 })
+  const card = engine.createCard('loopy', 'x', 'bt')
+  await engine.runUntilIdle(100)
+  const c = store.getCard(card.id)!
+  check('loop-cap → waiting_human (KHÔNG fail)', c.status === 'waiting_human', `(got ${c.status})`)
+  check('waitKind = loop', c.waitKind === 'loop', `(got ${c.waitKind})`)
+  check('bounded (build ≤ cap+1)', (c.stageVisits?.b ?? 0) <= 4, `(got ${c.stageVisits?.b})`)
+  engine.approve(card.id)
+  check('approve reset đếm loop', Object.keys(store.getCard(card.id)!.stageVisits || {}).length === 0)
+}
+
 async function main() {
   console.log('🧪 Lucy Agent Machine — smoke test (no token burn)')
-  await t1(); await t2(); await t3(); await t4()
+  await t1(); await t2(); await t3(); await t4(); await t5()
   console.log(`\n${fail === 0 ? '✅ ALL PASS' : '❌ FAIL'} — ${pass} pass, ${fail} fail`)
   process.exit(fail === 0 ? 0 : 1)
 }
