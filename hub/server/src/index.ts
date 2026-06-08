@@ -167,15 +167,22 @@ app.post('/api/send', (req, res) => {
   const prompt = (req.body?.prompt || '').trim()
   if (!prompt) return res.status(400).json({ error: 'empty' })
   const model = req.body?.opus ? 'opus' : 'sonnet'
+  // scope = chuỗi key (vd 'proj:<id>') → Lucy DỰ ÁN: phiên ĐỘC LẬP, KHÔNG --resume chat tổng,
+  // KHÔNG ghi vào history chat tổng (hết lẫn ngữ cảnh + hết làm bẩn chat tổng). Lucy dự án tự nhồi
+  // transcript mỗi lượt nên không cần --resume; lịch sử dự án lưu riêng ở kênh __lucy (client amLogLucy).
+  const scope = typeof req.body?.scope === 'string' && req.body.scope.trim() ? req.body.scope.trim() : null
+  const resumeSid = scope ? null : chat.sessionId
   const id = randomBytes(8).toString('base64url')
-  chat.messages.push({ role: 'me', text: prompt, t: Date.now() }); saveChat()   // lưu tin của chủ nhân
-  jobs.set(id, { status: 'running', result: null, model, t0: Date.now(), session_id: chat.sessionId, prompt: prompt.slice(0, 120) })
-  logEvent('info', 'job', `▶ ${model}: ${prompt.slice(0, 80)}`)
-  runClaude(prompt, chat.sessionId, model).then(({ sid, text }) => {
+  if (!scope) { chat.messages.push({ role: 'me', text: prompt, t: Date.now() }); saveChat() }   // chỉ chat tổng mới lưu
+  jobs.set(id, { status: 'running', result: null, model, t0: Date.now(), session_id: resumeSid, prompt: prompt.slice(0, 120) })
+  logEvent('info', 'job', `▶ ${model}${scope ? ' · ' + scope : ''}: ${prompt.slice(0, 80)}`)
+  runClaude(prompt, resumeSid, model).then(({ sid, text }) => {
     const j = jobs.get(id)
     if (j) { j.result = text; j.session_id = sid || j.session_id; j.status = 'done' }
-    chat.sessionId = sid || chat.sessionId
-    chat.messages.push({ role: 'lucy', text, t: Date.now() }); saveChat()         // lưu trả lời của Lucy
+    if (!scope) {   // chat tổng: cập nhật session + lưu trả lời. Lucy dự án: KHÔNG đụng chat tổng.
+      chat.sessionId = sid || chat.sessionId
+      chat.messages.push({ role: 'lucy', text, t: Date.now() }); saveChat()
+    }
     logEvent('info', 'job', `✓ ${model} xong (${Math.floor((Date.now() - (j?.t0 || Date.now())) / 1000)}s)`)
   })
   res.json({ job_id: id })

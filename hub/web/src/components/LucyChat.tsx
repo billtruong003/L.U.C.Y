@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { send, poll, amCreateCard, amState, amLogLucy, type AmPipeline, type AmCard, type AmMsg } from '../api'
 import { parseDrafts, type Draft } from './Planner'
+import Markdown from './Markdown'
 
 type Msg = { role: 'me' | 'lucy'; text: string; drafts?: Draft[]; created?: boolean }
 
@@ -39,8 +40,21 @@ export default function LucyChat({ project, pipes, onCreated }: { project: strin
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [secs, setSecs] = useState(0)
+  const [opus, setOpus] = useState(false)        // W1.3: 2 chế độ — Bill bật opus khi muốn
+  const [listening, setListening] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }) }, [msgs, busy])
+
+  // W1.4: nhập giọng nói (STT trình duyệt) — như chat tổng
+  function startMic() {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SR) { alert('Trình duyệt không hỗ trợ nhập giọng nói — dùng Chrome.'); return }
+    const rec = new SR(); rec.lang = 'vi-VN'; rec.interimResults = false
+    setListening(true)
+    rec.onresult = (e: any) => setDraft((p) => (p ? p + ' ' : '') + e.results[0][0].transcript)
+    rec.onend = () => setListening(false); rec.onerror = () => setListening(false)
+    rec.start()
+  }
 
   // V3: nạp lại lịch sử chat đã lưu (kênh __lucy) khi mở dự án — qua F5/đa thiết bị
   useEffect(() => {
@@ -64,7 +78,7 @@ export default function LucyChat({ project, pipes, onCreated }: { project: strin
       const transcript = hist.map((m) => `${m.role === 'me' ? 'Chủ' : 'Lucy'}: ${m.text}`).join('\n')
       let context = ''
       try { const st = await amState(); context = buildContext(project, st.cards || [], st.channels || []) } catch { /* */ } // E3: Lucy đọc trạng thái + channel
-      const { job_id } = await send(convPrompt(project, pipes, transcript, context), false)
+      const { job_id } = await send(convPrompt(project, pipes, transcript, context), opus, `proj:${project}`)
       let res = ''
       for (let i = 0; i < 100; i++) { await new Promise((s) => setTimeout(s, 1200)); const p = await poll(job_id); if (p.result != null) { res = p.result; break }; if (p.status === 'error' || p.status === 'failed') throw new Error('bridge') }
       const ds = parseDrafts(res, pipes)
@@ -91,34 +105,49 @@ export default function LucyChat({ project, pipes, onCreated }: { project: strin
     <div className="h-full flex flex-col">
       <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-3">
         {msgs.map((m, i) => (
-          <div key={i} className={'max-w-[85%] ' + (m.role === 'me' ? 'self-end' : 'self-start')}>
-            <div className={'rounded-2xl px-3.5 py-2 text-[13px] leading-snug whitespace-pre-wrap ' + (m.role === 'me' ? 'bg-cyan/15 text-ink rounded-br-sm' : 'bg-panel border border-line text-inkdim rounded-bl-sm')}>
-              {m.role === 'lucy' && <span className="text-[10px] text-cyan font-semibold block mb-0.5">Lucy</span>}
-              {m.text}
-            </div>
-            {m.drafts && (
-              <div className="mt-2 card !bg-black/20 p-2.5 flex flex-col gap-1.5">
-                <div className="text-[11px] text-inkfaint">{m.drafts.length} task đề xuất:</div>
-                {m.drafts.map((d, k) => (
-                  <div key={k} className="flex items-center gap-2 text-[12px]">
-                    <span className="text-inkdim truncate flex-1">{d.title}</span>
-                    <span className="chip !py-0 !px-1.5 !text-[9px]">{pipes.find((p) => p.id === d.pipelineId)?.name || d.pipelineId}</span>
-                    <span className="chip !py-0 !px-1.5 !text-[9px]" style={{ color: d.model === 'opus' ? '#b78cff' : '#7fe3ff' }}>{d.model}</span>
+          m.role === 'me' ? (
+            <div key={i} className="self-end max-w-[85%] rounded-2xl rounded-br-sm px-3.5 py-2 text-[13px] leading-snug whitespace-pre-wrap break-words bg-cyan/15 text-ink">{m.text}</div>
+          ) : (
+            <div key={i} className="self-start max-w-[92%] flex gap-2.5">
+              <img src="/lucy.jpg" alt="Lucy" className="mt-1 h-7 w-7 shrink-0 rounded-full object-cover" style={{ border: '1px solid rgba(63,211,255,0.45)' }} />
+              <div className="min-w-0 flex-1">
+                <div className="card px-3.5 py-2.5 min-w-0">
+                  <div className="display text-[10px] tracking-[0.2em] text-cyan/80 mb-1">LUCY</div>
+                  <Markdown>{m.text}</Markdown>
+                </div>
+                {m.drafts && (
+                  <div className="mt-2 card !bg-black/20 p-2.5 flex flex-col gap-1.5">
+                    <div className="text-[11px] text-inkfaint">{m.drafts.length} task đề xuất:</div>
+                    {m.drafts.map((d, k) => (
+                      <div key={k} className="flex items-center gap-2 text-[12px]">
+                        <span className="text-inkdim truncate flex-1">{d.title}</span>
+                        <span className="chip !py-0 !px-1.5 !text-[9px]">{pipes.find((p) => p.id === d.pipelineId)?.name || d.pipelineId}</span>
+                        <span className="chip !py-0 !px-1.5 !text-[9px]" style={{ color: d.model === 'opus' ? '#b78cff' : '#7fe3ff' }}>{d.model}</span>
+                      </div>
+                    ))}
+                    <button className="btn btn-primary !py-1.5 mt-1 self-start" disabled={m.created} onClick={() => createDrafts(i, m.drafts!)}>
+                      {m.created ? '✓ Đã tạo' : `✓ Tạo ${m.drafts.length} task`}
+                    </button>
                   </div>
-                ))}
-                <button className="btn btn-primary !py-1.5 mt-1 self-start" disabled={m.created} onClick={() => createDrafts(i, m.drafts!)}>
-                  {m.created ? '✓ Đã tạo' : `✓ Tạo ${m.drafts.length} task`}
-                </button>
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          )
         ))}
         {busy && <div className="self-start text-[12px] text-cyan flex items-center gap-2"><span className="inline-block h-2 w-2 rounded-full bg-cyan animate-pulse" />Lucy đang nghĩ… {secs}s</div>}
         <div ref={endRef} />
       </div>
-      <div className="shrink-0 border-t border-line p-2.5 flex gap-2">
-        <input className="input flex-1" placeholder="Kể cho Lucy nghe ý tưởng / yêu cầu…" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMsg()} disabled={busy} />
-        <button className="btn btn-primary shrink-0" onClick={sendMsg} disabled={busy || !draft.trim()}>Gửi</button>
+      <div className="shrink-0 border-t border-line p-2.5 flex flex-col gap-2">
+        <div className="flex gap-2">
+          <textarea className="input flex-1 resize-none" rows={2} placeholder="Kể cho Lucy nghe ý tưởng / yêu cầu… (Enter gửi · Shift+Enter xuống dòng)" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg() } }} disabled={busy} />
+          <button className="btn btn-primary shrink-0 self-stretch" onClick={sendMsg} disabled={busy || !draft.trim()}>Gửi</button>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={startMic} title="Nhập bằng giọng nói" className={'btn btn-icon !w-8 !h-8 ' + (listening ? 'text-pink border-pink/60' : '')} style={listening ? { animation: 'lucy-pulse 1s infinite' } : undefined}>🎤</button>
+          <button onClick={() => setOpus(!opus)} className="flex items-center gap-1.5 text-xs text-inkdim" title="Dùng Opus (sâu hơn, chậm hơn)">
+            <span className="switch" data-on={opus} /> opus
+          </button>
+        </div>
       </div>
     </div>
   )

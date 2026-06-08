@@ -13,11 +13,12 @@ export async function login(password: string, code?: string): Promise<{ ok: bool
   try { return await r.json() } catch { return { ok: r.ok } }
 }
 
-export async function send(prompt: string, opus: boolean) {
+// scope: chuỗi key (vd 'proj:<id>') → Lucy DỰ ÁN dùng phiên độc lập, KHÔNG đụng chat tổng. Bỏ trống = chat tổng.
+export async function send(prompt: string, opus: boolean, scope?: string) {
   const r = await fetch('/api/send', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ prompt, opus }),
+    body: JSON.stringify({ prompt, opus, scope }),
   })
   return r.json() as Promise<{ job_id: string }>
 }
