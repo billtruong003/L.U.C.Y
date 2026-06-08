@@ -49,44 +49,104 @@ export default function ProjectsView({ openProjectId, onOpenProjectChange }: { o
 
   // ── WORKSPACE 1 dự án ──
   const proj = projects.find((p) => p.id === active)
+
+  const exportJSON = () => {
+    const data = cards.filter((c) => (c.projectId || 'default') === active)
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+    a.download = `${active}-cards.json`; a.click(); URL.revokeObjectURL(a.href)
+  }
+  const exportHTML = () => {
+    const data = cards.filter((c) => (c.projectId || 'default') === active)
+    const rows = data.map((c) => `<tr><td>${c.title}</td><td>${c.status}</td><td>$${(c.cost?.usd || 0).toFixed(3)}</td></tr>`).join('')
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${active}</title><style>body{font-family:sans-serif;padding:24px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:8px 12px;text-align:left}th{background:#f5f5f5}</style></head><body><h2>${active}</h2><table><thead><tr><th>Title</th><th>Status</th><th>Cost</th></tr></thead><tbody>${rows}</tbody></table></body></html>`
+    const blob = new Blob([html], { type: 'text/html' })
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+    a.download = `${active}-report.html`; a.click(); URL.revokeObjectURL(a.href)
+  }
+
   if (active && proj) {
-    const TABS = [{ k: 'kanban', label: '📋 Kanban' }, { k: 'lucy', label: '✨ Lucy' }, { k: 'channels', label: '💬 Channels' }, { k: 'flow', label: '🧩 Flow' }] as const
+    const TABS = [
+      { k: 'kanban',   icon: '📋', label: 'Kanban'   },
+      { k: 'lucy',     icon: '✨', label: 'Lucy'     },
+      { k: 'channels', icon: '💬', label: 'Channels' },
+      { k: 'flow',     icon: '🧩', label: 'Flow'     },
+    ] as const
     const s = stats.get(proj.id)
     return (
       <div className="h-full flex flex-col overflow-hidden">
-        <div className="shrink-0 border-b border-line bg-panel/30">
-          <div className="h-13 flex items-center gap-3 px-4 py-2">
-            <button className="btn btn-icon !w-8 !h-8 shrink-0" title="về danh sách dự án" onClick={() => { setActive(null); onOpenProjectChange?.(null) }}>←</button>
-            <span className="text-lg shrink-0">📁</span>
+        {/* ── Row 1: logo / tên dự án + actions ── */}
+        <div className="shrink-0 h-14 flex items-center gap-3 px-4 border-b border-line bg-panel/40 backdrop-blur">
+          <button className="btn btn-icon !w-8 !h-8 shrink-0" title="về danh sách dự án" onClick={() => { setActive(null); onOpenProjectChange?.(null) }}>←</button>
+
+          {/* project identity */}
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span className="text-xl shrink-0" style={{ filter: 'drop-shadow(0 0 6px rgba(63,211,255,.5))' }}>📁</span>
             <div className="min-w-0">
-              <div className="text-[14px] font-semibold text-ink truncate leading-tight">{proj.name}</div>
-              {proj.repoUrl ? <a href={proj.repoUrl} target="_blank" rel="noreferrer" className="text-[10px] text-cyan hover:underline truncate block">{proj.repoUrl}</a> : <div className="text-[10px] text-inkfaint">workspace nháp (chưa gắn repo)</div>}
+              <div className="display text-[13.5px] tracking-[0.06em] text-ink truncate leading-none">{proj.name}</div>
+              {proj.repoUrl
+                ? <a href={proj.repoUrl} target="_blank" rel="noreferrer" className="text-[10px] text-cyan hover:underline truncate block mt-0.5">{proj.repoUrl}</a>
+                : <div className="text-[10px] text-inkfaint mt-0.5">workspace nháp</div>}
             </div>
-            <div className="ml-auto flex gap-1 shrink-0">
-              {TABS.map((t) => (
-                <button key={t.k} onClick={() => setTab(t.k)} className={'btn !py-1.5 !text-[12px] ' + (tab === t.k ? 'btn-primary' : '')}>{t.label}</button>
-              ))}
-              <button className="btn btn-icon !w-8 !h-8" title="ném dự án vào thùng rác" onClick={() => { trashProject(proj.id); setActive(null); onOpenProjectChange?.(null) }}>🗑</button>
-            </div>
+            {proj.description && <span className="text-[11px] text-inkdim truncate max-w-[35%] hidden md:block" title={proj.description}>{proj.description}</span>}
           </div>
-          {/* dashboard strip: mô tả + kinh phí + agent + task */}
-          <div className="px-4 pb-2 flex items-center gap-1.5 flex-wrap">
-            {proj.description && <span className="text-[11px] text-inkdim truncate max-w-[45%] mr-1" title={proj.description}>{proj.description}</span>}
-            <Stat v={s?.total || 0} label="task" />
-            {s?.byStatus.working ? <Stat v={s.byStatus.working} label="chạy" color="#3fd3ff" /> : null}
-            {s?.byStatus.waiting_human ? <Stat v={s.byStatus.waiting_human} label="cần duyệt" color="#ff5d9e" /> : null}
-            {s?.byStatus.done ? <Stat v={s.byStatus.done} label="xong" color="#5fe39a" /> : null}
-            {s?.byStatus.failed ? <Stat v={s.byStatus.failed} label="lỗi" color="#ff6b6b" /> : null}
-            <span className="chip !py-0.5 !text-[11px]"><b className="text-grn">${(s?.cost || 0).toFixed(3)}</b><span className="text-inkfaint ml-1">kinh phí</span></span>
-            <span className="chip !py-0.5 !text-[11px]"><b className="text-cyan">{s?.agents.size || 0}</b><span className="text-inkfaint ml-1">agent tham gia</span></span>
+
+          {/* export + trash */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button className="btn !py-1 !px-2.5 !text-[11px] gap-1" onClick={exportJSON} title="Xuất danh sách card ra JSON">
+              <span className="text-inkdim">↓</span> JSON
+            </button>
+            <button className="btn !py-1 !px-2.5 !text-[11px] gap-1" onClick={exportHTML} title="Xuất báo cáo HTML">
+              <span className="text-inkdim">↓</span> HTML
+            </button>
+            <button className="btn btn-icon !w-8 !h-8" title="ném dự án vào thùng rác" onClick={() => { trashProject(proj.id); setActive(null); onOpenProjectChange?.(null) }}>🗑</button>
           </div>
         </div>
-        {/* giữ MOUNTED cả 3, ẩn bằng CSS -> đổi tab không mất state (vd chat Lucy) */}
+
+        {/* ── Row 2: tab bar ── */}
+        <div className="shrink-0 flex items-end gap-0 px-2 bg-panel/20 border-b border-line overflow-x-auto">
+          {TABS.map((t) => {
+            const on = tab === t.k
+            return (
+              <button
+                key={t.k}
+                onClick={() => setTab(t.k)}
+                className={
+                  'relative flex items-center gap-1.5 px-4 py-2.5 text-[12.5px] font-medium whitespace-nowrap transition-colors duration-150 ' +
+                  (on ? 'text-cyan' : 'text-inkdim hover:text-ink')
+                }
+              >
+                <span className={'transition-transform duration-150 ' + (on ? 'scale-110' : '')}>{t.icon}</span>
+                {t.label}
+                <span
+                  className="absolute bottom-0 left-0 right-0 h-[2px] rounded-t-full transition-all duration-200"
+                  style={{
+                    background: on ? '#3fd3ff' : 'transparent',
+                    boxShadow: on ? '0 0 8px rgba(63,211,255,0.8)' : 'none',
+                    opacity: on ? 1 : 0,
+                  }}
+                />
+              </button>
+            )
+          })}
+
+          {/* dashboard chips — đẩy sang phải */}
+          <div className="ml-auto flex items-center gap-1.5 py-2 pl-2 overflow-x-auto shrink-0">
+            <Stat v={s?.total || 0} label="task" />
+            {s?.byStatus.working ? <Stat v={s.byStatus.working} label="chạy" color="#3fd3ff" /> : null}
+            {s?.byStatus.waiting_human ? <Stat v={s.byStatus.waiting_human} label="duyệt" color="#ff5d9e" /> : null}
+            {s?.byStatus.done ? <Stat v={s.byStatus.done} label="xong" color="#5fe39a" /> : null}
+            <span className="chip !py-0 !text-[10px]"><b className="text-grn">${(s?.cost || 0).toFixed(2)}</b></span>
+          </div>
+        </div>
+
+        {/* ── content ── */}
+        {/* giữ MOUNTED cả 4, ẩn bằng CSS -> đổi tab không mất state (vd chat Lucy) */}
         <div className="flex-1 min-h-0 relative">
-          <div className={tab === 'kanban' ? 'absolute inset-0' : 'hidden'}><Board projectId={proj.id} /></div>
-          <div className={tab === 'lucy' ? 'absolute inset-0' : 'hidden'}><LucyChat key={proj.id} project={proj.id} pipes={pipes} onCreated={pull} /></div>
+          <div className={tab === 'kanban'   ? 'absolute inset-0' : 'hidden'}><Board projectId={proj.id} /></div>
+          <div className={tab === 'lucy'     ? 'absolute inset-0' : 'hidden'}><LucyChat key={proj.id} project={proj.id} pipes={pipes} onCreated={pull} /></div>
           <div className={tab === 'channels' ? 'absolute inset-0' : 'hidden'}><Channels projectId={proj.id} /></div>
-          <div className={tab === 'flow' ? 'absolute inset-0' : 'hidden'}><FlowEditor pipes={pipes} personas={personas} onChanged={pull} /></div>
+          <div className={tab === 'flow'     ? 'absolute inset-0' : 'hidden'}><FlowEditor pipes={pipes} personas={personas} onChanged={pull} /></div>
         </div>
       </div>
     )

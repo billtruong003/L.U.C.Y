@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { amState, amSetLanes, amCreateCard, amApprove, amReject, amAnswer, amRemoveCard, amActivate, type AmCard, type AmPipeline, type AmPersona } from '../api'
 import Planner from './Planner'
+import RichTextEditor from './RichTextEditor'
 
 const STATUS: Record<string, { label: string; color: string; icon: string }> = {
   backlog: { label: 'ĐỂ SAU', color: '#8aa0b5', icon: '🕓' },
@@ -99,23 +100,38 @@ export default function Board({ projectId }: { projectId?: string } = {}) {
 
       {/* ── create form ── */}
       {form.open && (
-        <div className="shrink-0 px-4 sm:px-5 py-3 border-b border-line bg-panel/30 flex flex-col sm:flex-row gap-2">
-          <input className="input sm:!w-56" placeholder="Tên việc…" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && create()} autoFocus />
-          <input className="input flex-1" placeholder="Mô tả / brief…" value={form.brief} onChange={(e) => setForm({ ...form, brief: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && create()} />
-          {!projectId && <input className="input sm:!w-32" placeholder="dự án" value={form.project} onChange={(e) => setForm({ ...form, project: e.target.value })} />}
-          <select className="input sm:!w-40" value={form.pipeline} onChange={(e) => setForm({ ...form, pipeline: e.target.value })}>
-            {pipes.length === 0 && <option value="">(chưa có pipeline)</option>}
-            {pipes.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <select className="input sm:!w-28" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} title="Model cho card (mặc định = theo persona)">
-            <option value="">model: auto</option>
-            <option value="sonnet">sonnet</option>
-            <option value="opus">opus</option>
-          </select>
-          <label className="flex items-center gap-1.5 px-2 text-[12px] text-inkdim cursor-pointer select-none" title="Tạo nhưng KHÔNG chạy ngay — để backlog, khi nào muốn bấm Chạy">
-            <input type="checkbox" checked={form.defer} onChange={(e) => setForm({ ...form, defer: e.target.checked })} /> 🕓 để sau
-          </label>
-          <button className="btn btn-primary" onClick={create}>Tạo</button>
+        <div className="shrink-0 px-4 sm:px-5 py-4 border-b border-line bg-panel/30 flex flex-col gap-3">
+          {/* row 1: title + meta */}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input className="input flex-1" placeholder="Tên việc…" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && create()} autoFocus />
+            {!projectId && <input className="input sm:!w-32" placeholder="dự án" value={form.project} onChange={(e) => setForm({ ...form, project: e.target.value })} />}
+            <select className="input sm:!w-40" value={form.pipeline} onChange={(e) => setForm({ ...form, pipeline: e.target.value })}>
+              {pipes.length === 0 && <option value="">(chưa có pipeline)</option>}
+              {pipes.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <select className="input sm:!w-28" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} title="Model cho card (mặc định = theo persona)">
+              <option value="">model: auto</option>
+              <option value="sonnet">sonnet</option>
+              <option value="opus">opus</option>
+            </select>
+          </div>
+          {/* row 2: rich text brief */}
+          <RichTextEditor
+            value={form.brief}
+            onChange={(v) => setForm({ ...form, brief: v })}
+            placeholder="Mô tả / brief… (hỗ trợ **bold**, *italic*, ## heading, - list, [link](url))"
+            rows={4}
+          />
+          {/* row 3: actions */}
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1.5 px-2 text-[12px] text-inkdim cursor-pointer select-none" title="Tạo nhưng KHÔNG chạy ngay — để backlog, khi nào muốn bấm Chạy">
+              <input type="checkbox" checked={form.defer} onChange={(e) => setForm({ ...form, defer: e.target.checked })} /> 🕓 để sau
+            </label>
+            <div className="ml-auto flex gap-2">
+              <button className="btn" onClick={() => setForm({ ...form, open: false })}>Huỷ</button>
+              <button className="btn btn-primary" onClick={create}>Tạo card</button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -9,6 +9,7 @@ import BrainViz from './components/BrainViz'
 import Aki from './components/Aki'
 import Logs from './components/Logs'
 import Settings from './components/Settings'
+import Draw from './components/Draw'
 import { me, amState, amTrashProject, amCreateProject, type AmProject } from './api'
 
 const TABS = [
@@ -18,6 +19,7 @@ const TABS = [
   { id: 'schedule', label: 'Schedule', icon: '🗓️', sub: 'Đặt lịch tự chạy' },
   { id: 'projects', label: 'Mã nguồn', icon: '📁', sub: 'Cây mã nguồn' },
   { id: 'brain', label: 'Neural', icon: '🧠', sub: 'Bản đồ não Lucy' },
+  { id: 'draw', label: 'Draw', icon: '✏️', sub: 'Canvas vẽ tay' },
   { id: 'aki', label: 'Aki', icon: '📣', sub: 'Đẩy báo cáo Discord' },
   { id: 'logs', label: 'Logs', icon: '📜', sub: 'Nhật ký hệ thống' },
   { id: 'settings', label: 'Settings', icon: '🔐', sub: 'Bảo mật 2FA' },
@@ -205,6 +207,7 @@ export default function App() {
           <div className={tab === 'schedule' ? 'absolute inset-0' : 'hidden'}><Schedule /></div>
           <div className={tab === 'projects' ? 'absolute inset-0' : 'hidden'}><Projects /></div>
           <div className={tab === 'brain' ? 'absolute inset-0' : 'hidden'}><BrainViz visible={tab === 'brain'} /></div>
+          <div className={tab === 'draw' ? 'absolute inset-0' : 'hidden'}><Draw /></div>
           <div className={tab === 'aki' ? 'absolute inset-0' : 'hidden'}><Aki /></div>
           <div className={tab === 'logs' ? 'absolute inset-0' : 'hidden'}><Logs /></div>
           <div className={tab === 'settings' ? 'absolute inset-0' : 'hidden'}><Settings /></div>
