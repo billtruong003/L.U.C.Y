@@ -19,7 +19,7 @@ export class MockRunner implements Runner {
   async run(card: Card, stage: Stage, persona: Persona, _ws: string): Promise<RunResult> {
     await new Promise((r) => setTimeout(r, 30))
     const outcome = this.script[stage.id] ?? { decision: 'advance', summary: `(${persona.name}) xong "${stage.name}"` }
-    return { outcome, cost: this.cost, raw: '[mock]' }
+    return { outcome, cost: this.cost, raw: '[mock]', report: `[mock] ${persona.name} @ ${stage.name}: ${outcome.summary}` }
   }
 }
 
@@ -97,7 +97,12 @@ function parseClaude(raw: string): RunResult {
     result = d.result ?? raw
     cost = { usd: d.total_cost_usd ?? 0, inTok: d.usage?.input_tokens ?? 0, outTok: d.usage?.output_tokens ?? 0 }
   } catch { /* không phải JSON */ }
-  return { outcome: extractOutcome(result), cost, raw }
+  return { outcome: extractOutcome(result), cost, raw, report: cleanReport(result) }
+}
+
+// C1: narrative "agent đã làm như nào" — bỏ khối JSON outcome ở cuối, cap để khỏi phình store.
+function cleanReport(text: string): string {
+  return text.replace(/```json\s*[\s\S]*?```\s*$/i, '').trim().slice(0, 12000)
 }
 
 function extractOutcome(text: string): Outcome {

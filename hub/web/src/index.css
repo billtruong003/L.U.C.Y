@@ -2,22 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { --line: rgba(127,179,214,0.14); }
+/* W2.A calm: viền rõ hơn (0.14 → 0.22) để Kanban/card tách ra dễ quét */
+:root { --line: rgba(127,179,214,0.22); }
 
 * { box-sizing: border-box; }
 body {
   margin: 0;
+  /* W2.A de-glow: radial cyan/green làm mờ hẳn (0.06/0.05 → 0.03/0.02) — bớt "phát sáng mọi chỗ" */
   background:
-    radial-gradient(1200px 600px at 70% -10%, rgba(63,211,255,0.06), transparent 60%),
-    radial-gradient(900px 500px at 0% 110%, rgba(95,227,154,0.05), transparent 55%),
+    radial-gradient(1200px 600px at 70% -10%, rgba(63,211,255,0.03), transparent 60%),
+    radial-gradient(900px 500px at 0% 110%, rgba(95,227,154,0.02), transparent 55%),
     #05070e;
   color: #e7f1fb;
   font-family: Inter, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+/* W2.A scrollbar trung tính (bỏ ám cyan) */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
-::-webkit-scrollbar-thumb { background: rgba(63,211,255,0.22); border-radius: 9px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(63,211,255,0.4); }
+::-webkit-scrollbar-thumb { background: rgba(127,179,214,0.18); border-radius: 9px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(127,179,214,0.34); }
 ::-webkit-scrollbar-track { background: transparent; }
 
 @keyframes lucy-pulse { 0%,100% { transform: scale(0.92); opacity: 0.7 } 50% { transform: scale(1.1); opacity: 1 } }
@@ -47,9 +50,10 @@ body {
   .btn-primary {
     color: #061018; font-weight: 700;
     background: linear-gradient(180deg, #5fe6ff, #2bb6e6);
-    border: 1px solid rgba(63,211,255,0.6); box-shadow: 0 0 18px rgba(63,211,255,0.30);
+    /* W2.A de-glow: bỏ halo cyan, chỉ shadow nền nhẹ */
+    border: 1px solid rgba(63,211,255,0.55); box-shadow: 0 2px 8px rgba(0,0,0,0.30);
   }
-  .btn-primary:hover { background: linear-gradient(180deg, #74ecff, #38c2ef); box-shadow: 0 0 26px rgba(63,211,255,0.45); }
+  .btn-primary:hover { background: linear-gradient(180deg, #74ecff, #38c2ef); box-shadow: 0 2px 10px rgba(0,0,0,0.38); }
   .btn-icon { padding: 0.5rem; width: 2.3rem; height: 2.3rem; }
 
   .input {

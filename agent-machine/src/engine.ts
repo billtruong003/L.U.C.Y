@@ -353,6 +353,11 @@ export class Engine {
     c.history.push({ ts: Date.now(), stage: stage.id, event: result.outcome.decision, detail: result.outcome.summary })
     if (result.artifacts) c.artifacts = { ...result.artifacts, stage: stage.id } // V1: báo cáo đổi gì
     c.lastSummary = result.outcome.summary // D4: bước sau đọc được bước trước đã làm gì
+    // C1: lưu narrative ĐẦY ĐỦ (drawer đọc full) + post 'report' nhiều dòng vào thread (channel sống, agent "nói" đã làm gì)
+    if (result.report && result.report.trim()) {
+      c.reports = (c.reports || []).concat({ stage: stage.id, persona: persona.name, text: result.report.slice(0, 12000), ts: Date.now() }).slice(-20)
+      post(this.store, threadOf(c.id), persona.name, 'report', result.report.slice(0, 2000), c.id)
+    }
 
     // guardrail: per-card cost cap
     if (c.cost.usd >= this.perCardMaxUsd) {

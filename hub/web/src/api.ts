@@ -53,6 +53,7 @@ export type AmCard = {
   workspace?: string; artifacts?: { files?: string[]; diffstat?: string; stage?: string; isRepo?: boolean }
   lastSummary?: string; waitKind?: 'gate' | 'decision' | 'cost'; blockKind?: 'dep' | 'delegate'
   history?: { ts: number; stage: string; event: string; detail?: string }[]
+  reports?: { stage: string; persona: string; text: string; ts: number }[] // C1: narrative đầy đủ agent đã làm gì mỗi stage
 }
 export type AmMsg = { ts: number; channel: string; author: string; kind: string; text: string; cardId?: string }
 export type AmStage = { id: string; name: string; personaId: string; gate?: boolean }

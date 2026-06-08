@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { amState, amAddChannel, amPostChannel, type AmMsg, type AmCard, type AmProject, type AmPersona } from '../api'
+import Markdown from './Markdown'
 
 // màu/avatar theo "ai nói" — agent là thành viên của kênh (như Discord)
 const AGENT_PALETTE = ['#3fd3ff', '#5fe39a', '#ff9d5c', '#b78cff', '#46c6ec', '#f5d76e']
@@ -153,9 +154,11 @@ function Row({ m, prev, avatar }: { m: AmMsg; prev?: AmMsg; avatar?: string }) {
             <span className="text-[9px] text-inkfaint mono">{time}</span>
           </div>
         )}
-        <div className={'text-[13px] leading-snug break-words ' + (isHandoff ? 'text-cyan font-medium' : isReport ? 'text-grn' : 'text-inkdim')}>
+        <div className={'text-[13px] leading-snug break-words ' + (isHandoff ? 'text-cyan font-medium' : 'text-inkdim')}>
           {isHandoff && <span className="inline-block px-1.5 py-0.5 mr-1 rounded text-[10px] align-middle" style={{ background: '#3fd3ff18', color: '#7fe3ff', border: '1px solid #3fd3ff33' }}>handoff</span>}
-          {m.text}
+          {isReport
+            ? <div className="mt-0.5 rounded-lg border border-line bg-black/20 px-2.5 py-1.5 max-h-72 overflow-auto"><div className="text-[9px] text-grn tracking-[0.16em] mb-0.5">📝 BÁO CÁO</div><Markdown>{m.text}</Markdown></div>
+            : m.text}
         </div>
       </div>
     </div>

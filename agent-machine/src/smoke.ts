@@ -39,6 +39,8 @@ async function t1() {
   await engine.runUntilIdle()
   check('card chính DONE sau approve', store.getCard(card.id)!.status === 'done', `(got ${store.getCard(card.id)!.status})`)
   check('channels có log (≥6 msg)', store.readChannel().length >= 6, `(got ${store.readChannel().length})`)
+  check('C1: card lưu report đầy đủ', (store.getCard(card.id)!.reports?.length ?? 0) >= 1, `(got ${store.getCard(card.id)!.reports?.length ?? 0})`)
+  check('C1: channel có message kind=report', store.readChannel().some((m) => m.kind === 'report'))
   check('ledger ghi cost', fs.existsSync(path.join(store.dir, 'ledger.jsonl')))
 }
 

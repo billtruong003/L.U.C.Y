@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { amState, amSetLanes, amCreateCard, amApprove, amReject, amAnswer, amRemoveCard, amActivate, type AmCard, type AmPipeline, type AmPersona } from '../api'
 import Planner from './Planner'
 import RichTextEditor from './RichTextEditor'
+import Markdown from './Markdown'
 
 const STATUS: Record<string, { label: string; color: string; icon: string }> = {
   backlog: { label: 'ĐỂ SAU', color: '#8aa0b5', icon: '🕓' },
@@ -25,7 +26,7 @@ export default function Board({ projectId }: { projectId?: string } = {}) {
   const [sel, setSel] = useState<string | null>(null)
   const [proj, setProj] = useState(projectId || 'all')
   useEffect(() => { if (projectId) setProj(projectId) }, [projectId])
-  const [form, setForm] = useState({ title: '', brief: '', pipeline: 'course', project: '', model: '', defer: false, open: false })
+  const [form, setForm] = useState({ title: '', brief: '', pipeline: '', project: '', model: '', defer: false, open: false })
   const [lanes, setLanes] = useState('')
   const [planOpen, setPlanOpen] = useState(false)
   const busy = useRef(false)
@@ -42,6 +43,11 @@ export default function Board({ projectId }: { projectId?: string } = {}) {
     } catch { /* */ } finally { busy.current = false }
   }
   useEffect(() => { pull(); const iv = setInterval(pull, 2000); return () => clearInterval(iv) }, [])
+  // B2: default pipeline hợp lý khi pipes load (ưu tiên 'feature' cho engineer, không cứng 'course')
+  useEffect(() => {
+    if (!pipes.length || pipes.find((p) => p.id === form.pipeline)) return
+    setForm((f) => ({ ...f, pipeline: (pipes.find((p) => p.id === 'feature') || pipes[0]).id }))
+  }, [pipes])
   const [now, setNow] = useState(Date.now())
   useEffect(() => { const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv) }, [])
 
@@ -54,7 +60,7 @@ export default function Board({ projectId }: { projectId?: string } = {}) {
   const waiting = shown.filter((c) => c.status === 'waiting_human')
   const selected = cards.find((c) => c.id === sel) || null
 
-  const create = async () => { if (!form.title.trim()) return; const pj = projectId || form.project.trim() || (proj !== 'all' ? proj : 'default'); const mdl = form.model === 'opus' || form.model === 'sonnet' ? (form.model as 'sonnet' | 'opus') : undefined; await amCreateCard(form.title.trim(), form.brief.trim(), form.pipeline.trim() || 'course', pj, form.defer, mdl); setForm({ ...form, title: '', brief: '', open: false }); pull() }
+  const create = async () => { if (!form.title.trim()) return; const pj = projectId || form.project.trim() || (proj !== 'all' ? proj : 'default'); const mdl = form.model === 'opus' || form.model === 'sonnet' ? (form.model as 'sonnet' | 'opus') : undefined; await amCreateCard(form.title.trim(), form.brief.trim(), form.pipeline.trim() || pipes[0]?.id || 'feature', pj, form.defer, mdl); setForm({ ...form, title: '', brief: '', open: false }); pull() }
   const approve = async (id: string) => { await amApprove(id); pull() }
   const reject = async (id: string, fb: string) => { await amReject(id, fb); pull() }
   const answer = async (id: string, text: string) => { await amAnswer(id, text); pull() }
@@ -179,6 +185,8 @@ export default function Board({ projectId }: { projectId?: string } = {}) {
                             <span className="truncate">{pipeMap.get(c.pipelineId)?.name || c.pipelineId}</span>
                             {st && <span className="text-inkdim">· {st.name}</span>}
                           </div>
+                          {/* B1: stepper tiến độ pipeline — thấy ngay đang ở bước nào / còn mấy bước */}
+                          <Stepper stages={pipeMap.get(c.pipelineId)?.stages || []} idx={c.stageIndex} done={c.status === 'done'} color={meta.color} />
                           <div className="mt-2 flex items-center gap-2 text-[10.5px]">
                             {pr && <span className="flex items-center gap-1 text-inkdim">{pr.avatar ? <img src={pr.avatar} alt="" className="h-4 w-4 rounded-full object-cover" /> : <Dot s={pr.name} />} {pr.name.replace(/·.*/, '').trim()}</span>}
                             {c.status === 'working' && c.updatedAt && <span className="flex items-center gap-1 text-cyan mono"><span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan animate-pulse" />{fmtElapsed(now - c.updatedAt)}</span>}
@@ -297,6 +305,9 @@ function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove, o
           </div>
         )}
 
+        {/* C2: BÁO CÁO AGENT — narrative đầy đủ "đã làm như nào", render Markdown, expand */}
+        {c.reports && c.reports.length > 0 && <ReportLog reports={c.reports} />}
+
         {/* timeline */}
         <div>
           <div className="text-[10px] text-inkfaint tracking-[0.18em] mb-2">LỊCH SỬ</div>
@@ -318,9 +329,46 @@ function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove, o
 function Field({ k, v }: { k: string; v: string }) {
   return <div><div className="text-[9.5px] text-inkfaint tracking-wide">{k.toUpperCase()}</div><div className="text-ink truncate">{v}</div></div>
 }
+// C2: log báo cáo agent — mỗi stage 1 block, render Markdown, click mở/đóng (mặc định mở cái mới nhất)
+function ReportLog({ reports }: { reports: NonNullable<AmCard['reports']> }) {
+  const [open, setOpen] = useState<number | null>(reports.length - 1)
+  return (
+    <div>
+      <div className="text-[10px] text-grn tracking-[0.18em] mb-2">📝 BÁO CÁO AGENT</div>
+      <div className="flex flex-col gap-2">
+        {reports.slice().reverse().map((r, i) => {
+          const idx = reports.length - 1 - i
+          const isOpen = open === idx
+          return (
+            <div key={idx} className="rounded-xl border border-line bg-black/20 overflow-hidden">
+              <button className="w-full flex items-center gap-2 px-3 py-2 text-left" onClick={() => setOpen(isOpen ? null : idx)}>
+                <span className="text-[11.5px] font-semibold text-grn truncate">{r.persona}</span>
+                <span className="text-[10px] text-inkdim shrink-0">· {r.stage}</span>
+                <span className="text-[9px] text-inkfaint mono ml-auto shrink-0">{new Date(r.ts).toISOString().slice(11, 16)}</span>
+                <span className="text-inkfaint text-[10px] shrink-0">{isOpen ? '▾' : '▸'}</span>
+              </button>
+              {isOpen && <div className="px-3 pb-3 pt-1 border-t border-line max-h-80 overflow-auto"><Markdown>{r.text}</Markdown></div>}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 function Dot({ s }: { s: string }) {
   const pal = ['#3fd3ff', '#5fe39a', '#ff9d5c', '#b78cff', '#46c6ec']; let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
   return <span className="h-2 w-2 rounded-full inline-block" style={{ background: pal[h % pal.length] }} />
+}
+// B1: thanh tiến độ pipeline — done=xanh, current=màu status, chưa tới=xám
+function Stepper({ stages, idx, done, color }: { stages: { id: string; name: string }[]; idx: number; done: boolean; color: string }) {
+  if (stages.length <= 1) return null
+  return (
+    <div className="mt-2 flex items-center gap-1" title={`bước ${Math.min(idx + 1, stages.length)}/${stages.length}: ${stages[idx]?.name || ''}`}>
+      {stages.map((s, i) => (
+        <span key={s.id} className="h-1 flex-1 rounded-full" style={{ background: done || i < idx ? '#5fe39a' : i === idx ? color : 'rgba(127,179,214,0.18)' }} />
+      ))}
+    </div>
+  )
 }
 function Empty({ icon, msg }: { icon: string; msg: string }) {
   return <div className="h-full grid place-items-center p-6"><div className="card p-8 text-center text-inkfaint text-sm max-w-md"><div className="text-2xl mb-2">{icon}</div>{msg}</div></div>

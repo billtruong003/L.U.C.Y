@@ -54,6 +54,7 @@ export type Card = {
   modelOverride?: 'sonnet' | 'opus' // ép model cho CARD này (đè model mặc định của persona) — orchestrator/bạn chọn
   reviewNotes?: string[] // feedback khi bạn TRẢ LẠI ở gate -> chèn vào prompt cho agent sửa
   lastSummary?: string // báo cáo bước TRƯỚC -> agent bước sau đọc để nối mạch (D4)
+  reports?: { stage: string; persona: string; text: string; ts: number }[] // C1: narrative ĐẦY ĐỦ agent đã làm gì mỗi stage (drawer đọc full, không cụt 1 dòng)
   cost: Cost
   stageVisits?: Record<string, number> // loop-breaker: đếm số lần vào mỗi stage
   artifacts?: { files?: string[]; diffstat?: string; stage?: string; isRepo?: boolean } // báo cáo: file đã tạo/đổi ở stage gần nhất
@@ -69,7 +70,7 @@ export type Outcome = {
   question?: string // khi needs_decision
   delegateTo?: { personaId: string; title: string; brief: string; pipelineId?: string } // khi delegate
 }
-export type RunResult = { outcome: Outcome; cost: Cost; raw: string; artifacts?: { files?: string[]; diffstat?: string; isRepo?: boolean } }
+export type RunResult = { outcome: Outcome; cost: Cost; raw: string; report?: string; artifacts?: { files?: string[]; diffstat?: string; isRepo?: boolean } }
 
 export type ChannelKind = 'chat' | 'status' | 'report' | 'decision' | 'system' | 'handoff'
 export type ChannelMsg = {
