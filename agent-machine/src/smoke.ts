@@ -41,6 +41,7 @@ async function t1() {
   check('channels có log (≥6 msg)', store.readChannel().length >= 6, `(got ${store.readChannel().length})`)
   check('C1: card lưu report đầy đủ', (store.getCard(card.id)!.reports?.length ?? 0) >= 1, `(got ${store.getCard(card.id)!.reports?.length ?? 0})`)
   check('C1: channel có message kind=report', store.readChannel().some((m) => m.kind === 'report'))
+  check('CACHE: card lưu session theo persona (rework --resume)', Object.keys(store.getCard(card.id)!.sessions || {}).length >= 1)
   check('ledger ghi cost', fs.existsSync(path.join(store.dir, 'ledger.jsonl')))
 }
 

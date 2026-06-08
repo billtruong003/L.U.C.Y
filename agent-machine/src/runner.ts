@@ -19,7 +19,7 @@ export class MockRunner implements Runner {
   async run(card: Card, stage: Stage, persona: Persona, _ws: string): Promise<RunResult> {
     await new Promise((r) => setTimeout(r, 30))
     const outcome = this.script[stage.id] ?? { decision: 'advance', summary: `(${persona.name}) xong "${stage.name}"` }
-    return { outcome, cost: this.cost, raw: '[mock]', report: `[mock] ${persona.name} @ ${stage.name}: ${outcome.summary}` }
+    return { outcome, cost: this.cost, raw: '[mock]', report: `[mock] ${persona.name} @ ${stage.name}: ${outcome.summary}`, sessionId: `mock-${card.id}-${persona.id}` }
   }
 }
 
@@ -71,33 +71,43 @@ export class ClaudeRunner implements Runner {
     const notes = card.reviewNotes?.length ? `\n\n⚠️ PHẢN HỒI cần SỬA (bị trả lại — fix kỹ những điểm này):\n- ${card.reviewNotes.join('\n- ')}` : ''
     const prev = card.lastSummary ? `\n\n↪ Bước TRƯỚC đã làm: ${card.lastSummary}\n(đọc kết quả bước trước trong workspace, nối tiếp — đừng làm lại từ đầu.)` : ''
     const prompt = `Card: ${card.title}\n\n${card.brief}\n\nStage hiện tại: ${stage.name}.${prev}${notes}`
-    const args = [
+    const baseArgs = [
       '-p', prompt, '--output-format', 'json', '--permission-mode', 'bypassPermissions',
       '--model', persona.model, '--append-system-prompt-file', personaFile,
       '--max-turns', String(persona.maxTurns ?? 12), // cap turn = chặn đốt token/thời gian (40 cũ → 5 phút/task). Persona tự khai trong config.
       '--allowedTools', (persona.allowedTools ?? ['Read', 'Write', 'Edit', 'Bash']).join(','),
     ]
-    const raw = await new Promise<string>((resolve) => {
+    const timeoutSec = persona.timeoutSec ?? 300
+    // CACHE: cùng (card, persona) chạy lại (rework) → --resume session cũ để agent NHỚ đã đọc/sửa gì, KHỎI quét lại project (đỡ token).
+    const resumeId = card.sessions?.[persona.id]
+    let r = await this.spawn(resumeId ? [...baseArgs, '--resume', resumeId] : baseArgs, ws, timeoutSec)
+    if (resumeId && r.code !== 0 && !r.out.trim()) r = await this.spawn(baseArgs, ws, timeoutSec) // resume hỏng (session ở máy khác / đã xoá) → chạy mới
+    return parseClaude(r.out)
+  }
+
+  private spawn(args: string[], ws: string, timeoutSec: number): Promise<{ out: string; code: number | null }> {
+    return new Promise((resolve) => {
       const ch = spawn(this.bin, args, { cwd: ws, env: { ...process.env, IS_SANDBOX: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
       let out = ''
-      const timer = setTimeout(() => ch.kill(), (persona.timeoutSec ?? 300) * 1000) // kill runaway (600 cũ → 10 phút). Persona tự khai.
+      const timer = setTimeout(() => ch.kill(), timeoutSec * 1000) // kill runaway (600 cũ → 10 phút). Persona tự khai.
       ch.stdout.on('data', (d) => (out += d))
-      ch.on('close', () => { clearTimeout(timer); resolve(out) })
-      ch.on('error', (e) => { clearTimeout(timer); resolve(JSON.stringify({ result: `spawn lỗi: ${e}` })) })
+      ch.on('close', (code) => { clearTimeout(timer); resolve({ out, code }) })
+      ch.on('error', (e) => { clearTimeout(timer); resolve({ out: JSON.stringify({ result: `spawn lỗi: ${e}` }), code: 1 }) })
     })
-    return parseClaude(raw)
   }
 }
 
 function parseClaude(raw: string): RunResult {
   let result = raw
   let cost: Cost = { usd: 0, inTok: 0, outTok: 0 }
+  let sessionId: string | undefined
   try {
     const d = JSON.parse(raw) as any
     result = d.result ?? raw
     cost = { usd: d.total_cost_usd ?? 0, inTok: d.usage?.input_tokens ?? 0, outTok: d.usage?.output_tokens ?? 0 }
+    sessionId = d.session_id || undefined // CACHE: lưu để rework --resume
   } catch { /* không phải JSON */ }
-  return { outcome: extractOutcome(result), cost, raw, report: cleanReport(result) }
+  return { outcome: extractOutcome(result), cost, raw, report: cleanReport(result), sessionId }
 }
 
 // C1: narrative "agent đã làm như nào" — bỏ khối JSON outcome ở cuối, cap để khỏi phình store.

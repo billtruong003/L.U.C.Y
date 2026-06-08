@@ -363,6 +363,8 @@ export class Engine {
       c.reports = (c.reports || []).concat({ stage: stage.id, persona: persona.name, text: result.report.slice(0, 12000), ts: Date.now() }).slice(-20)
       post(this.store, threadOf(c.id), persona.name, 'report', result.report.slice(0, 2000), c.id)
     }
+    // CACHE: nhớ session_id theo persona → rework lần sau --resume, agent khỏi quét lại project (đỡ token)
+    if (result.sessionId) c.sessions = { ...(c.sessions || {}), [persona.id]: result.sessionId }
 
     // guardrail: per-card cost cap
     if (c.cost.usd >= this.perCardMaxUsd) {
