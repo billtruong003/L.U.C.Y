@@ -74,13 +74,13 @@ export class ClaudeRunner implements Runner {
     const args = [
       '-p', prompt, '--output-format', 'json', '--permission-mode', 'bypassPermissions',
       '--model', persona.model, '--append-system-prompt-file', personaFile,
-      '--max-turns', String(persona.maxTurns ?? 40), // cho agent tự iterate sâu (đọc→sửa→test→fix)
+      '--max-turns', String(persona.maxTurns ?? 12), // cap turn = chặn đốt token/thời gian (40 cũ → 5 phút/task). Persona tự khai trong config.
       '--allowedTools', (persona.allowedTools ?? ['Read', 'Write', 'Edit', 'Bash']).join(','),
     ]
     const raw = await new Promise<string>((resolve) => {
       const ch = spawn(this.bin, args, { cwd: ws, env: { ...process.env, IS_SANDBOX: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
       let out = ''
-      const timer = setTimeout(() => ch.kill(), (persona.timeoutSec ?? 600) * 1000)
+      const timer = setTimeout(() => ch.kill(), (persona.timeoutSec ?? 300) * 1000) // kill runaway (600 cũ → 10 phút). Persona tự khai.
       ch.stdout.on('data', (d) => (out += d))
       ch.on('close', () => { clearTimeout(timer); resolve(out) })
       ch.on('error', (e) => { clearTimeout(timer); resolve(JSON.stringify({ result: `spawn lỗi: ${e}` })) })

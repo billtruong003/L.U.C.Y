@@ -26,7 +26,7 @@ const engine = new Engine(store, new MockRunner({}), new Budget({
   weeklyCapUsd: Number(process.env.AM_WEEKLY_CAP_USD || 120),
 }), {
   maxLanes: Number(process.env.AM_MAX_LANES || 3),
-  perCardMaxUsd: Number(process.env.AM_PER_CARD_USD || 5),
+  perCardMaxUsd: Number(process.env.AM_PER_CARD_USD || 2), // $5 cũ quá cao → 1 card đốt nhiều mới dừng. Env đè được.
   leaseMs: Number(process.env.AM_LEASE_MS || 20 * 60e3),
 })
 
