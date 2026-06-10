@@ -38,9 +38,10 @@ Kiến trúc đã chốt ([MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md)): **gateway
 | COST_MODEL / MODEL_COMPARISON / FREE_API_PROVIDERS | Token/model/provider |
 | ROADMAP_TO_PEAK.md | Business track (DEFER) |
 
-## 🔗 Repo tham chiếu (clone local ở `BillService/`, không trong LUCY repo)
-`hermes-agent` · `OmniRoute` · `basic-memory` · `open-second-brain` · `last30days-skill` · `awesome-finance-skills`.
-Ở máy khác clone lại nếu cần (URL trong các doc). M1 chỉ cần LUCY repo + spec.
+## 🔗 Repo tham chiếu (đã là git submodules trong `references/`)
+6 repo: hermes-agent · basic-memory · open-second-brain · OmniRoute · last30days-skill · awesome-finance-skills.
+**Máy mới / sau khi pull:** `git submodule update --init --depth 1` để kéo source về (không thì thư mục rỗng).
+Map file→việc: [references/README.md](../references/README.md).
 
 ## 🌐 OmniRoute (Sprint 1, chạy local — KHÔNG cần cho M1)
 Live `localhost:20128`, 7 provider free đã cắm (key trong vault AES-256 của OmniRoute, không trong git). = lane model-rẻ cho sau. Bật lại: `cd BillService/OmniRoute && npm run dev`. **Lưu ý:** key đang ở chat log — cân nhắc rotate (Groq/Gemini/OpenRouter regen tức thì).
