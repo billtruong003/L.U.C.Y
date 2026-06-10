@@ -1,0 +1,18 @@
+[submodule "references/basic-memory"]
+	path = references/basic-memory
+	url = https://github.com/basicmachines-co/basic-memory.git
+[submodule "references/open-second-brain"]
+	path = references/open-second-brain
+	url = https://github.com/itechmeat/open-second-brain.git
+[submodule "references/OmniRoute"]
+	path = references/OmniRoute
+	url = https://github.com/diegosouzapw/OmniRoute.git
+[submodule "references/last30days-skill"]
+	path = references/last30days-skill
+	url = https://github.com/mvanhorn/last30days-skill.git
+[submodule "references/awesome-finance-skills"]
+	path = references/awesome-finance-skills
+	url = https://github.com/rkiding/awesome-finance-skills.git
+[submodule "references/hermes-agent"]
+	path = references/hermes-agent
+	url = https://github.com/NousResearch/hermes-agent.git
