@@ -71,7 +71,9 @@ export class ClaudeRunner implements Runner {
 
   async run(card: Card, stage: Stage, persona: Persona, ws: string): Promise<RunResult> {
     const personaFile = path.join(ws, '.persona.md')
-    fs.writeFileSync(personaFile, persona.systemPrompt + HOUSE_SKILL + OUTCOME_CONTRACT)
+    // TRÍ NHỚ: prepend digest preference Lucy ĐÃ HỌC (Brain/active.md do dream sinh) vào ĐẦU system prompt.
+    // Strip dòng timestamp "Cập nhật:" → prefix byte-ổn định giữa các lượt (giữ prompt-cache parity).
+    fs.writeFileSync(personaFile, readActiveDigest() + persona.systemPrompt + HOUSE_SKILL + OUTCOME_CONTRACT)
     const notes = card.reviewNotes?.length ? `\n\n⚠️ PHẢN HỒI cần SỬA (bị trả lại — fix kỹ những điểm này):\n- ${card.reviewNotes.join('\n- ')}` : ''
     const prev = card.lastSummary ? `\n\n↪ Bước TRƯỚC đã làm: ${card.lastSummary}\n(đọc kết quả bước trước trong workspace, nối tiếp — đừng làm lại từ đầu.)` : ''
     const prompt = `Card: ${card.title}\n\n${card.brief}\n\nStage hiện tại: ${stage.name}.${prev}${notes}`
@@ -102,6 +104,19 @@ export class ClaudeRunner implements Runner {
       ch.on('error', (e) => { clearTimeout(timer); resolve({ out: JSON.stringify({ result: `spawn lỗi: ${e}` }), code: 1 }) })
     })
   }
+}
+
+// đọc Brain/active.md → digest preference đã học (bỏ frontmatter + dòng timestamp volatile).
+// Trả '' nếu chưa có vault / chưa học gì → KHÔNG chèn nhiễu, giữ prefix ổn định.
+function readActiveDigest(): string {
+  const vault = process.env.LUCY_VAULT
+  if (!vault) return ''
+  try {
+    const raw = fs.readFileSync(path.join(vault, 'Brain', 'active.md'), 'utf8')
+    const body = raw.replace(/^---[\s\S]*?\n---\n/, '').replace(/^>.*Cập nhật:.*$/m, '').trim()
+    if (!/^- /m.test(body)) return '' // chưa có preference nào (chỉ placeholder) → bỏ qua
+    return `TRÍ NHỚ ĐÃ HỌC (Lucy nhớ về chủ + dự án — tôn trọng, đừng hỏi lại):\n${body}\n\n---\n`
+  } catch { return '' }
 }
 
 function parseClaude(raw: string): RunResult {

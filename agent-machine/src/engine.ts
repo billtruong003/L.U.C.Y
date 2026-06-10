@@ -5,6 +5,8 @@ import { Store } from './store'
 import { Budget } from './budget'
 import { makeWorkspace } from './workspace'
 import { post, threadOf } from './channels'
+import { writeSignalSafe } from './signal'
+import { slug } from './vault'
 import type { Runner } from './runner'
 import type { Card, Stage, Persona, Project, Pipeline, RunResult } from './types'
 
@@ -203,6 +205,8 @@ export class Engine {
     if (!pipe) { c.status = 'failed'; this.store.putCard(c); return }
     const note = (feedback || '').trim() || 'Có vấn đề — làm lại kỹ hơn.'
     c.reviewNotes = (c.reviewNotes || []).concat(note)
+    // TRÍ NHỚ: feedback Bill = tín hiệu giá trị CAO → ghi brain-signal (dream gộp khi 1 việc bị trả lại lặp lại).
+    writeSignalSafe({ topic: `${c.projectId}/${slug(c.title)}`, signal: 'negative', principle: note, scope: 'review', cardId: c.id, agent: 'bill', raw: `Bill trả lại "${c.title}": ${note}` })
     c.pendingQuestion = undefined; c.waitKind = undefined
     c.stageVisits = {} // người trả lại kèm feedback -> reset đếm loop, cho thêm lượt sửa
     c.stageIndex = Math.max(0, c.stageIndex - 1) // lùi về stage trước gate (thường = build)
@@ -387,6 +391,8 @@ export class Engine {
         break
       case 'rework': { // D3: review/test phát hiện lỗi -> tự trả về bước trước sửa (loop tới khi đạt; loop-breaker chặn vô hạn)
         c.reviewNotes = (c.reviewNotes || []).concat(result.outcome.summary)
+        // TRÍ NHỚ: review tự bắt lỗi = signal âm cụ thể → ghi vào Brain/inbox (kênh auto bổ sung cho agent).
+        writeSignalSafe({ topic: `${c.projectId}/${slug(c.title)}`, signal: 'negative', principle: result.outcome.summary, scope: persona.id, cardId: c.id, agent: 'engine', raw: `${persona.name} REWORK @ ${stage.name}: ${result.outcome.summary}` })
         c.stageIndex = Math.max(0, c.stageIndex - 1)
         c.status = 'queued'
         const back = pipe.stages[c.stageIndex]

@@ -3,6 +3,9 @@
 import http from 'node:http'
 import type { Engine, JobSpec } from './engine'
 import type { Store } from './store'
+import type { Recall } from './recall'
+import { browseVault, readVaultFile, listPreferences, listInbox, readActive, buildGraph } from './brain'
+import { dream } from './dream'
 
 function serializeJob(j: JobSpec) {
   // worker không cần workspace của coordinator — nó tự tạo workspace local.
@@ -18,13 +21,17 @@ async function readBody(req: http.IncomingMessage): Promise<any> {
   })
 }
 
-export function startCoordinator(engine: Engine, store: Store, port: number, opts: { autoTickMs?: number; token?: string; host?: string } = {}) {
+export function startCoordinator(engine: Engine, store: Store, port: number, opts: { autoTickMs?: number; token?: string; host?: string; recall?: Recall | null; vaultDir?: string } = {}) {
   let timer: ReturnType<typeof setInterval> | null = null
   if (opts.autoTickMs) timer = setInterval(() => { try { engine.tick() } catch { /* */ } }, opts.autoTickMs)
+  const vaultDir = opts.vaultDir
+  const recall = opts.recall ?? null
+  const brainOn = !!(recall && vaultDir)
 
   const server = http.createServer(async (req, res) => {
     const send = (code: number, obj: unknown) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)) }
     const url = (req.url || '').split('?')[0]
+    const qs = new URLSearchParams((req.url || '').split('?')[1] || '')
     // auth: token bảo vệ MỌI endpoint (trừ /health) — chống tạo card/đọc state trái phép (RCE qua /card).
     // Hub proxy + worker đều gửi header x-worker-token. KHÔNG để hở khi expose public.
     if (opts.token && url !== '/health' && req.headers['x-worker-token'] !== opts.token) return send(401, { error: 'bad token' })
@@ -53,6 +60,28 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       if (req.method === 'POST' && url === '/approve') { const b = await readBody(req); engine.approve(b.cardId); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/reject') { const b = await readBody(req); engine.reject(b.cardId, b.feedback || ''); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/answer') { const b = await readBody(req); engine.answer(b.cardId, b.text || ''); return send(200, { ok: true }) }
+      // ── BỘ NÃO (M1: recall + vault browse + dream). brainOn=false nếu chưa set LUCY_VAULT. ──
+      if (url.startsWith('/recall') || url.startsWith('/brain')) {
+        if (!brainOn || !recall || !vaultDir) return send(200, { configured: false })
+        if (req.method === 'GET' && url === '/recall') {
+          const q = qs.get('q') || ''
+          const after = qs.get('after') ? Number(qs.get('after')) : undefined
+          return send(200, { configured: true, hits: q ? recall.search(q, { type: qs.get('type') || undefined, after, limit: Number(qs.get('limit')) || 10 }) : [] })
+        }
+        if (req.method === 'GET' && url === '/brain/recent')
+          return send(200, { configured: true, rows: recall.recent({ timeframe: qs.get('timeframe') || undefined, type: qs.get('type') || undefined, limit: Number(qs.get('limit')) || 15 }) })
+        if (req.method === 'GET' && url === '/brain/state')
+          return send(200, { configured: true, tree: browseVault(vaultDir), active: readActive(vaultDir), preferences: listPreferences(vaultDir), inbox: listInbox(vaultDir), stats: recall.stats() })
+        if (req.method === 'GET' && url === '/brain/graph')
+          return send(200, buildGraph(vaultDir, { bornWithinMs: Number(qs.get('bornMs')) || 0 }))
+        if (req.method === 'GET' && url === '/brain/file') {
+          const f = readVaultFile(vaultDir, qs.get('path') || '')
+          return f ? send(200, { configured: true, ...f }) : send(404, { error: 'not found / bad path' })
+        }
+        if (req.method === 'POST' && url === '/brain/reindex') return send(200, { configured: true, stats: recall.reindex({ full: true }) })
+        if (req.method === 'POST' && url === '/brain/dream') return send(200, { configured: true, summary: dream(vaultDir) })
+        return send(404, { error: 'not found' })
+      }
       if (req.method === 'GET' && url === '/state') return send(200, {
         cards: store.listCards(),
         projects: store.listProjects(),

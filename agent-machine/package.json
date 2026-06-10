@@ -15,11 +15,18 @@
     "coordinator": "tsx src/coordinator-main.ts",
     "worker": "tsx src/worker-main.ts",
     "seed": "tsx src/seed.ts",
+    "reindex": "tsx src/recall-cli.ts reindex",
+    "recall": "tsx src/recall-cli.ts",
+    "dream": "tsx src/dream-cli.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.10.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.10.0"
   }
 }

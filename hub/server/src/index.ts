@@ -489,6 +489,26 @@ for (const [route, fwd] of [['/api/am/config', '/config'], ['/api/am/card', '/ca
   })
 }
 
+// ---- BỘ NÃO (M1: recall + vault + dream) proxy → coordinator ----
+// GET có query (recall/file/recent) → forward nguyên query sang coordinator.
+for (const [route, fwd] of [['/api/brain/state', '/brain/state'], ['/api/brain/graph', '/brain/graph'], ['/api/brain/recall', '/recall'], ['/api/brain/recent', '/brain/recent'], ['/api/brain/file', '/brain/file']] as const) {
+  app.get(route, async (req, res) => {
+    if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+    if (!amOn()) return res.json({ configured: false })
+    const qs = req.url.includes('?') ? '?' + req.url.split('?')[1] : ''
+    try { const r = await amFetch(fwd + qs); res.status(r.status).json(await r.json()) }
+    catch (e) { res.json({ configured: true, offline: true, error: String(e).slice(0, 120) }) }
+  })
+}
+for (const [route, fwd] of [['/api/brain/reindex', '/brain/reindex'], ['/api/brain/dream', '/brain/dream']] as const) {
+  app.post(route, async (req, res) => {
+    if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+    if (!amOn()) return res.status(400).json({ error: 'Agent-Machine chưa cấu hình (AM_COORD_URL)' })
+    try { const r = await amFetch(fwd, { method: 'POST', body: JSON.stringify(req.body || {}) }); res.status(r.status).json(await r.json()) }
+    catch (e) { res.status(502).json({ error: 'coordinator offline: ' + String(e).slice(0, 120) }) }
+  })
+}
+
 // serve React build (đặt CUỐI để /api ưu tiên)
 if (fs.existsSync(DIST)) {
   app.use(express.static(DIST))

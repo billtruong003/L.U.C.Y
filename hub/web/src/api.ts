@@ -120,3 +120,35 @@ export async function readFile(p: string): Promise<{ binary?: boolean; tooBig?: 
   const r = await fetch('/api/file?path=' + encodeURIComponent(p)); return r.json()
 }
 
+// ---- BỘ NÃO (M1: recall + vault + dream) ----
+export type BrainEntry = { path: string; title: string; type: string; status?: string }
+export type BrainPref = { id: string; topic: string; principle: string; sign: string; status: string; confidence: number; band: string; scope?: string; pinned: boolean; path: string }
+export type BrainSig = { id: string; topic: string; signal: string; principle: string; agent: string; created_at: string; path: string }
+export type BrainHit = { file_path: string; title: string; type: string; permalink: string; tags: string; mtime: number; snippet: string; rank: number; relaxed: boolean }
+export type BrainState = {
+  configured: boolean; offline?: boolean
+  tree?: { dir: string; files: BrainEntry[] }[]
+  active?: string; preferences?: BrainPref[]; inbox?: BrainSig[]
+  stats?: { total: number; observations: number }
+}
+export type DreamSummary = { changed: boolean; graduated: string[]; redundant: number; contradictions: string[]; rebutted: string[]; retired: string[]; confirmed: string[]; processedSignals: number; activePrefs: number }
+
+export type GraphNode = { id: string; label: string; kind: string; zone: string; mass: number; brightness: number; mtime: number; obs: number; path?: string; confidence?: number; band?: string; sign?: string; status?: string; topic?: string; ghost?: boolean }
+export type GraphLink = { source: string; target: string; rel: string; weight: number; real: boolean }
+export type BrainGraph = { configured: boolean; offline?: boolean; nodes?: GraphNode[]; links?: GraphLink[]; born?: string[]; ts?: number }
+export async function brainGraph(bornMs = 0): Promise<BrainGraph> { const r = await fetch('/api/brain/graph?bornMs=' + bornMs); return r.json() }
+
+export async function brainState(): Promise<BrainState> { const r = await fetch('/api/brain/state'); return r.json() }
+export async function brainRecall(q: string): Promise<{ configured: boolean; hits?: BrainHit[] }> {
+  const r = await fetch('/api/brain/recall?q=' + encodeURIComponent(q)); return r.json()
+}
+export async function brainFile(path: string): Promise<{ configured?: boolean; path?: string; content?: string }> {
+  const r = await fetch('/api/brain/file?path=' + encodeURIComponent(path)); return r.json()
+}
+export async function brainReindex(): Promise<{ configured?: boolean; stats?: { total: number; indexed: number; updated: number; deleted: number } }> {
+  const r = await fetch('/api/brain/reindex', { method: 'POST' }); return r.json()
+}
+export async function brainDream(): Promise<{ configured?: boolean; summary?: DreamSummary }> {
+  const r = await fetch('/api/brain/dream', { method: 'POST' }); return r.json()
+}
+

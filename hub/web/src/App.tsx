@@ -5,7 +5,8 @@ import Tasks from './components/Tasks'
 import Schedule from './components/Schedule'
 import Projects from './components/Projects'
 import ProjectsView from './components/ProjectsView'
-import BrainViz from './components/BrainViz'
+import NeuralTab from './components/NeuralTab'
+import Memory from './components/Memory'
 import Aki from './components/Aki'
 import Logs from './components/Logs'
 import Settings from './components/Settings'
@@ -16,10 +17,11 @@ import { showToast } from './toast'
 const TABS = [
   { id: 'chat', label: 'Chat', icon: '💬', sub: 'Trò chuyện & ra lệnh' },
   { id: 'workspace', label: 'Dự án', icon: '🗂️', sub: 'Kanban · Lucy · Channels' },
+  { id: 'memory', label: 'Bộ não', icon: '🧠', sub: 'Trí nhớ · recall · dream' },
   { id: 'tasks', label: 'Tasks', icon: '⚙️', sub: 'Việc đang chạy' },
   { id: 'schedule', label: 'Schedule', icon: '🗓️', sub: 'Đặt lịch tự chạy' },
   { id: 'projects', label: 'Mã nguồn', icon: '📁', sub: 'Cây mã nguồn' },
-  { id: 'brain', label: 'Neural', icon: '🧠', sub: 'Bản đồ não Lucy' },
+  { id: 'brain', label: 'Neural', icon: '🕸️', sub: 'Tinh hà tri thức · Live' },
   { id: 'draw', label: 'Draw', icon: '✏️', sub: 'Canvas vẽ tay' },
   { id: 'aki', label: 'Aki', icon: '📣', sub: 'Đẩy báo cáo Discord' },
   { id: 'logs', label: 'Logs', icon: '📜', sub: 'Nhật ký hệ thống' },
@@ -227,10 +229,11 @@ export default function App() {
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'workspace' ? '' : 'opacity-0 pointer-events-none')}>
             <ProjectsView openProjectId={openProjectId} onOpenProjectChange={setOpenProjectId} />
           </div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'memory' ? '' : 'opacity-0 pointer-events-none')}><Memory visible={tab === 'memory'} /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'tasks' ? '' : 'opacity-0 pointer-events-none')}><Tasks /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'schedule' ? '' : 'opacity-0 pointer-events-none')}><Schedule /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'projects' ? '' : 'opacity-0 pointer-events-none')}><Projects /></div>
-          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'brain' ? '' : 'opacity-0 pointer-events-none')}><BrainViz visible={tab === 'brain'} /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'brain' ? '' : 'opacity-0 pointer-events-none')}><NeuralTab visible={tab === 'brain'} /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'draw' ? '' : 'opacity-0 pointer-events-none')}><Draw /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'aki' ? '' : 'opacity-0 pointer-events-none')}><Aki /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'logs' ? '' : 'opacity-0 pointer-events-none')}><Logs /></div>
