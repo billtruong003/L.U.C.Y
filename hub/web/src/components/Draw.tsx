@@ -1,191 +1,219 @@
-import { useEffect, useRef, useState } from 'react'
+// Draw.tsx — free-hand canvas per project, persisted in localStorage
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { showToast } from '../toast'
 
-const PALETTE = [
-  '#e7f1fb', // ink
-  '#3fd3ff', // cyan
-  '#5fe39a', // grn
-  '#ff5d9e', // pink
-  '#ff9d5c', // orange
-  '#b78cff', // purple
-  '#c9a85f', // gold
-  '#ff6b6b', // red
-  '#05070e', // black
-]
+const PRESETS = ['#ffffff', '#f87171', '#fb923c', '#facc15', '#4ade80', '#60a5fa', '#a78bfa', '#f472b6']
+const BG = '#05070e'
 
-export default function Draw() {
+const TrashIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6" />
+    <path d="M19 6l-1 14H6L5 6" />
+    <path d="M10 11v6M14 11v6M9 6V4h6v2" />
+  </svg>
+)
+
+const BrushIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08" />
+    <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1 1 2.48 1.02 3.5 1.02 1.68 0 3.05-1.36 3.05-3.04 0-1.66-1.37-3.02-3.05-3.02z" />
+  </svg>
+)
+
+function Swatch({ c, active, onClick }: { c: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        width: 20, height: 20, borderRadius: '50%',
+        background: c, border: 'none', cursor: 'pointer', padding: 0,
+        flexShrink: 0, transition: 'outline-color 0.1s',
+        outline: active ? '2px solid #ffffff' : '2px solid transparent',
+        outlineOffset: 2,
+      }}
+    />
+  )
+}
+
+export default function Draw({ projectId }: { projectId?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const wrapRef = useRef<HTMLDivElement>(null)
-  const [color, setColor] = useState('#e7f1fb')
-  const [size, setSize] = useState(4)
+  const [color, setColor] = useState('#60a5fa')
+  const [customColor, setCustomColor] = useState('#60a5fa')
+  const [brushSize, setBrushSize] = useState(4)
   const [eraser, setEraser] = useState(false)
   const drawing = useRef(false)
   const lastPos = useRef<{ x: number; y: number } | null>(null)
 
-  // init canvas + handle resize
+  const LKEY = `lucy_draw_${projectId ?? 'global'}`
+
   useEffect(() => {
     const canvas = canvasRef.current
-    const wrap = wrapRef.current
-    if (!canvas || !wrap) return
-
-    const init = (w: number, h: number, prevImg?: string) => {
-      canvas.width = w
-      canvas.height = h
-      const ctx = canvas.getContext('2d')!
-      ctx.fillStyle = '#05070e'
-      ctx.fillRect(0, 0, w, h)
-      if (prevImg) {
-        const img = new Image()
-        img.onload = () => ctx.drawImage(img, 0, 0)
-        img.src = prevImg
-      }
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.fillStyle = BG
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    const saved = localStorage.getItem(LKEY)
+    if (saved) {
+      const img = new Image()
+      img.onload = () => ctx.drawImage(img, 0, 0)
+      img.src = saved
     }
+  }, [LKEY])
 
-    const ro = new ResizeObserver(() => {
-      const { width, height } = wrap.getBoundingClientRect()
-      const prev = canvas.width > 0 ? canvas.toDataURL() : undefined
-      init(width, height, prev)
-    })
-    ro.observe(wrap)
-    const { width, height } = wrap.getBoundingClientRect()
-    init(width, height)
-    return () => ro.disconnect()
-  }, [])
+  const persist = useCallback(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    try {
+      localStorage.setItem(LKEY, canvas.toDataURL())
+    } catch {
+      showToast('Không thể lưu — bộ nhớ đầy', 'error')
+    }
+  }, [LKEY])
 
-  const getPos = (e: React.PointerEvent) => {
-    const rect = canvasRef.current!.getBoundingClientRect()
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  const getPos = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current!
+    const rect = canvas.getBoundingClientRect()
+    return {
+      x: (e.clientX - rect.left) * (canvas.width / rect.width),
+      y: (e.clientY - rect.top) * (canvas.height / rect.height),
+    }
   }
 
-  const onPointerDown = (e: React.PointerEvent) => {
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     drawing.current = true
-    const pos = getPos(e)
-    lastPos.current = pos
-    const ctx = canvasRef.current!.getContext('2d')!
-    const r = eraser ? size * 3 : size
-    ctx.beginPath()
-    ctx.arc(pos.x, pos.y, r / 2, 0, Math.PI * 2)
-    ctx.fillStyle = eraser ? '#05070e' : color
-    ctx.fill()
-    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+    lastPos.current = getPos(e)
+    canvasRef.current?.setPointerCapture(e.pointerId)
   }
 
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!drawing.current || !lastPos.current) return
-    const ctx = canvasRef.current!.getContext('2d')!
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!drawing.current) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
     const pos = getPos(e)
+    const from = lastPos.current ?? pos
     ctx.beginPath()
-    ctx.moveTo(lastPos.current.x, lastPos.current.y)
+    ctx.moveTo(from.x, from.y)
     ctx.lineTo(pos.x, pos.y)
-    ctx.strokeStyle = eraser ? '#05070e' : color
-    ctx.lineWidth = eraser ? size * 3 : size
+    ctx.strokeStyle = eraser ? BG : color
+    ctx.lineWidth = eraser ? brushSize * 3 : brushSize
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
     ctx.stroke()
     lastPos.current = pos
   }
 
-  const onPointerUp = () => { drawing.current = false; lastPos.current = null }
+  const onPointerUp = () => {
+    if (!drawing.current) return
+    drawing.current = false
+    lastPos.current = null
+    persist()
+  }
 
   const clear = () => {
-    const canvas = canvasRef.current!
-    const ctx = canvas.getContext('2d')!
-    ctx.fillStyle = '#05070e'
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.fillStyle = BG
     ctx.fillRect(0, 0, canvas.width, canvas.height)
+    persist()
   }
 
-  const savePNG = () => {
-    const a = document.createElement('a')
-    a.href = canvasRef.current!.toDataURL('image/png')
-    a.download = 'drawing.png'
-    a.click()
-  }
+  const isCustomActive = !eraser && !PRESETS.includes(color)
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
-      {/* ── toolbar ── */}
-      <div className="shrink-0 px-3 py-2 border-b border-line bg-panel/40 backdrop-blur flex items-center gap-3 overflow-x-auto">
+    <div id="tab-draw" className="h-full flex flex-col overflow-hidden" style={{ background: BG }}>
+      {/* ── controls bar ── */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 10, flexShrink: 0,
+        height: 52, padding: '0 12px',
+        background: 'rgba(11,19,34,0.97)',
+        borderBottom: '1px solid var(--line)',
+        display: 'flex', alignItems: 'center', gap: 8,
+        overflow: 'hidden',
+      }}>
+        {/* preset swatches */}
+        {PRESETS.map((c) => (
+          <Swatch key={c} c={c} active={!eraser && color === c} onClick={() => { setColor(c); setEraser(false) }} />
+        ))}
 
-        {/* color swatches */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          {PALETTE.map((c) => (
-            <button
-              key={c}
-              onClick={() => { setColor(c); setEraser(false) }}
-              title={c}
-              style={{
-                background: c,
-                border: color === c && !eraser ? '2px solid #3fd3ff' : '2px solid rgba(127,179,214,0.2)',
-                boxShadow: color === c && !eraser ? `0 0 8px ${c}99` : 'none',
-              }}
-              className="h-7 w-7 rounded-full transition-all shrink-0 hover:scale-110 active:scale-95"
-            />
-          ))}
-          {/* custom color */}
-          <label
-            className="relative h-7 w-7 rounded-full overflow-hidden cursor-pointer shrink-0 flex items-center justify-center text-sm"
-            style={{ border: '2px solid rgba(127,179,214,0.2)', background: color }}
-            title="Màu tuỳ chọn"
-          >
+        {/* custom color picker */}
+        <div style={{ position: 'relative', width: 20, height: 20, flexShrink: 0 }}>
+          <div style={{
+            width: 20, height: 20, borderRadius: '50%',
+            background: PRESETS.includes(customColor)
+              ? 'conic-gradient(red,yellow,lime,aqua,blue,magenta,red)'
+              : customColor,
+            outline: isCustomActive ? '2px solid #ffffff' : '2px solid rgba(255,255,255,0.25)',
+            outlineOffset: 2,
+            overflow: 'hidden',
+          }}>
             <input
               type="color"
-              value={color}
-              onChange={(e) => { setColor(e.target.value); setEraser(false) }}
-              className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+              value={customColor}
+              onChange={(e) => { setCustomColor(e.target.value); setColor(e.target.value); setEraser(false) }}
+              style={{ opacity: 0, position: 'absolute', inset: 0, width: '100%', height: '100%', cursor: 'pointer', border: 'none', padding: 0 }}
             />
-          </label>
+          </div>
         </div>
 
-        <div className="w-px h-6 bg-line shrink-0" />
+        <div style={{ width: 1, height: 24, background: 'var(--line)', flexShrink: 0 }} />
 
-        {/* size slider */}
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[10px] text-inkfaint tracking-widest">SIZE</span>
+        {/* brush size */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, color: '#9fb4c9' }}>
+          <BrushIcon />
           <input
-            type="range" min={1} max={40} value={size}
-            onChange={(e) => setSize(Number(e.target.value))}
-            className="w-24 accent-cyan"
+            type="range" min={1} max={32} value={brushSize}
+            onChange={(e) => setBrushSize(Number(e.target.value))}
+            style={{ width: 80, accentColor: '#3fd3ff', cursor: 'pointer' }}
           />
-          <span className="mono text-[11px] text-inkdim w-5 text-right">{size}</span>
         </div>
 
-        <div className="w-px h-6 bg-line shrink-0" />
+        <div style={{ width: 1, height: 24, background: 'var(--line)', flexShrink: 0 }} />
 
         {/* eraser */}
         <button
+          className="btn"
           onClick={() => setEraser((v) => !v)}
-          title="Tẩy"
-          className={
-            'btn !py-1.5 !px-3 !text-[12px] shrink-0 ' +
-            (eraser ? '!border-pink/50 !text-pink !bg-pink/10' : '')
-          }
+          style={{
+            padding: '3px 10px', fontSize: 12, height: 28, flexShrink: 0,
+            ...(eraser ? { background: 'rgba(63,211,255,0.14)', borderColor: '#3fd3ff', color: '#3fd3ff' } : {}),
+          }}
         >
-          ⌫ Tẩy
+          ◻ Tẩy
         </button>
 
         {/* clear */}
-        <button onClick={clear} className="btn !py-1.5 !px-3 !text-[12px] shrink-0" title="Xoá trắng">
-          ✕ Clear
-        </button>
-
-        {/* save png */}
-        <button onClick={savePNG} className="btn !py-1.5 !px-3 !text-[12px] shrink-0 ml-auto" title="Tải xuống PNG">
-          ↓ PNG
+        <button
+          className="btn"
+          onClick={clear}
+          style={{ padding: '3px 10px', fontSize: 12, height: 28, flexShrink: 0, color: '#f87171', borderColor: 'rgba(248,113,113,0.35)' }}
+        >
+          <TrashIcon /> Xóa
         </button>
       </div>
 
-      {/* ── canvas area ── */}
-      <div
-        ref={wrapRef}
-        className="flex-1 min-h-0 relative overflow-hidden"
-        style={{ background: '#05070e', cursor: eraser ? 'cell' : 'crosshair' }}
-      >
+      {/* ── canvas ── */}
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, minHeight: 0 }}>
         <canvas
           ref={canvasRef}
-          className="absolute inset-0 touch-none select-none"
+          width={1200}
+          height={800}
+          style={{
+            maxWidth: '100%',
+            maxHeight: '100%',
+            display: 'block',
+            borderRadius: 8,
+            cursor: eraser ? 'default' : 'crosshair',
+            touchAction: 'none',
+          }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
+          onPointerLeave={onPointerUp}
         />
       </div>
     </div>

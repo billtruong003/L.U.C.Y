@@ -6,6 +6,9 @@ import Board from './Board'
 import Channels from './Channels'
 import LucyChat from './LucyChat'
 import FlowEditor from './FlowEditor'
+import Mindmap from './Mindmap'
+import Draw from './Draw'
+import NoteEditor from './NoteEditor'
 
 export default function ProjectsView({ openProjectId, onOpenProjectChange }: { openProjectId?: string | null; onOpenProjectChange?: (id: string | null) => void }) {
   const [projects, setProjects] = useState<AmProject[]>([])
@@ -14,7 +17,7 @@ export default function ProjectsView({ openProjectId, onOpenProjectChange }: { o
   const [personas, setPersonas] = useState<AmPersona[]>([])
   const [channels, setChannels] = useState<AmMsg[]>([])
   const [active, setActive] = useState<string | null>(null)
-  const [tab, setTab] = useState<'kanban' | 'lucy' | 'channels' | 'flow'>('kanban')
+  const [tab, setTab] = useState<'kanban' | 'lucy' | 'channels' | 'flow' | 'mindmap' | 'draw' | 'notes'>('kanban')
   const [configured, setConfigured] = useState(true)
   const [nf, setNf] = useState({ open: false, name: '', repoUrl: '', desc: '', skill: '' })
   const [showTrash, setShowTrash] = useState(false)
@@ -49,169 +52,161 @@ export default function ProjectsView({ openProjectId, onOpenProjectChange }: { o
 
   // ── WORKSPACE 1 dự án ──
   const proj = projects.find((p) => p.id === active)
-
-  const exportJSON = () => {
-    const data = cards.filter((c) => (c.projectId || 'default') === active)
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
-    a.download = `${active}-cards.json`; a.click(); URL.revokeObjectURL(a.href)
-  }
-  const exportHTML = () => {
-    const data = cards.filter((c) => (c.projectId || 'default') === active)
-    const rows = data.map((c) => `<tr><td>${c.title}</td><td>${c.status}</td><td>$${(c.cost?.usd || 0).toFixed(3)}</td></tr>`).join('')
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${active}</title><style>body{font-family:sans-serif;padding:24px}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:8px 12px;text-align:left}th{background:#f5f5f5}</style></head><body><h2>${active}</h2><table><thead><tr><th>Title</th><th>Status</th><th>Cost</th></tr></thead><tbody>${rows}</tbody></table></body></html>`
-    const blob = new Blob([html], { type: 'text/html' })
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
-    a.download = `${active}-report.html`; a.click(); URL.revokeObjectURL(a.href)
-  }
-
   if (active && proj) {
-    const TABS = [
-      { k: 'kanban',   icon: '📋', label: 'Kanban'   },
-      { k: 'lucy',     icon: '✨', label: 'Lucy'     },
-      { k: 'channels', icon: '💬', label: 'Channels' },
-      { k: 'flow',     icon: '🧩', label: 'Flow'     },
-    ] as const
+    const TABS = [{ k: 'kanban', icon: '📋', label: 'Kanban' }, { k: 'lucy', icon: '✨', label: 'Lucy' }, { k: 'channels', icon: '💬', label: 'Channels' }, { k: 'flow', icon: '🧩', label: 'Flow' }, { k: 'mindmap', icon: '🗺', label: 'Mindmap' }, { k: 'draw', icon: '🎨', label: 'Draw' }, { k: 'notes', icon: '📝', label: 'Notes' }] as const
     const s = stats.get(proj.id)
     return (
       <div className="h-full flex flex-col overflow-hidden">
-        {/* ── Row 1: logo / tên dự án + actions ── */}
-        <div className="shrink-0 h-14 flex items-center gap-3 px-4 border-b border-line bg-panel/40 backdrop-blur">
-          <button className="btn btn-icon !w-8 !h-8 shrink-0" title="về danh sách dự án" onClick={() => { setActive(null); onOpenProjectChange?.(null) }}>←</button>
-
-          {/* project identity */}
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <span className="text-xl shrink-0" style={{ filter: 'drop-shadow(0 0 6px rgba(63,211,255,.5))' }}>📁</span>
-            <div className="min-w-0">
-              <div className="display text-[13.5px] tracking-[0.06em] text-ink truncate leading-none">{proj.name}</div>
-              {proj.repoUrl
-                ? <a href={proj.repoUrl} target="_blank" rel="noreferrer" className="text-[10px] text-cyan hover:underline truncate block mt-0.5">{proj.repoUrl}</a>
-                : <div className="text-[10px] text-inkfaint mt-0.5">workspace nháp</div>}
+        <div className="shrink-0 border-b border-line bg-panel/30">
+          {/* row 1: back + name + trash */}
+          <div className="flex items-center gap-2 px-4 pt-2 pb-1.5">
+            <button className="btn btn-icon !w-8 !h-8 shrink-0" title="về danh sách dự án" onClick={() => { setActive(null); onOpenProjectChange?.(null) }}>←</button>
+            <span className="text-lg shrink-0">📁</span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[14px] font-semibold text-ink truncate leading-tight">{proj.name}</div>
+              {proj.repoUrl ? <a href={proj.repoUrl} target="_blank" rel="noreferrer" className="text-[10px] text-cyan hover:underline truncate block">{proj.repoUrl}</a> : <div className="text-[10px] text-inkfaint">workspace nháp (chưa gắn repo)</div>}
             </div>
-            {proj.description && <span className="text-[11px] text-inkdim truncate max-w-[35%] hidden md:block" title={proj.description}>{proj.description}</span>}
+            <button className="btn btn-icon !w-8 !h-8 shrink-0" title="ném dự án vào thùng rác" onClick={() => { trashProject(proj.id); setActive(null); onOpenProjectChange?.(null) }}>🗑</button>
           </div>
-
-          {/* export + trash */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button className="btn !py-1 !px-2.5 !text-[11px] gap-1" onClick={exportJSON} title="Xuất danh sách card ra JSON">
-              <span className="text-inkdim">↓</span> JSON
-            </button>
-            <button className="btn !py-1 !px-2.5 !text-[11px] gap-1" onClick={exportHTML} title="Xuất báo cáo HTML">
-              <span className="text-inkdim">↓</span> HTML
-            </button>
-            <button className="btn btn-icon !w-8 !h-8" title="ném dự án vào thùng rác" onClick={() => { trashProject(proj.id); setActive(null); onOpenProjectChange?.(null) }}>🗑</button>
-          </div>
-        </div>
-
-        {/* ── Row 2: tab bar ── */}
-        <div className="shrink-0 flex items-end gap-0 px-2 bg-panel/20 border-b border-line overflow-x-auto">
-          {TABS.map((t) => {
-            const on = tab === t.k
-            return (
-              <button
-                key={t.k}
-                onClick={() => setTab(t.k)}
-                className={
-                  'relative flex items-center gap-1.5 px-4 py-2.5 text-[12.5px] font-medium whitespace-nowrap transition-colors duration-150 ' +
-                  (on ? 'text-cyan' : 'text-inkdim hover:text-ink')
-                }
-              >
-                <span className={'transition-transform duration-150 ' + (on ? 'scale-110' : '')}>{t.icon}</span>
-                {t.label}
-                <span
-                  className="absolute bottom-0 left-0 right-0 h-[2px] rounded-t-full transition-all duration-200"
-                  style={{
-                    background: on ? '#3fd3ff' : 'transparent',
-                    boxShadow: on ? '0 0 8px rgba(63,211,255,0.8)' : 'none',
-                    opacity: on ? 1 : 0,
-                  }}
-                />
+          {/* row 2: tabs */}
+          <div className="tabs">
+            {TABS.map((t) => (
+              <button key={t.k} onClick={() => setTab(t.k)} className={'tab-btn ' + (tab === t.k ? 'active' : '')}>
+                <span className="tab-icon">{t.icon}</span>
+                <span>{t.label}</span>
               </button>
-            )
-          })}
-
-          {/* dashboard chips — đẩy sang phải */}
-          <div className="ml-auto flex items-center gap-1.5 py-2 pl-2 overflow-x-auto shrink-0">
+            ))}
+          </div>
+          {/* row 3: dashboard strip */}
+          <div className="px-4 pb-2 flex items-center gap-1.5 flex-wrap">
+            {proj.description && <span className="text-[11px] text-inkdim truncate max-w-[45%] mr-1" title={proj.description}>{proj.description}</span>}
             <Stat v={s?.total || 0} label="task" />
             {s?.byStatus.working ? <Stat v={s.byStatus.working} label="chạy" color="#3fd3ff" /> : null}
-            {s?.byStatus.waiting_human ? <Stat v={s.byStatus.waiting_human} label="duyệt" color="#ff5d9e" /> : null}
+            {s?.byStatus.waiting_human ? <Stat v={s.byStatus.waiting_human} label="cần duyệt" color="#ff5d9e" /> : null}
             {s?.byStatus.done ? <Stat v={s.byStatus.done} label="xong" color="#5fe39a" /> : null}
-            <span className="chip !py-0 !text-[10px]"><b className="text-grn">${(s?.cost || 0).toFixed(2)}</b></span>
+            {s?.byStatus.failed ? <Stat v={s.byStatus.failed} label="lỗi" color="#ff6b6b" /> : null}
+            <span className="chip !py-0.5 !text-[11px]"><b className="text-grn">${(s?.cost || 0).toFixed(3)}</b><span className="text-inkfaint ml-1">kinh phí</span></span>
+            <span className="chip !py-0.5 !text-[11px]"><b className="text-cyan">{s?.agents.size || 0}</b><span className="text-inkfaint ml-1">agent tham gia</span></span>
           </div>
         </div>
-
-        {/* ── content ── */}
-        {/* giữ MOUNTED cả 4, ẩn bằng CSS -> đổi tab không mất state (vd chat Lucy) */}
+        {/* giữ MOUNTED cả tab, ẩn bằng opacity+visibility -> đổi tab không mất state */}
         <div className="flex-1 min-h-0 relative">
-          <div className={tab === 'kanban'   ? 'absolute inset-0' : 'hidden'}><Board projectId={proj.id} /></div>
-          <div className={tab === 'lucy'     ? 'absolute inset-0' : 'hidden'}><LucyChat key={proj.id} project={proj.id} pipes={pipes} onCreated={pull} /></div>
-          <div className={tab === 'channels' ? 'absolute inset-0' : 'hidden'}><Channels projectId={proj.id} /></div>
-          <div className={tab === 'flow'     ? 'absolute inset-0' : 'hidden'}><FlowEditor pipes={pipes} personas={personas} onChanged={pull} /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'kanban' ? '' : 'opacity-0 invisible pointer-events-none')}><Board projectId={proj.id} /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'lucy' ? '' : 'opacity-0 invisible pointer-events-none')}><LucyChat key={proj.id} project={proj.id} pipes={pipes} onCreated={pull} /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'channels' ? '' : 'opacity-0 invisible pointer-events-none')}><Channels projectId={proj.id} /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'flow' ? '' : 'opacity-0 invisible pointer-events-none')}><FlowEditor pipes={pipes} personas={personas} onChanged={pull} /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'mindmap' ? '' : 'opacity-0 invisible pointer-events-none')}><Mindmap key={proj.id} projectId={proj.id} /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'draw' ? '' : 'opacity-0 invisible pointer-events-none')}><Draw key={proj.id} projectId={proj.id} /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'notes' ? '' : 'opacity-0 invisible pointer-events-none')}><NoteEditor key={proj.id} projectId={proj.id} /></div>
         </div>
       </div>
     )
   }
 
-  // ── DANH SÁCH dự án ──
+  // ── DANH SÁCH dự án / empty states ──
   return (
-    <div className="h-full overflow-auto p-4 sm:p-6">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="display text-[15px] tracking-[0.14em] text-ink">DỰ ÁN</div>
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* header */}
+      <div className="shrink-0 border-b border-line bg-panel/30 px-4 py-2.5 flex items-center gap-2.5 flex-wrap">
+        <div className="display text-[14px] tracking-[0.14em] text-ink">DỰ ÁN</div>
         <span className="text-[11px] text-inkfaint">{active_.length} dự án</span>
-        {trashed.length > 0 && <button className={'chip !text-[11px] ' + (showTrash ? '!text-pink !border-pink/40' : 'text-inkdim hover:text-ink')} onClick={() => setShowTrash((v) => !v)}>🗑 Thùng rác {trashed.length}</button>}
-        <button className="btn btn-primary ml-auto" onClick={() => setNf({ ...nf, open: !nf.open })}>{nf.open ? 'Đóng' : '+ Dự án'}</button>
+        {trashed.length > 0 && (
+          <button className={'chip !text-[11px] ' + (showTrash ? '!text-pink !border-pink/40' : 'text-inkdim hover:text-ink')} onClick={() => setShowTrash((v) => !v)}>
+            🗑 Thùng rác {trashed.length}
+          </button>
+        )}
+        <button className="btn btn-primary ml-auto !py-1.5 !px-3 !text-[12px]" onClick={() => setNf({ ...nf, open: !nf.open })}>
+          {nf.open ? 'Đóng' : '+ Dự án'}
+        </button>
       </div>
 
-      {showTrash && trashed.length > 0 && (
-        <div className="card p-3 mb-4" style={{ borderColor: '#ff5d9e33' }}>
-          <div className="text-[11px] text-pink mb-2">🗑 Thùng rác — khôi phục, hoặc <b>xoá HẲN</b> (mất sạch card + workspace trên VPS, không hoàn tác)</div>
-          <div className="flex flex-col gap-1.5">
-            {trashed.map((p) => (
-              <div key={p.id} className="flex items-center gap-2 text-[12.5px]">
-                <span className="text-inkdim flex-1 truncate">📁 {p.name}{p.repoUrl ? ' · repo' : ''}</span>
-                <button className="btn !py-1 !text-[11px]" onClick={() => restoreProject(p.id)}>Khôi phục</button>
-                <button className="btn !py-1 !text-[11px]" style={{ borderColor: '#ff6b6b66', color: '#ff8a8a' }} onClick={() => { if (confirm(`Xoá HẲN dự án "${p.name}"? Mất sạch card + workspace, KHÔNG hoàn tác.`)) purgeProject(p.id) }}>🔥 Xoá hẳn</button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      {nf.open && (
-        <div className="card p-3 mb-4 flex flex-col gap-2">
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input className="input sm:!w-56" placeholder="Tên dự án…" value={nf.name} onChange={(e) => setNf({ ...nf, name: e.target.value })} autoFocus />
-            <input className="input flex-1" placeholder="Repo URL (tuỳ chọn — agent sẽ CLONE & sửa repo thật)" value={nf.repoUrl} onChange={(e) => setNf({ ...nf, repoUrl: e.target.value })} />
-            <button className="btn btn-primary shrink-0" onClick={createProject}>Tạo</button>
-          </div>
-          <input className="input w-full" placeholder="Mô tả / mục tiêu dự án (tuỳ chọn)" value={nf.desc} onChange={(e) => setNf({ ...nf, desc: e.target.value })} />
-          <textarea className="input w-full !h-auto text-[12px]" rows={3} placeholder="SKILL dự án (tuỳ chọn) — dán nguyên SKILL.md domain (vd Unity/Colyseus) để MỌI agent dự án này thành chuyên gia…" value={nf.skill} onChange={(e) => setNf({ ...nf, skill: e.target.value })} />
-        </div>
-      )}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {active_.map((p) => {
-          const s = stats.get(p.id)
-          return (
-            <div key={p.id} className="card p-4 text-left hover:border-cyan/40 transition cursor-pointer group" onClick={() => { setActive(p.id); setTab('kanban') }}>
-              <div className="flex items-center gap-2">
-                <span className="text-lg shrink-0">📁</span>
-                <span className="text-[14px] font-semibold text-ink truncate">{p.name}</span>
-                {p.repoUrl && <span className="chip !py-0 !px-1.5 !text-[9px] text-cyan shrink-0">repo</span>}
-                <button className="text-inkfaint hover:text-pink text-[13px] ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition" title="ném vào thùng rác" onClick={(e) => { e.stopPropagation(); trashProject(p.id) }}>🗑</button>
-              </div>
-              {p.repoUrl && <div className="text-[10px] text-inkfaint truncate mt-1">{p.repoUrl}</div>}
-              {p.description && <div className="text-[11px] text-inkdim mt-1.5" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.description}</div>}
-              <div className="flex items-center gap-1.5 mt-3 flex-wrap">
-                <Stat v={s?.total || 0} label="task" />
-                {s?.byStatus.working ? <Stat v={s.byStatus.working} label="chạy" color="#3fd3ff" /> : null}
-                {s?.byStatus.waiting_human ? <Stat v={s.byStatus.waiting_human} label="cần duyệt" color="#ff5d9e" /> : null}
-                {s?.byStatus.done ? <Stat v={s.byStatus.done} label="xong" color="#5fe39a" /> : null}
-                {s && s.cost > 0 ? <span className="chip !py-0.5 !text-[10px]"><b className="text-grn">${s.cost.toFixed(2)}</b></span> : null}
-                {s && s.agents.size > 0 ? <span className="chip !py-0.5 !text-[10px]"><b className="text-cyan">{s.agents.size}</b><span className="text-inkfaint ml-0.5">agent</span></span> : null}
+      {/* scrollable area (trash + create form + main content) */}
+      <div className="flex-1 min-h-0 overflow-auto">
+        <div className="p-4 sm:p-6 flex flex-col gap-4 min-h-full">
+          {showTrash && trashed.length > 0 && (
+            <div className="card p-3" style={{ borderColor: '#ff5d9e33' }}>
+              <div className="text-[11px] text-pink mb-2">🗑 Thùng rác — khôi phục, hoặc <b>xoá HẲN</b> (mất sạch card + workspace trên VPS, không hoàn tác)</div>
+              <div className="flex flex-col gap-1.5">
+                {trashed.map((p) => (
+                  <div key={p.id} className="flex items-center gap-2 text-[12.5px]">
+                    <span className="text-inkdim flex-1 truncate">📁 {p.name}{p.repoUrl ? ' · repo' : ''}</span>
+                    <button className="btn !py-1 !text-[11px]" onClick={() => restoreProject(p.id)}>Khôi phục</button>
+                    <button className="btn !py-1 !text-[11px]" style={{ borderColor: '#ff6b6b66', color: '#ff8a8a' }} onClick={() => { if (confirm(`Xoá HẲN dự án "${p.name}"? Mất sạch card + workspace, KHÔNG hoàn tác.`)) purgeProject(p.id) }}>🔥 Xoá hẳn</button>
+                  </div>
+                ))}
               </div>
             </div>
-          )
-        })}
-        {active_.length === 0 && <div className="text-inkfaint text-sm col-span-full p-8 text-center card">Chưa có dự án — bấm <b className="text-cyan">+ Dự án</b> để tạo (gắn repo URL để agent làm trên repo thật).</div>}
+          )}
+
+          {nf.open && (
+            <div className="card modal-card p-3 flex flex-col gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input className="input sm:!w-56" placeholder="Tên dự án…" value={nf.name} onChange={(e) => setNf({ ...nf, name: e.target.value })} autoFocus />
+                <input className="input flex-1" placeholder="Repo URL (tuỳ chọn — agent sẽ CLONE & sửa repo thật)" value={nf.repoUrl} onChange={(e) => setNf({ ...nf, repoUrl: e.target.value })} />
+                <button className="btn btn-primary shrink-0" onClick={createProject}>Tạo</button>
+              </div>
+              <input className="input w-full" placeholder="Mô tả / mục tiêu dự án (tuỳ chọn)" value={nf.desc} onChange={(e) => setNf({ ...nf, desc: e.target.value })} />
+              <textarea className="input w-full !h-auto text-[12px]" rows={3} placeholder="SKILL dự án (tuỳ chọn) — dán nguyên SKILL.md domain (vd Unity/Colyseus) để MỌI agent dự án này thành chuyên gia…" value={nf.skill} onChange={(e) => setNf({ ...nf, skill: e.target.value })} />
+            </div>
+          )}
+
+          {/* empty state: no notes */}
+          {active_.length === 0 && !nf.open && (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center py-16">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-inkfaint opacity-40">
+                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+                <line x1="10" y1="9" x2="8" y2="9"/>
+              </svg>
+              <div className="text-lg text-inkdim font-medium">Chưa có note nào</div>
+              <div className="text-sm text-inkfaint">Nhấn + để tạo note đầu tiên</div>
+              <button className="btn btn-primary mt-1" onClick={() => setNf({ ...nf, open: true })}>Tạo note</button>
+            </div>
+          )}
+
+          {/* no note selected placeholder */}
+          {active_.length > 0 && !nf.open && (
+            <div className="flex flex-col items-center gap-2 py-4 text-center">
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" className="text-inkfaint" style={{ opacity: 0.3 }}>
+                <path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/>
+                <rect width="16" height="20" x="4" y="2" rx="2"/>
+                <path d="M16 2v20"/>
+              </svg>
+              <div className="text-[13px] text-inkfaint">Chọn note để bắt đầu</div>
+            </div>
+          )}
+
+          {/* project grid */}
+          {active_.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {active_.map((p, idx) => {
+                const s = stats.get(p.id)
+                return (
+                  <div key={p.id} style={{ animationDelay: `${idx * 30}ms` }} className="note-item card p-4 text-left hover:border-cyan/40 transition cursor-pointer group" onClick={() => { setActive(p.id); setTab('kanban') }}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg shrink-0">📁</span>
+                      <span className="text-[14px] font-semibold text-ink truncate">{p.name}</span>
+                      {p.repoUrl && <span className="chip !py-0 !px-1.5 !text-[9px] text-cyan shrink-0">repo</span>}
+                      <button className="text-inkfaint hover:text-pink text-[13px] ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition" title="ném vào thùng rác" onClick={(e) => { e.stopPropagation(); trashProject(p.id) }}>🗑</button>
+                    </div>
+                    {p.repoUrl && <div className="text-[10px] text-inkfaint truncate mt-1">{p.repoUrl}</div>}
+                    {p.description && <div className="text-[11px] text-inkdim mt-1.5" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.description}</div>}
+                    <div className="flex items-center gap-1.5 mt-3 flex-wrap">
+                      <Stat v={s?.total || 0} label="task" />
+                      {s?.byStatus.working ? <Stat v={s.byStatus.working} label="chạy" color="#3fd3ff" /> : null}
+                      {s?.byStatus.waiting_human ? <Stat v={s.byStatus.waiting_human} label="cần duyệt" color="#ff5d9e" /> : null}
+                      {s?.byStatus.done ? <Stat v={s.byStatus.done} label="xong" color="#5fe39a" /> : null}
+                      {s && s.cost > 0 ? <span className="chip !py-0.5 !text-[10px]"><b className="text-grn">${s.cost.toFixed(2)}</b></span> : null}
+                      {s && s.agents.size > 0 ? <span className="chip !py-0.5 !text-[10px]"><b className="text-cyan">{s.agents.size}</b><span className="text-inkfaint ml-0.5">agent</span></span> : null}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

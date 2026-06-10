@@ -11,6 +11,7 @@ import Logs from './components/Logs'
 import Settings from './components/Settings'
 import Draw from './components/Draw'
 import { me, amState, amTrashProject, amCreateProject, type AmProject } from './api'
+import { showToast } from './toast'
 
 const TABS = [
   { id: 'chat', label: 'Chat', icon: '💬', sub: 'Trò chuyện & ra lệnh' },
@@ -65,26 +66,40 @@ export default function App() {
 
   const createProject = async () => {
     if (!newProjName.trim()) return
-    await amCreateProject(newProjName.trim())
-    setNewProjName('')
-    setShowNewProj(false)
-    amState().then((s) => setProjects((s.projects || []).filter((p) => !p.trashed))).catch(() => { /* */ })
+    try {
+      await amCreateProject(newProjName.trim())
+      setNewProjName('')
+      setShowNewProj(false)
+      const s = await amState()
+      setProjects((s.projects || []).filter((p) => !p.trashed))
+      showToast('Đã tạo note mới', 'success')
+    } catch {
+      showToast('Lỗi khi tạo note', 'error')
+    }
   }
 
   const trashProject = async (id: string) => {
-    await amTrashProject(id)
-    setProjects((prev) => prev.filter((p) => p.id !== id))
-    if (openProjectId === id) setOpenProjectId(null)
+    const proj = projects.find((p) => p.id === id)
+    try {
+      await amTrashProject(id)
+      setProjects((prev) => prev.filter((p) => p.id !== id))
+      if (openProjectId === id) setOpenProjectId(null)
+      showToast(`Đã xóa "${proj?.name || 'note'}"`, 'info')
+    } catch {
+      showToast('Lỗi khi xóa note', 'error')
+    }
   }
 
   return (
     <div className="h-[100dvh] flex bg-bg text-ink overflow-hidden">
-      {/* overlay mobile */}
-      {open && <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setOpen(false)} />}
+      {/* overlay mobile — luôn render, fade in/out bằng opacity */}
+      <div className={'fixed inset-0 bg-black/50 z-30 md:hidden transition-opacity duration-200 ' + (open ? 'opacity-100' : 'opacity-0 pointer-events-none')} onClick={() => setOpen(false)} />
 
       {/* SIDEBAR */}
-      <nav className={'fixed md:static z-40 inset-y-0 left-0 w-60 shrink-0 flex flex-col border-r border-line bg-panel md:bg-panel/60 backdrop-blur transition-transform duration-200 ' +
-        (open ? 'translate-x-0' : '-translate-x-full md:translate-x-0')}>
+      <nav
+        style={{ transition: 'transform 0.25s cubic-bezier(0.4,0,0.2,1)' }}
+        className={'fixed md:static z-40 inset-y-0 left-0 w-60 shrink-0 flex flex-col border-r border-line bg-panel md:bg-panel/60 backdrop-blur ' +
+          (open ? 'translate-x-0' : '-translate-x-full md:translate-x-0')}>
 
         {/* header */}
         <div className="px-5 pt-5 pb-4 border-b border-line flex items-center gap-2.5">
@@ -94,7 +109,7 @@ export default function App() {
             <div className="text-[10px] text-inkfaint mt-1 tracking-wide">personal AI hub</div>
           </div>
           {/* close button — mobile only */}
-          <button onClick={() => setOpen(false)} className="md:hidden text-inkfaint hover:text-ink transition text-lg leading-none px-1" aria-label="Đóng sidebar">✕</button>
+          <button onClick={() => setOpen(false)} className="md:hidden text-inkfaint hover:text-ink transition text-lg !w-11 !h-11 flex items-center justify-center rounded" aria-label="Đóng sidebar">✕</button>
         </div>
 
         {/* nav items */}
@@ -103,7 +118,7 @@ export default function App() {
             const on = tab === t.id
             return (
               <button key={t.id} onClick={() => pick(t.id)}
-                className={'group relative flex items-center gap-3 rounded-xl px-3 py-2 text-left transition-all ' +
+                className={'group relative flex items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors duration-100 ' +
                   (on ? 'bg-cyan/10 text-ink' : 'text-inkdim hover:text-ink hover:bg-white/[0.05]')}>
                 {on && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r bg-cyan" style={{ boxShadow: '0 0 10px rgba(63,211,255,.8)' }} />}
                 <span className={'text-base transition-transform ' + (on ? 'scale-110' : 'opacity-70 group-hover:opacity-100')}>{t.icon}</span>
@@ -147,18 +162,27 @@ export default function App() {
           {/* project list */}
           <div className="flex-1 overflow-y-auto px-2 pb-3">
             {projects.length === 0 && !showNewProj ? (
-              <div className="px-2 py-4 text-[11px] text-inkfaint text-center">
-                Chưa có dự án
-                <button className="block mx-auto mt-1.5 text-cyan hover:underline text-[11px]" onClick={() => setShowNewProj(true)}>+ Tạo mới</button>
+              <div className="py-8 flex flex-col items-center gap-2 text-center px-3">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-inkfaint opacity-40 shrink-0">
+                  <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                  <line x1="16" y1="13" x2="8" y2="13"/>
+                  <line x1="16" y1="17" x2="8" y2="17"/>
+                  <line x1="10" y1="9" x2="8" y2="9"/>
+                </svg>
+                <div className="text-[13px] font-medium text-inkdim leading-snug">Chưa có note nào</div>
+                <div className="text-[11px] text-inkfaint leading-snug">Nhấn + để tạo note đầu tiên</div>
+                <button className="btn btn-primary !py-1.5 !px-4 !text-[12px] mt-1" onClick={() => setShowNewProj(true)}>Tạo note</button>
               </div>
             ) : (
-              projects.map((p) => {
+              projects.map((p, idx) => {
                 const isActive = tab === 'workspace' && openProjectId === p.id
                 return (
                   <div
                     key={p.id}
                     onClick={() => pickProject(p.id)}
-                    className={'group relative flex items-center gap-2 rounded-lg px-2 py-1.5 cursor-pointer transition-all select-none ' +
+                    style={{ animationDelay: `${idx * 30}ms` }}
+                    className={'note-item group relative flex items-center gap-2 rounded-lg px-2 py-1.5 min-h-[44px] cursor-pointer transition-colors duration-100 select-none ' +
                       (isActive ? 'bg-cyan/10' : 'hover:bg-white/[0.05]')}>
                     {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-r bg-cyan" style={{ boxShadow: '0 0 8px rgba(63,211,255,.7)' }} />}
                     <span className="text-sm shrink-0 opacity-80">📁</span>
@@ -188,7 +212,7 @@ export default function App() {
       <main className="flex-1 min-w-0 flex flex-col">
         <header className="h-14 shrink-0 flex items-center justify-between px-4 sm:px-6 border-b border-line bg-panel/30">
           <div className="flex items-center gap-3 min-w-0">
-            <button onClick={() => setOpen(true)} className="btn btn-icon md:hidden !w-9 !h-9 shrink-0">☰</button>
+            <button onClick={() => setOpen(true)} className="btn btn-icon md:hidden !w-11 !h-11 shrink-0">☰</button>
             <span className="text-lg shrink-0">{cur.icon}</span>
             <div className="min-w-0">
               <div className="display text-sm tracking-[0.18em] text-ink leading-none truncate">{cur.label.toUpperCase()}</div>
@@ -199,18 +223,18 @@ export default function App() {
         </header>
 
         <section className="flex-1 min-h-0 relative">
-          <div className={tab === 'chat' ? 'absolute inset-0' : 'hidden'}><Chat /></div>
-          <div className={tab === 'workspace' ? 'absolute inset-0' : 'hidden'}>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'chat' ? '' : 'opacity-0 pointer-events-none')}><Chat /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'workspace' ? '' : 'opacity-0 pointer-events-none')}>
             <ProjectsView openProjectId={openProjectId} onOpenProjectChange={setOpenProjectId} />
           </div>
-          <div className={tab === 'tasks' ? 'absolute inset-0' : 'hidden'}><Tasks /></div>
-          <div className={tab === 'schedule' ? 'absolute inset-0' : 'hidden'}><Schedule /></div>
-          <div className={tab === 'projects' ? 'absolute inset-0' : 'hidden'}><Projects /></div>
-          <div className={tab === 'brain' ? 'absolute inset-0' : 'hidden'}><BrainViz visible={tab === 'brain'} /></div>
-          <div className={tab === 'draw' ? 'absolute inset-0' : 'hidden'}><Draw /></div>
-          <div className={tab === 'aki' ? 'absolute inset-0' : 'hidden'}><Aki /></div>
-          <div className={tab === 'logs' ? 'absolute inset-0' : 'hidden'}><Logs /></div>
-          <div className={tab === 'settings' ? 'absolute inset-0' : 'hidden'}><Settings /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'tasks' ? '' : 'opacity-0 pointer-events-none')}><Tasks /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'schedule' ? '' : 'opacity-0 pointer-events-none')}><Schedule /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'projects' ? '' : 'opacity-0 pointer-events-none')}><Projects /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'brain' ? '' : 'opacity-0 pointer-events-none')}><BrainViz visible={tab === 'brain'} /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'draw' ? '' : 'opacity-0 pointer-events-none')}><Draw /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'aki' ? '' : 'opacity-0 pointer-events-none')}><Aki /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'logs' ? '' : 'opacity-0 pointer-events-none')}><Logs /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'settings' ? '' : 'opacity-0 pointer-events-none')}><Settings /></div>
         </section>
       </main>
     </div>

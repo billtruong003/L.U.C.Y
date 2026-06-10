@@ -106,7 +106,7 @@ export default function Board({ projectId }: { projectId?: string } = {}) {
 
       {/* ── create form ── */}
       {form.open && (
-        <div className="shrink-0 px-4 sm:px-5 py-4 border-b border-line bg-panel/30 flex flex-col gap-3">
+        <div className="modal-card shrink-0 px-4 sm:px-5 py-4 border-b border-line bg-panel/30 flex flex-col gap-3">
           {/* row 1: title + meta */}
           <div className="flex flex-col sm:flex-row gap-2">
             <input className="input flex-1" placeholder="Tên việc…" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && create()} autoFocus />
