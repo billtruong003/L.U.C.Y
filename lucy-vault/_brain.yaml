@@ -1,0 +1,8 @@
+# Ngưỡng cho "dream" (gộp signal → preference). Học từ open-second-brain (xem docs/STEAL_FROM_HERMES.md).
+candidate_threshold: 2          # lặp 2 lần cùng dấu → tạo preference (single-user, thấp hơn 3 mặc định)
+unconfirmed_window_days: 14     # preference chưa có evidence quá 14 ngày → tự retire
+contradiction_window_days: 14   # cửa sổ đếm pos/neg cùng topic
+stale_evidence_days: 90         # confirmed mà im quá 90 ngày → stale (confidence giảm)
+confidence:
+  high_min: 0.75
+  medium_min: 0.40

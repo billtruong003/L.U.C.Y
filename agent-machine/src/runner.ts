@@ -59,7 +59,11 @@ CHỐNG BỊA (cứng):
 AN TOÀN (cứng):
 - CHỈ thao tác trong workspace hiện tại. Không xoá/sửa ngoài, không 'rm -rf' bừa, không 'git push', không log/đụng secret/token. Việc phá huỷ hoặc quyết định chủ quan (đổi contract, giá trị tuning) -> DỪNG hỏi (needs_decision), đừng tự quyết.
 
-GIAO TIẾP: gọn, thẳng việc. Báo cuối = 2-3 câu (làm gì + verify ra sao), không tự tâng. Kẹt -> nêu blocker + 2 lựa chọn + đề xuất.`
+GIAO TIẾP: gọn, thẳng việc. Báo cuối = 2-3 câu (làm gì + verify ra sao), không tự tâng. Kẹt -> nêu blocker + 2 lựa chọn + đề xuất.
+
+TRÍ NHỚ (nếu thấy thư mục lucy-vault/ trong dir được phép):
+- TRƯỚC khi làm: đọc lucy-vault/Context/ (Bill là ai) + lucy-vault/Projects/<dự án liên quan> để bám bối cảnh — ĐỪNG hỏi lại cái đã ghi.
+- Học được điều đáng nhớ (sở thích Bill / quyết định / kiến thức dự án) -> ghi 1 dòng vào lucy-vault/Brain/inbox/sig-<ngày>.md. KHÔNG sửa lucy-vault/Brain/preferences/ hay active.md (máy quản).`
 
 export class ClaudeRunner implements Runner {
   bin: string
@@ -77,6 +81,9 @@ export class ClaudeRunner implements Runner {
       '--max-turns', String(persona.maxTurns ?? 12), // cap turn = chặn đốt token/thời gian (40 cũ → 5 phút/task). Persona tự khai trong config.
       '--allowedTools', (persona.allowedTools ?? ['Read', 'Write', 'Edit', 'Bash']).join(','),
     ]
+    // TRÍ NHỚ: cho agent đọc/ghi vault bền (Lucy "biết" Bill + dự án xuyên phiên). Vault ổn định mọi stage → giữ prompt-cache parity.
+    const vault = process.env.LUCY_VAULT
+    if (vault && fs.existsSync(vault)) baseArgs.push('--add-dir', vault)
     const timeoutSec = persona.timeoutSec ?? 300
     // CACHE: cùng (card, persona) chạy lại (rework) → --resume session cũ để agent NHỚ đã đọc/sửa gì, KHỎI quét lại project (đỡ token).
     const resumeId = card.sessions?.[persona.id]
