@@ -35,32 +35,62 @@ SUMM_FILE="$(mktemp)"
 
 # 1. Gọi Claude sinh báo cáo — chi tiết, nguồn là LINK click được
 "${CLAUDE_BIN:-claude}" -p \
-  "Làm BÁO CÁO THỊ TRƯỜNG hôm nay, CHI TIẾT và CHUYÊN NGHIỆP. Số liệu THẬT lấy từ web/API (ghi rõ nguồn + giờ lấy). \
+  "Làm BÁO CÁO THỊ TRƯỜNG hôm nay, CHI TIẾT, CHUYÊN NGHIỆP, GÓC TRADER. LỌC NHIỄU MẠNH TAY — \
+ưu tiên thứ thực sự tác động giá/danh mục, BỎ tin shill/PR. Số liệu THẬT từ web/API (ghi rõ nguồn + giờ lấy). \
 $SESS_NOTE\
-Bao gồm các mảng: \
-(1) CRYPTO: BTC, ETH, + 2-3 top mover 24h (giá, %24h/7d, market cap, vùng hỗ trợ/kháng cự). \
-(2) VÀNG: XAU/USD + SJC + chênh lệch trong-ngoài nếu có. \
-(3) CHỨNG KHOÁN: VN-Index, S&P500, Nasdaq (điểm, %, thanh khoản, nhóm dẫn dắt). \
-(4) MACRO: Fed/lãi suất, CPI/jobs, DXY, tin lớn ảnh hưởng. \
-Với MỖI tài sản nêu rõ: xu hướng hiện tại, mức kháng cự/hỗ trợ gần, 'KHI NÀO NÊN VÀO' (điều kiện cụ thể), và RỦI RO. \
-QUAN TRỌNG về định dạng markdown: \
-- Mọi NGUỒN phải viết dạng link markdown click được, vd [CoinGecko](https://www.coingecko.com), [Kitco](https://www.kitco.com), [Investing.com](https://www.investing.com). \
-- Dùng heading ### cho từng mảng, dùng **bảng markdown** cho số liệu so sánh, dùng **đậm** cho số quan trọng. \
-- Có mục '### 🎯 Góc nhìn Lucy' cuối cùng: nhận định tổng + 1-2 kèo đáng chú ý + cảnh báo rủi ro. \
-Ghi FULL ra file $MD_OUT (markdown chi tiết, đầy đủ). \
-In ra stdout CHỈ đoạn tóm tắt executive-summary (<=1200 ký tự, bullet '•' ngắn gọn cho Telegram). \
+\
+=== CÔNG CỤ NHANH (DÙNG TRƯỚC khi web-browse cho số crypto) === \
+Chạy 'bash ~/lucy/tools/crypto.sh bitcoin ethereum solana binancecoin ripple' để lấy giá/%24h/7d/30d/mcap; \
+'bash ~/lucy/tools/global.sh' để lấy total mcap + BTC dominance. \
+\
+=== PHÂN TẦNG === \
+TẦNG 1 (LUÔN báo nếu có dữ liệu): \
+- CRYPTO: BTC, ETH + 2-3 top mover 24h (giá, %24h/7d, mcap, vùng hỗ trợ/kháng cự, funding/OI nếu có). \
+- VÀNG: XAU/USD + SJC + chênh lệch trong-ngoài. \
+- CHỨNG KHOÁN VN: VN-Index (điểm, %, thanh khoản, khối ngoại mua/bán ròng, nhóm dẫn dắt). \
+- CHỨNG KHOÁN MỸ: S&P500, Nasdaq (điểm, %, nhóm dẫn dắt). \
+TẦNG 2 (CHỈ khi BOM TẤN, tác động rộng): Macro — Fed/FOMC, CPI/PCE, NFP/jobs, DXY, giá dầu, tin địa chính trị lớn, dòng tiền ETF. Bình thường gộp ngắn, đừng nhồi. \
+TẦNG 3 (CHỈ khi thực sự có sóng): altcoin/cổ phiếu lẻ đáng chú ý. Không có thì BỎ. \
+\
+=== NGUỒN ĐỂ QUÉT (kiểm lần lượt, ghi link) === \
+Crypto: [CoinGecko](https://www.coingecko.com), [CoinMarketCap](https://coinmarketcap.com), [CoinDesk](https://www.coindesk.com), [The Block](https://www.theblock.co), [Coinglass](https://www.coinglass.com) (funding/OI). \
+Vàng/Macro: [Kitco](https://www.kitco.com), [Investing.com](https://www.investing.com), [TradingEconomics](https://tradingeconomics.com), [Reuters Markets](https://www.reuters.com/markets/). \
+Chứng khoán VN: [CafeF](https://cafef.vn), [Vietstock](https://vietstock.vn), [FireAnt](https://fireant.vn). \
+Chứng khoán Mỹ: [Investing.com](https://www.investing.com), [Yahoo Finance](https://finance.yahoo.com), [Finviz](https://finviz.com), [CNBC](https://www.cnbc.com). \
+\
+=== QUY TẮC === \
+- Mỗi tài sản nêu: xu hướng + mức kháng cự/hỗ trợ gần + 'KHI NÀO NÊN VÀO' (điều kiện cụ thể) + RỦI RO. \
+- Mỗi mục kèm LÝ DO 'tại sao đáng chú ý', không chỉ con số. \
+- Nếu một mảng hôm nay KHÔNG có gì nổi bật → nói thẳng, ĐỪNG cố nhồi. \
+\
+=== ĐỊNH DẠNG FILE (markdown, cho web) === \
+- Mở đầu mục '### 🔥 TOP 3 (chú ý nhất hôm nay)' — 3 thứ tác động danh mục nhất. \
+- Heading ### cho từng mảng; **bảng markdown** cho số liệu so sánh; **đậm** cho số quan trọng; nguồn = link markdown. \
+- Mục '### 🗓️ Radar sự kiện': lịch Fed/CPI/NFP/earnings lớn + đáo hạn phái sinh VN sắp tới (ghi còn bao lâu). \
+- Mục cuối '### 🎯 Góc nhìn Lucy': nhận định tổng + 1-2 kèo + cảnh báo rủi ro. \
+- Ghi FULL ra file $MD_OUT. \
+\
+=== OUTPUT === \
+In TOÀN BỘ báo cáo (đầy đủ, đúng format file ở trên, có dùng bảng markdown cho số liệu) ra stdout làm CÂU TRẢ LỜI CHÍNH. \
+KHÔNG cần tự ghi file — script sẽ tự lưu và tự rút gọn bản Telegram. \
 Xưng em, gọi chủ nhân. TUYỆT ĐỐI KHÔNG bịa số — không lấy được thì ghi 'chưa lấy được'." \
   --permission-mode bypassPermissions \
   --output-format json \
   --append-system-prompt-file "${LUCY_PERSONA:-$HOME/lucy/bridge/persona.md}" \
   < /dev/null > "$RES" 2>/dev/null || true
 
-# 2. Lấy summary text
+# 2. Tách full report (ghi MD) + bản gọn Telegram (bỏ bảng) — KHÔNG phụ thuộc model tự ghi file
 python3 -c "
-import json
-data = json.load(open('$RES'))
-print(data.get('result','(brief lỗi — không lấy được summary)')[:1200])
-" 2>/dev/null > "$SUMM_FILE" || echo "(brief lỗi)" > "$SUMM_FILE"
+import json, re
+d = json.load(open('$RES'))
+full = (d.get('result') or '').strip()
+if not full:
+    full = '(brief lỗi — không lấy được nội dung)'
+open('$MD_OUT','w', encoding='utf-8').write(full)
+# bản Telegram: bỏ dòng bảng markdown (| ... |) cho khỏi vỡ layout
+tg = '\n'.join(l for l in full.split('\n') if not re.match(r'^\s*\|', l))
+print(tg[:3000])
+" 2>/dev/null > "$SUMM_FILE" || { echo "(brief lỗi)" > "$SUMM_FILE"; echo "(brief lỗi)" > "$MD_OUT"; }
 
 SUMMARY="$(cat "$SUMM_FILE")"
 
