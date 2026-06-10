@@ -10,6 +10,20 @@
 
 **Status:** Prep / scoping — chưa code. Đây là folder dự án; docs neo trong `docs/`.
 
+> ℹ️ **Hướng hiện tại (2026-06-10):** đã pivot sang **hạ tầng memory-first** — đọc [docs/NORTH_STAR.md](docs/NORTH_STAR.md) (single source of truth). M1 trí nhớ + M1.5 tinh hà đã build (xem [docs/HANDOFF_M1.md](docs/HANDOFF_M1.md)). Phần README dưới là vision Hermes/grok cũ.
+
+## 🆕 Máy mới / sau khi pull — kéo references về (1 lệnh)
+
+`references/` là **6 repo tham chiếu** (git submodules) để crib khi build. Sau khi clone/pull, chạy 1 lần:
+
+```powershell
+.\refs.ps1      # Windows PowerShell
+bash refs.sh    # macOS/Linux/Git-Bash
+# (tương đương:  git submodule update --init --depth 1)
+```
+
+Không chạy thì `references/` rỗng (code vẫn chạy — references chỉ để đọc tham khảo). Map file→việc: [references/README.md](references/README.md).
+
 ---
 
 ## Lucy là ai
