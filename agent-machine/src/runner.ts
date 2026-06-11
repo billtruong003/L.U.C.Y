@@ -89,8 +89,9 @@ export class ClaudeRunner implements Runner {
     const notes = card.reviewNotes?.length ? `\n\n⚠️ PHẢN HỒI cần SỬA (bị trả lại — fix kỹ những điểm này):\n- ${card.reviewNotes.join('\n- ')}` : ''
     const prev = card.lastSummary ? `\n\n↪ Bước TRƯỚC đã làm: ${card.lastSummary}\n(đọc kết quả bước trước trong workspace, nối tiếp — đừng làm lại từ đầu.)` : ''
     const prompt = `Card: ${card.title}\n\n${card.brief}\n\nStage hiện tại: ${stage.name}.${prev}${notes}`
+    // prompt đi qua STDIN (không phải arg): né giới hạn command-line Windows + né escaping khi cần shell (shim .ps1/.cmd).
     const baseArgs = [
-      '-p', prompt, '--output-format', 'json', '--permission-mode', 'bypassPermissions',
+      '-p', '--output-format', 'json', '--permission-mode', 'bypassPermissions',
       '--model', persona.model, '--append-system-prompt-file', personaFile,
       '--max-turns', String(persona.maxTurns ?? 12), // cap turn = chặn đốt token/thời gian (40 cũ → 5 phút/task). Persona tự khai trong config.
       '--allowedTools', (persona.allowedTools ?? ['Read', 'Write', 'Edit', 'Bash']).join(','),
@@ -101,19 +102,27 @@ export class ClaudeRunner implements Runner {
     const timeoutSec = persona.timeoutSec ?? 300
     // CACHE: cùng (card, persona) chạy lại (rework) → --resume session cũ để agent NHỚ đã đọc/sửa gì, KHỎI quét lại project (đỡ token).
     const resumeId = card.sessions?.[persona.id]
-    let r = await this.spawn(resumeId ? [...baseArgs, '--resume', resumeId] : baseArgs, ws, timeoutSec)
-    if (resumeId && r.code !== 0 && !r.out.trim()) r = await this.spawn(baseArgs, ws, timeoutSec) // resume hỏng (session ở máy khác / đã xoá) → chạy mới
+    let r = await this.spawn(resumeId ? [...baseArgs, '--resume', resumeId] : baseArgs, ws, timeoutSec, prompt)
+    if (resumeId && r.code !== 0 && !r.out.trim()) r = await this.spawn(baseArgs, ws, timeoutSec, prompt) // resume hỏng (session ở máy khác / đã xoá) → chạy mới
     return parseClaude(r.out)
   }
 
-  private spawn(args: string[], ws: string, timeoutSec: number): Promise<{ out: string; code: number | null }> {
+  private spawn(args: string[], ws: string, timeoutSec: number, stdin: string): Promise<{ out: string; code: number | null }> {
     return new Promise((resolve) => {
-      const ch = spawn(this.bin, args, { cwd: ws, env: { ...process.env, IS_SANDBOX: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
+      // Windows: claude cài qua npm = shim .ps1/.cmd → spawn không-shell ENOENT (worker local từng chết im).
+      // → shell:true + quote TỪNG arg (path Windows không chứa " hợp lệ; prompt đã đi stdin nên không cần escape).
+      const useShell = process.platform === 'win32' && !/\.(exe|js)$/i.test(this.bin)
+      const opts = { cwd: ws, env: { ...process.env, IS_SANDBOX: '1' }, stdio: ['pipe', 'pipe', 'pipe'] as ['pipe', 'pipe', 'pipe'] }
+      const ch = useShell
+        ? spawn([this.bin, ...args].map((a) => `"${a}"`).join(' '), { ...opts, shell: true })
+        : spawn(this.bin, args, opts)
       let out = ''
       const timer = setTimeout(() => ch.kill(), timeoutSec * 1000) // kill runaway (600 cũ → 10 phút). Persona tự khai.
       ch.stdout.on('data', (d) => (out += d))
       ch.on('close', (code) => { clearTimeout(timer); resolve({ out, code }) })
       ch.on('error', (e) => { clearTimeout(timer); resolve({ out: JSON.stringify({ result: `spawn lỗi: ${e}` }), code: 1 }) })
+      ch.stdin.on('error', () => { /* EPIPE khi claude chết sớm — đã có 'error'/'close' lo */ })
+      ch.stdin.write(stdin); ch.stdin.end()
     })
   }
 }
