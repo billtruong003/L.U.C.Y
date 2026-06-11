@@ -20,13 +20,15 @@
     "smoke:lane": "tsx src/smoke-lane.ts",
     "smoke:autopilot": "tsx src/smoke-autopilot.ts",
     "smoke:e2e": "tsx src/smoke-e2e.ts",
+    "smoke:clonedeps": "tsx src/smoke-clonedeps.ts",
     "seed": "tsx src/seed.ts",
     "reindex": "tsx src/recall-cli.ts reindex",
     "recall": "tsx src/recall-cli.ts",
     "dream": "tsx src/dream-cli.ts",
     "bootstrap": "tsx src/bootstrap-cli.ts",
     "typecheck": "tsc --noEmit",
-    "llm": "tsx src/llm-cli.ts"
+    "llm": "tsx src/llm-cli.ts",
+    "providers": "tsx src/providers-cli.ts"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

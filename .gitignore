@@ -38,3 +38,4 @@ voice/samples/
 # os / editor
 .DS_Store
 Thumbs.db
+.persona.md
