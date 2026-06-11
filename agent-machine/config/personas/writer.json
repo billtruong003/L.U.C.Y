@@ -6,7 +6,7 @@
   "model": "sonnet",
   "kind": "executor",
   "realm": "Kimetsu no Yaiba",
-  "laneModel": "gemini-flash",
+  "laneModel": "ds-v4-flash-free",
   "maxTurns": 10,
   "timeoutSec": 300,
   "allowedTools": [

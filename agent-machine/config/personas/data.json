@@ -6,7 +6,7 @@
   "model": "sonnet",
   "kind": "executor",
   "realm": "Steins;Gate",
-  "laneModel": "groq-gptoss-120b",
+  "laneModel": "ds-v4-flash-free",
   "maxTurns": 12,
   "timeoutSec": 360,
   "allowedTools": [
