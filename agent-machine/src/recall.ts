@@ -8,7 +8,9 @@ import crypto from 'node:crypto'
 import { listVaultFiles, parseNote } from './vault'
 
 // CHỈ index trí nhớ "tra cứu được". KHÔNG index Brain/inbox|preferences|active.md (máy quản, nhiễu).
-const INDEX_DIRS = ['Context', 'Projects', 'Skills', 'Daily', 'Brain/decisions', 'Brain/entities']
+// Brain/claude-memory = auto-memory built-in của Claude Code REDIRECT vào vault (autoMemoryDirectory,
+// fix "2 não" 2026-06-11) — harness ghi theo bản năng vẫn rơi vào đây → searchable như mọi note.
+const INDEX_DIRS = ['Context', 'Projects', 'Skills', 'Daily', 'Brain/decisions', 'Brain/entities', 'Brain/claude-memory']
 
 // stopword nhẹ VN+EN — chỉ dùng cho relaxed-OR fallback (đừng OR mấy từ rỗng nghĩa).
 const STOPWORDS = new Set([
