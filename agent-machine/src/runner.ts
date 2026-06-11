@@ -25,7 +25,7 @@ export class MockRunner implements Runner {
 }
 
 // ── ClaudeRunner: spawn claude -p THẬT. Không dùng trong demo mặc định (đốt token). ──
-const OUTCOME_CONTRACT = `
+export const OUTCOME_CONTRACT = `
 
 ---
 QUY TẮC KẾT THÚC (BẮT BUỘC): bạn chỉ đang làm 1 BƯỚC trong quy trình nhiều bước. Làm xong phần việc của
@@ -39,7 +39,7 @@ BƯỚC HIỆN TẠI thì kết thúc câu trả lời bằng ĐÚNG MỘT khố
 
 // HOUSE_SKILL — kỷ luật kỹ sư UNIVERSAL gắn cho MỌI persona (chắt từ bộ SKILL.md chuẩn
 // của Bill: arena-server/arena-unity + SOUL Hermes). Phần identity/domain riêng nằm ở persona.
-const HOUSE_SKILL = `
+export const HOUSE_SKILL = `
 
 ---
 KỶ LUẬT KỸ SƯ (áp dụng MỌI việc):
@@ -129,7 +129,7 @@ export class ClaudeRunner implements Runner {
 
 // đọc Brain/active.md → digest preference đã học (bỏ frontmatter + dòng timestamp volatile).
 // Trả '' nếu chưa có vault / chưa học gì → KHÔNG chèn nhiễu, giữ prefix ổn định.
-function readActiveDigest(): string {
+export function readActiveDigest(): string {
   const vault = process.env.LUCY_VAULT
   if (!vault) return ''
   try {
@@ -154,11 +154,11 @@ function parseClaude(raw: string): RunResult {
 }
 
 // C1: narrative "agent đã làm như nào" — bỏ khối JSON outcome ở cuối, cap để khỏi phình store.
-function cleanReport(text: string): string {
+export function cleanReport(text: string): string {
   return text.replace(/```json\s*[\s\S]*?```\s*$/i, '').trim().slice(0, 12000)
 }
 
-function extractOutcome(text: string): Outcome {
+export function extractOutcome(text: string): Outcome {
   const blocks = [...text.matchAll(/```json\s*([\s\S]*?)```/g)]
   const last = blocks.pop()
   if (last) {

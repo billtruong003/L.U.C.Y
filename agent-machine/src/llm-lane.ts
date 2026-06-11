@@ -151,3 +151,67 @@ export async function callLLM(modelKeyOrRole: string, messages: ChatMsg[], opts:
   }
   throw new Error(`all providers failed: ${errors.join(' | ')}`)
 }
+
+// ── TOOL-CALLING (agentic) — cho LaneRunner: model rẻ có "tay" (read/write/edit/bash) ──
+export interface ToolDef { type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }
+export interface RawToolCall { id: string; type: 'function'; function: { name: string; arguments: string } }
+export interface RawMsg { role: 'system' | 'user' | 'assistant' | 'tool'; content: string | null; tool_calls?: RawToolCall[]; tool_call_id?: string }
+export interface RawResult { message: RawMsg; usage?: { prompt_tokens?: number; completion_tokens?: number }; modelKey: string; provider: ProviderId; model: string }
+
+async function callOneRaw(entry: ModelEntry, messages: RawMsg[], tools: ToolDef[] | undefined, maxTokens: number, timeoutMs: number): Promise<RawResult> {
+  const key = keyFor(entry.provider)
+  if (!key) throw new Error(`no key for ${entry.provider}`)
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const body: Record<string, unknown> = { model: entry.model, messages, max_tokens: maxTokens }
+    if (tools && tools.length) { body.tools = tools; body.tool_choice = 'auto' }
+    const res = await fetch(`${PROVIDERS[entry.provider].baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    })
+    if (!res.ok) throw new Error(`${entry.provider}/${entry.model} HTTP ${res.status}`)
+    const data = await res.json() as { choices?: { message?: RawMsg }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } }
+    const message = data.choices?.[0]?.message
+    if (!message) throw new Error(`${entry.provider}/${entry.model} no message`)
+    return { message, usage: data.usage, modelKey: entry.key, provider: entry.provider, model: entry.model }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** Như callLLM nhưng GIỮ tool_calls (agentic loop). Mỗi lượt tự fallback model nếu fail. */
+export async function callLLMRaw(modelKeyOrRole: string, messages: RawMsg[], opts: { tools?: ToolDef[]; maxTokens?: number; timeoutMs?: number; fallback?: boolean } = {}): Promise<RawResult> {
+  const maxTokens = opts.maxTokens ?? 4096
+  const timeoutMs = opts.timeoutMs ?? 90000
+  const fb = opts.fallback ?? true
+  let chain: string[]
+  if ((['executor', 'reasoning', 'fast', 'content'] as string[]).includes(modelKeyOrRole)) {
+    chain = FALLBACKS[modelKeyOrRole as Role]
+  } else {
+    const entry = entryByKey(modelKeyOrRole)
+    if (!entry) throw new Error(`unknown model key: ${modelKeyOrRole}`)
+    chain = fb ? [entry.key, ...FALLBACKS[entry.role].filter((k) => k !== entry.key)] : [entry.key]
+  }
+  const errors: string[] = []
+  for (const k of chain) {
+    const entry = entryByKey(k)
+    if (!entry || !keyFor(entry.provider)) { errors.push(`${k}: no entry/key`); continue }
+    try {
+      return await callOneRaw(entry, messages, opts.tools, maxTokens, timeoutMs)
+    } catch (e) {
+      errors.push(String(e instanceof Error ? e.message : e))
+    }
+  }
+  throw new Error(`all providers (raw) failed: ${errors.join(' | ')}`)
+}
+
+/** Lane có dùng được không (có ÍT NHẤT 1 key trong chain của model/role)? — để worker chọn runner. */
+export function laneAvailable(modelKeyOrRole: string): boolean {
+  let chain: string[]
+  if ((['executor', 'reasoning', 'fast', 'content'] as string[]).includes(modelKeyOrRole)) chain = FALLBACKS[modelKeyOrRole as Role]
+  else { const e = entryByKey(modelKeyOrRole); if (!e) return false; chain = [e.key, ...FALLBACKS[e.role]] }
+  return chain.some((k) => { const e = entryByKey(k); return e && !!keyFor(e.provider) })
+}
