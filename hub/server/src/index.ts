@@ -500,7 +500,7 @@ for (const [route, fwd] of [['/api/brain/state', '/brain/state'], ['/api/brain/g
     catch (e) { res.json({ configured: true, offline: true, error: String(e).slice(0, 120) }) }
   })
 }
-for (const [route, fwd] of [['/api/brain/reindex', '/brain/reindex'], ['/api/brain/dream', '/brain/dream']] as const) {
+for (const [route, fwd] of [['/api/brain/reindex', '/brain/reindex'], ['/api/brain/dream', '/brain/dream'], ['/api/brain/evidence', '/brain/evidence']] as const) {
   app.post(route, async (req, res) => {
     if (!authed(req)) return res.status(401).json({ error: 'unauth' })
     if (!amOn()) return res.status(400).json({ error: 'Agent-Machine chưa cấu hình (AM_COORD_URL)' })

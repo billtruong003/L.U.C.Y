@@ -151,4 +151,8 @@ export async function brainReindex(): Promise<{ configured?: boolean; stats?: { 
 export async function brainDream(): Promise<{ configured?: boolean; summary?: DreamSummary }> {
   const r = await fetch('/api/brain/dream', { method: 'POST' }); return r.json()
 }
+// A1: ghi evidence applied/violated cho 1 preference → coordinator dream ngay → trả summary (confirm tức thì).
+export async function brainEvidence(prefId: string, kind: 'applied' | 'violated'): Promise<{ ok?: boolean; summary?: DreamSummary }> {
+  const r = await fetch('/api/brain/evidence', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prefId, kind }) }); return r.json()
+}
 

@@ -6,6 +6,7 @@ import type { Store } from './store'
 import type { Recall } from './recall'
 import { browseVault, readVaultFile, listPreferences, listInbox, readActive, buildGraph } from './brain'
 import { dream } from './dream'
+import { recordEvidence } from './evidence'
 
 function serializeJob(j: JobSpec) {
   // worker không cần workspace của coordinator — nó tự tạo workspace local.
@@ -80,6 +81,13 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
         }
         if (req.method === 'POST' && url === '/brain/reindex') return send(200, { configured: true, stats: recall.reindex({ full: true }) })
         if (req.method === 'POST' && url === '/brain/dream') return send(200, { configured: true, summary: dream(vaultDir) })
+        // A1 evidence: Bill bấm 👍 áp dụng / 👎 bác 1 preference → ghi evidence rồi dream NGAY (confirm tức thì).
+        if (req.method === 'POST' && url === '/brain/evidence') {
+          const b = await readBody(req)
+          const kind = b.kind === 'violated' ? 'violated' : 'applied'
+          const ok = b.prefId ? recordEvidence(vaultDir, String(b.prefId), kind) : false
+          return send(200, { configured: true, ok, summary: ok ? dream(vaultDir) : null })
+        }
         return send(404, { error: 'not found' })
       }
       if (req.method === 'GET' && url === '/state') return send(200, {

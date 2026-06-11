@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import Markdown from './Markdown'
-import { brainState, brainRecall, brainFile, brainReindex, brainDream, type BrainState, type BrainHit, type BrainPref } from '../api'
+import { brainState, brainRecall, brainFile, brainReindex, brainDream, brainEvidence, type BrainState, type BrainHit, type BrainPref } from '../api'
 import { showToast } from '../toast'
 
 // Tab "Bộ não" (M1) — trí nhớ bền của Lucy: duyệt vault · recall (FTS5) · gộp "dream".
@@ -47,6 +47,15 @@ export default function Memory({ visible }: { visible: boolean }) {
       load()
     } catch { showToast('Dream lỗi', 'error') } finally { setBusy(false) }
   }
+  // A1: đánh dấu 1 preference áp-dụng/vi-phạm → ghi evidence → dream confirm. active.md đầy, hành tinh sáng.
+  const sendEvidence = async (prefId: string, kind: 'applied' | 'violated') => {
+    try {
+      const d = await brainEvidence(prefId, kind)
+      const conf = d.summary?.confirmed?.length || 0
+      showToast(kind === 'applied' ? `👍 +1 áp dụng${conf ? ` · ${conf} pref confirmed` : ''}` : '👎 +1 vi phạm', kind === 'applied' ? 'success' : 'info')
+      load()
+    } catch { showToast('Ghi evidence lỗi', 'error') }
+  }
 
   if (st && st.configured === false) return (
     <div className="h-full grid place-items-center px-6">
@@ -84,7 +93,7 @@ export default function Memory({ visible }: { visible: boolean }) {
         <div className="w-72 shrink-0 border-r border-line overflow-y-auto p-3 hidden md:block">
           <Section title={`Đã học (${prefs.length})`}>
             {prefs.length === 0 && <Empty text="Chưa học preference nào" />}
-            {prefs.map((p) => <PrefRow key={p.id} p={p} onClick={() => openFile(p.path)} active={sel === p.path} />)}
+            {prefs.map((p) => <PrefRow key={p.id} p={p} onClick={() => openFile(p.path)} active={sel === p.path} onEvidence={(k) => sendEvidence(p.id, k)} />)}
           </Section>
 
           <Section title={`Inbox · chờ dream (${inbox.length})`}>
@@ -169,19 +178,28 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 function Empty({ text }: { text: string }) { return <div className="text-[11px] text-inkfaint px-2 py-1.5 italic">{text}</div> }
 
-function PrefRow({ p, onClick, active }: { p: BrainPref; onClick: () => void; active: boolean }) {
+function PrefRow({ p, onClick, active, onEvidence }: { p: BrainPref; onClick: () => void; active: boolean; onEvidence: (k: 'applied' | 'violated') => void }) {
+  const live = p.status === 'unconfirmed' || p.status === 'confirmed' // chỉ pref đang sống mới feed evidence
   return (
-    <button onClick={onClick} className={'w-full text-left rounded-lg px-2 py-1.5 mb-0.5 transition-colors ' + (active ? 'bg-cyan/10' : 'hover:bg-white/[0.05]')}>
-      <div className="flex items-center gap-1.5">
-        <span className="shrink-0">{p.sign === 'negative' ? '⚠️' : '✅'}</span>
-        <span className={'text-[12px] truncate flex-1 ' + (active ? 'text-cyan' : 'text-inkdim')}>{p.principle}</span>
-        {p.pinned && <span className="shrink-0 text-[10px]" title="pinned">📌</span>}
-      </div>
-      <div className="flex items-center gap-1 mt-1">
-        <span className={'chip !py-0 !px-1 !text-[9px] ' + (STATUS_COL[p.status] || '')}>{p.status}</span>
-        <span className={'chip !py-0 !px-1 !text-[9px] ' + (BAND_COL[p.band] || '')}>{p.band} {p.confidence}</span>
-      </div>
-    </button>
+    <div className={'rounded-lg px-2 py-1.5 mb-0.5 transition-colors ' + (active ? 'bg-cyan/10' : 'hover:bg-white/[0.05]')}>
+      <button onClick={onClick} className="w-full text-left">
+        <div className="flex items-center gap-1.5">
+          <span className="shrink-0">{p.sign === 'negative' ? '⚠️' : '✅'}</span>
+          <span className={'text-[12px] truncate flex-1 ' + (active ? 'text-cyan' : 'text-inkdim')}>{p.principle}</span>
+          {p.pinned && <span className="shrink-0 text-[10px]" title="pinned">📌</span>}
+        </div>
+        <div className="flex items-center gap-1 mt-1">
+          <span className={'chip !py-0 !px-1 !text-[9px] ' + (STATUS_COL[p.status] || '')}>{p.status}</span>
+          <span className={'chip !py-0 !px-1 !text-[9px] ' + (BAND_COL[p.band] || '')}>{p.band} {p.confidence}</span>
+        </div>
+      </button>
+      {live && (
+        <div className="flex items-center gap-1 mt-1">
+          <button onClick={() => onEvidence('applied')} className="chip !py-0 !px-1.5 !text-[10px] hover:border-grn/50 hover:text-grn transition-colors" title="Lucy áp dụng đúng → +1 applied (tăng confidence, unconfirmed→confirmed)">👍 áp dụng</button>
+          <button onClick={() => onEvidence('violated')} className="chip !py-0 !px-1.5 !text-[10px] hover:border-pink/50 hover:text-pink transition-colors" title="Sai/vi phạm → +1 violated (giảm confidence)">👎 bác</button>
+        </div>
+      )}
+    </div>
   )
 }
 

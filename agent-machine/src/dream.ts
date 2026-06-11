@@ -5,6 +5,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { parseFrontmatter, slug } from './vault'
+import { recordEvidence, type EvidenceKind } from './evidence'
 
 // ── Config từ _brain.yaml (ngưỡng học) ──
 export type BrainCfg = {
@@ -180,6 +181,17 @@ export function dream(vaultDir: string, opts: { now?: Date } = {}): DreamSummary
   const toProcess: string[] = []            // signal files → inbox/processed/
   const prefWrites: Preference[] = []       // pref tạo/đổi → ghi
   const logLines: string[] = []
+  // A1 evidence: event applied/violated sinh trong run → (a) bump map để confidence tính NGAY run này,
+  // (b) persist xuống Brain/log để bền. Signal đã move processed → run sau KHÔNG double-count.
+  const evPersist: { ts: number; prefId: string; kind: EvidenceKind }[] = []
+  const pushEv = (prefId: string, kind: EvidenceKind) => {
+    const cur = evidence.get(prefId) || { applied: 0, violated: 0, last: null }
+    if (kind === 'applied') cur.applied++; else cur.violated++
+    const iso = now.toISOString()
+    if (!cur.last || iso > cur.last) cur.last = iso
+    evidence.set(prefId, cur)
+    evPersist.push({ ts: now.getTime(), prefId, kind })
+  }
 
   // 1) GRADUATE / CONTRADICTION / REBUTTAL — group signal theo topic
   const windowMs = cfg.contradiction_window_days * 24 * 3600 * 1000
@@ -209,13 +221,13 @@ export function dream(vaultDir: string, opts: { now?: Date } = {}): DreamSummary
     for (const s of min) { toProcess.push(s.file); logLines.push(`cancel-minority sig=${s.id} topic="${topic}"`) }
 
     if (existing && existing.sign === domSign) {
-      // 3) redundant cùng dấu → noted-redundant, KHÔNG tạo trùng
-      for (const s of dom) toProcess.push(s.file)
+      // 3) redundant cùng dấu → rule TÁI DIỄN = evidence 'applied' (A1). noted-redundant, KHÔNG tạo trùng.
+      for (const s of dom) { toProcess.push(s.file); pushEv(existing.id, 'applied') }
       summary.redundant += dom.length
-      logLines.push(`redundant topic="${topic}" +${dom.length} (pref ${existing.id} đã có)`)
+      logLines.push(`redundant topic="${topic}" +${dom.length} → applied×${dom.length} (pref ${existing.id})`)
     } else if (existing && existing.sign !== domSign && dom.length >= cfg.candidate_threshold) {
-      // 4) rebuttal: tín hiệu ngược đủ ngưỡng → retire pref (trừ pinned)
-      for (const s of dom) toProcess.push(s.file)
+      // 4) rebuttal: tín hiệu ngược đủ ngưỡng = evidence 'violated' (A1) → retire pref (trừ pinned)
+      for (const s of dom) { toProcess.push(s.file); pushEv(existing.id, 'violated') }
       if (existing.pinned) { logLines.push(`rebuttal-blocked topic="${topic}" (pref ${existing.id} pinned)`) }
       else {
         const r: Preference = { ...existing, status: 'rebutted', updated_at: now.toISOString() }
@@ -273,6 +285,7 @@ export function dream(vaultDir: string, opts: { now?: Date } = {}): DreamSummary
 
   // ── GHI (có thay đổi) ── snapshot → atomic writes → move processed → log → regen active.md
   snapshot(vaultDir, now)
+  for (const e of evPersist) recordEvidence(vaultDir, e.prefId, e.kind, e.ts) // A1: bền hoá evidence → run sau vẫn đếm
   for (const p of prefWrites) writeAtomic(p.file, renderPreference(p))
   for (const f of toProcess) moveToProcessed(vaultDir, f)
   summary.processedSignals = toProcess.length
