@@ -26,7 +26,8 @@
     "dream": "tsx src/dream-cli.ts",
     "bootstrap": "tsx src/bootstrap-cli.ts",
     "typecheck": "tsc --noEmit",
-    "llm": "tsx src/llm-cli.ts"
+    "llm": "tsx src/llm-cli.ts",
+    "providers": "tsx src/providers-cli.ts"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
