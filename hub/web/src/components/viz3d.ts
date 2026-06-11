@@ -97,121 +97,44 @@ export function makeStars(scene: THREE.Scene, n: number, spread: number, size: n
   scene.add(pts); return pts
 }
 
-// ════════ DẢI NGÂN HÀ PROCEDURAL — generator tham số hóa (1 galaxy bây giờ, N galaxy = vũ trụ sau) ════════
-// Triết lý: vault ÍT note vẫn phải nhìn như Milky Way thật → cấu trúc xoắn ốc đến từ BỤI SAO procedural
-// (deterministic theo seed), còn note THẬT = hành tinh sáng NEO trên cánh tay. Storage = tài nguyên trong vũ trụ.
-
-export type GalaxyOpts = {
-  seed: number
-  arms: number       // số cánh tay xoắn ốc
-  rIn: number        // bán kính lõi (bulge)
-  rOut: number       // bán kính rìa
-  windings: number   // độ xoắn (vòng quanh tâm của 1 cánh tay, đơn vị vòng)
-  thickness: number  // bề dày đĩa
-}
-export const GALAXY_DEFAULT: GalaxyOpts = { seed: 7, arms: 4, rIn: 16, rOut: 130, windings: 0.52, thickness: 5 }
-
-// PRNG deterministic (mulberry32) — cùng seed = cùng dải ngân hà, không nhảy giữa các lần load.
-export function mulberry32(seed: number): () => number {
-  let a = seed >>> 0
-  return () => {
-    a |= 0; a = (a + 0x6d2b79f5) | 0
-    let t = Math.imul(a ^ (a >>> 15), 1 | a)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-const gauss = (rng: () => number) => (rng() + rng() + rng() - 1.5) / 1.5 // ~chuẩn, [-1,1]
-
-// điểm trên cánh tay: arm ∈ [0,arms), t ∈ [0,1] dọc cánh tay → vị trí thế giới (đĩa nằm trên mặt XZ)
-function armPoint(arm: number, t: number, o: GalaxyOpts, jr: number, ja: number, jy: number): THREE.Vector3 {
-  const angle = (arm / o.arms) * Math.PI * 2 + t * o.windings * Math.PI * 2 + ja
-  const r = o.rIn + (o.rOut - o.rIn) * Math.pow(t, 0.85) + jr
-  return new THREE.Vector3(Math.cos(angle) * r, jy, Math.sin(angle) * r)
-}
-
-// màu cánh tay (lặp vòng) — cyan chủ đạo + lạnh/ấm xen kẽ cho có nhịp
-const ARM_PALETTE = ['#3fd3ff', '#7fb0d0', '#b48bff', '#5fe39a']
-
-// BỤI SAO dải ngân hà: 3 lớp Points (bụi mịn + sparks sáng + bulge ấm) — ~10k hạt, GPU lo, rẻ.
-export function makeGalaxyDust(group: THREE.Group, o: GalaxyOpts = GALAXY_DEFAULT): THREE.Points[] {
-  const rng = mulberry32(o.seed)
-  const layer = (count: number, size: number, opacity: number, bulge: boolean) => {
-    const pos = new Float32Array(count * 3)
-    const col = new Float32Array(count * 3)
-    const c = new THREE.Color(); const warm = new THREE.Color('#ffd9a0')
-    for (let i = 0; i < count; i++) {
-      let p: THREE.Vector3
-      if (bulge) { // lõi phình: cầu gauss ấm quanh tâm
-        p = new THREE.Vector3(gauss(rng) * o.rIn * 0.9, gauss(rng) * o.rIn * 0.45, gauss(rng) * o.rIn * 0.9)
-        c.copy(warm).multiplyScalar(0.5 + rng() * 0.5)
-      } else {
-        const arm = Math.floor(rng() * o.arms)
-        const t = Math.pow(rng(), 0.72) // dồn hạt về phía trong (mật độ thật của ngân hà)
-        const spread = 2.2 + t * 8
-        p = armPoint(arm, t, o, gauss(rng) * spread, gauss(rng) * 0.1, gauss(rng) * o.thickness * (1 - t * 0.45))
-        c.set(ARM_PALETTE[arm % ARM_PALETTE.length])
-        if (t < 0.3) c.lerp(warm, 1 - t / 0.3) // gần tâm → ấm dần (như ảnh thiên văn thật)
-        c.multiplyScalar((0.35 + rng() * 0.65) * (1 - t * 0.35)) // rìa mờ dần
-      }
-      pos[i * 3] = p.x; pos[i * 3 + 1] = p.y; pos[i * 3 + 2] = p.z
-      col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b
+// ── FORCE-LAYOUT 3D nhẹ: charge repulsion + link spring + center gravity + disk-flatten (Y) ──
+// Giữ vị trí cũ (prev) cho node đã có → tinh hà NỞ mượt, không nhảy loạn khi thêm node.
+export type FNode = { id: string; mass: number }
+export type FLink = { source: string; target: string; weight: number }
+export function forceLayout3D(nodes: FNode[], links: FLink[], prev: Map<string, THREE.Vector3>, iters = 220): Map<string, THREE.Vector3> {
+  const pos = new Map<string, THREE.Vector3>()
+  const idx = new Map<string, number>()
+  nodes.forEach((n, i) => {
+    idx.set(n.id, i)
+    const p = prev.get(n.id)
+    // node mới: gieo trên đĩa quanh tâm (góc theo hash → ổn định giữa các lần)
+    if (p) pos.set(n.id, p.clone())
+    else { const a = hash01(n.id) * Math.PI * 2, r = 20 + hash01(n.id + 'r') * 40; pos.set(n.id, new THREE.Vector3(Math.cos(a) * r, (hash01(n.id + 'y') - 0.5) * 12, Math.sin(a) * r)) }
+  })
+  const arr = nodes.map((n) => pos.get(n.id)!)
+  const vel = arr.map(() => new THREE.Vector3())
+  const adj = links.map((l) => ({ a: idx.get(l.source), b: idx.get(l.target), w: l.weight })).filter((e) => e.a !== undefined && e.b !== undefined) as { a: number; b: number; w: number }[]
+  const K_REP = 2600, K_LINK = 0.045, REST = 26, CENTER = 0.012, FLATTEN = 0.82, DAMP = 0.86
+  const tmp = new THREE.Vector3()
+  for (let it = 0; it < iters; it++) {
+    // repulsion (O(n²) — node ít nên ổn)
+    for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) {
+      tmp.copy(arr[i]).sub(arr[j]); let d2 = tmp.lengthSq(); if (d2 < 1) d2 = 1
+      const f = (K_REP * (nodes[i].mass / 14) * (nodes[j].mass / 14)) / d2
+      tmp.multiplyScalar(f / Math.sqrt(d2)); vel[i].add(tmp); vel[j].sub(tmp)
     }
-    const g = new THREE.BufferGeometry()
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3))
-    const pts = new THREE.Points(g, new THREE.PointsMaterial({ vertexColors: true, size, transparent: true, opacity, sizeAttenuation: true, depthWrite: false, blending: THREE.AdditiveBlending }))
-    group.add(pts)
-    return pts
+    // link spring (kéo node nối nhau lại — cụm theo cấu trúc THẬT)
+    for (const e of adj) {
+      tmp.copy(arr[e.b]).sub(arr[e.a]); const d = tmp.length() || 1
+      tmp.multiplyScalar((K_LINK * (0.5 + e.w) * (d - REST)) / d)
+      vel[e.a].add(tmp); vel[e.b].sub(tmp)
+    }
+    for (let i = 0; i < arr.length; i++) {
+      vel[i].x -= arr[i].x * CENTER; vel[i].z -= arr[i].z * CENTER; vel[i].y -= arr[i].y * CENTER * 2.5 // hút về đĩa
+      vel[i].multiplyScalar(DAMP)
+      arr[i].add(tmp.copy(vel[i]).clampLength(0, 6))
+      arr[i].y *= FLATTEN // ép dẹt thành đĩa tinh hà
+    }
   }
-  return [
-    layer(7000, 0.85, 0.55, false), // bụi mịn — vẽ nên hình xoắn ốc
-    layer(1600, 1.8, 0.8, false),   // sao sáng rải rác
-    layer(1600, 1.15, 0.7, true),   // bulge lõi ấm
-  ]
-}
-
-// texture glow mềm (canvas radial) — dùng cho nebula + quầng lõi. Cache 1 lần.
-let _glowTex: THREE.Texture | null = null
-export function glowTexture(): THREE.Texture {
-  if (_glowTex) return _glowTex
-  const cv = document.createElement('canvas'); cv.width = cv.height = 128
-  const ctx = cv.getContext('2d')!
-  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64)
-  g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.35, 'rgba(255,255,255,0.35)'); g.addColorStop(1, 'rgba(255,255,255,0)')
-  ctx.fillStyle = g; ctx.fillRect(0, 0, 128, 128)
-  _glowTex = new THREE.CanvasTexture(cv)
-  return _glowTex
-}
-
-// mây nebula: vài sprite glow to, mờ, tint theo màu cánh tay — cho tinh hà "có khí", hết khô.
-export function makeNebulae(group: THREE.Group, o: GalaxyOpts = GALAXY_DEFAULT, count = 7): THREE.Sprite[] {
-  const rng = mulberry32(o.seed + 99)
-  const out: THREE.Sprite[] = []
-  for (let i = 0; i < count; i++) {
-    const arm = Math.floor(rng() * o.arms)
-    const t = 0.2 + rng() * 0.6
-    const p = armPoint(arm, t, o, gauss(rng) * 6, gauss(rng) * 0.08, gauss(rng) * 2)
-    const mat = new THREE.SpriteMaterial({ map: glowTexture(), color: new THREE.Color(ARM_PALETTE[arm % ARM_PALETTE.length]), transparent: true, opacity: 0.05 + rng() * 0.05, depthWrite: false, blending: THREE.AdditiveBlending })
-    const sp = new THREE.Sprite(mat)
-    sp.position.copy(p); sp.scale.setScalar(34 + rng() * 55)
-    group.add(sp); out.push(sp)
-  }
-  return out
-}
-
-// NEO 1 note thật lên cánh tay: zone → cánh tay cố định, hash(id) → vị trí dọc cánh tay.
-// Deterministic → hành tinh KHÔNG đổi chỗ giữa các lần load; note mới chen vào đúng "địa chỉ vũ trụ" của nó.
-export function armAnchor(zone: string, id: string, o: GalaxyOpts = GALAXY_DEFAULT): THREE.Vector3 {
-  const arm = Math.floor(hash01('zone:' + zone) * o.arms)
-  const t = 0.18 + hash01(id) * 0.74
-  const jr = (hash01(id + ':r') - 0.5) * 7
-  const ja = (hash01(id + ':a') - 0.5) * 0.14
-  const jy = (hash01(id + ':y') - 0.5) * (o.thickness * 0.9)
-  return armPoint(arm, t, o, jr, ja, jy)
-}
-
-// màu node LIVE (telemetry — đồng bộ palette BrainViz để 2 thế giới khớp ngôn ngữ màu)
-export const LIVE_COLOR: Record<string, string> = {
-  core: '#bff8ff', zone: '#9fe9ff', model: '#36d4d0', voice: '#41e3b0', channel: '#46c6ec', api: '#62e89a',
+  return pos
 }
