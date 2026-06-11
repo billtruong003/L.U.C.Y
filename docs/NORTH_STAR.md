@@ -104,6 +104,8 @@ Phase 1.5 thêm **Dashboard làm landing** (không vào thẳng dự án nữa) 
 | **PROVIDER_MODELS.md** · **MODEL_COMPARISON.md** · **COST_MODEL.md** | Lát API: model live-verified + benchmark routing + bài toán token |
 | **LUCY_ULTIMATE_INFRA.md** · **STEAL_FROM_HERMES.md** | Thiết kế 7 lớp tổng + cơ chế rút từ Hermes source |
 | **DEPLOY_HUB.md** · **REMOTE_CONTROL.md** | Deploy hub (nginx/HTTPS/2FA) + kiến trúc remote (M6) |
+| **AUTOPILOT.md** ⭐ | Runbook engine đa-model + "Lucy trực đêm" + self-upgrade (cách chạy VPS) |
+| **SPRINT-01.md** | Sprint chi tiết hoàn thiện Phase 1.5 — đưa Lucy tạo dự án + chạy |
 | **tasks/** | Task UI/observability đang mở (W1 parity ✅, W2 UI pass, multiagent-ux-review) |
 | **_outdated/** | Docs gác/superseded (business, Hermes/OmniRoute, vision cũ) — hồi được |
 
