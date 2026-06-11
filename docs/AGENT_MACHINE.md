@@ -3,7 +3,7 @@
 > **Chốt 2026-06-07.** Bộ máy multi-agent tự chạy kiểu **Kanban**: card công việc trôi qua pipeline,
 > mỗi stage một **persona agent** chạy `claude -p`, tự đẩy tiếp; **chỉ dừng hỏi người ở quyết định quan trọng**;
 > agent giao tiếp trong **channels** đọc/điều khiển được trong dashboard. Hybrid: **lib lo phần khô, ta sở hữu phần hồn**.
-> Neo: [lucy-roadmap step 2] · topology [REMOTE_CONTROL.md](REMOTE_CONTROL.md) · vision [VISION_2026.md](VISION_2026.md).
+> Neo: [lucy-roadmap step 2] · topology [REMOTE_CONTROL.md](REMOTE_CONTROL.md) · vision [VISION_2026.md](_outdated/VISION_2026.md).
 > Lib chốt từ deep-research 2026-06-07 (27 nguồn, verify adversarial).
 
 ---

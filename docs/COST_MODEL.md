@@ -1,8 +1,8 @@
 # LUCY — Cost Model / Bài toán token (Claude vs free)
 
 > **Viết 2026-06-09.** Trả lời lo lắng của Bill: "API Claude 1M token siêu đắt, subscription thì
-> không cho dùng extra cho `claude -p` — phải có bài toán." Neo: [ROADMAP_TO_PEAK.md](ROADMAP_TO_PEAK.md)
-> §4, [RESEARCH_HERMES_OMNIROUTE_2026.md](RESEARCH_HERMES_OMNIROUTE_2026.md). Giá verify từ claude-api skill (cache 2026-05-26).
+> không cho dùng extra cho `claude -p` — phải có bài toán." Neo: [ROADMAP_TO_PEAK.md](_outdated/ROADMAP_TO_PEAK.md)
+> §4, [RESEARCH_HERMES_OMNIROUTE_2026.md](_outdated/RESEARCH_HERMES_OMNIROUTE_2026.md). Giá verify từ claude-api skill (cache 2026-05-26).
 
 ---
 

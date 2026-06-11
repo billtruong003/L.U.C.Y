@@ -2,7 +2,7 @@
 
 > **Viết 2026-06-09.** Bill nghi Groq/Gemini/Cerebras = model yếu. Research benchmark cho thấy:
 > **lẫn provider với model.** Bảng này xếp hạng theo benchmark thật (LiveCodeBench, SWE-Bench Pro,
-> Intelligence Index, Arena) để routing chính xác. Nguồn cuối doc. Đi với [FREE_API_PROVIDERS.md](FREE_API_PROVIDERS.md).
+> Intelligence Index, Arena) để routing chính xác. Nguồn cuối doc. Đi với [FREE_API_PROVIDERS.md](_outdated/FREE_API_PROVIDERS.md).
 
 ---
 

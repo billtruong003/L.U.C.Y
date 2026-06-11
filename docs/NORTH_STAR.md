@@ -1,8 +1,8 @@
 # LUCY — North Star & Plan (ĐỌC CÁI NÀY)
 
-> **Single source of truth. Viết 2026-06-10.** Gom mọi thứ về 1 chỗ cho đỡ loãng.
-> Thay `SPRINT_PLAN.md` (đã xoá) + phần business của [ROADMAP_TO_PEAK.md](ROADMAP_TO_PEAK.md) (gác lại).
-> Chi tiết research nằm ở doc reference: [LUCY_ULTIMATE_INFRA](LUCY_ULTIMATE_INFRA.md) · [STEAL_FROM_HERMES](STEAL_FROM_HERMES.md) · [COST_MODEL](COST_MODEL.md) · [MODEL_COMPARISON](MODEL_COMPARISON.md).
+> **Single source of truth. Cập nhật 2026-06-12.** Gom mọi thứ về 1 chỗ cho đỡ loãng.
+> Docs cũ/gác lại đã dọn vào [`_outdated/`](_outdated/) (VISION_2026, ROADMAP_TO_PEAK, business, Hermes/OmniRoute research… — giữ để hồi, không xoá cứng).
+> Reference đang sống: [LUCY_ULTIMATE_INFRA](LUCY_ULTIMATE_INFRA.md) · [STEAL_FROM_HERMES](STEAL_FROM_HERMES.md) · [COST_MODEL](COST_MODEL.md) · [MODEL_COMPARISON](MODEL_COMPARISON.md) · [PROVIDER_MODELS](PROVIDER_MODELS.md).
 
 ---
 
@@ -31,46 +31,76 @@ gộp cái học vào não + tự viết skill "deploy radiant-bot".
 - **Memory-first** — trí nhớ là MÓNG; 6 năng lực kia chỉ cộng dồn được khi Lucy NHỚ.
 - **Mỗi milestone = 1 năng lực agent + 1 màn UI thấy được + ship được** (không build chìm 6 tuần rồi mới thấy).
 - **UI: flow rõ — đẹp — xịn**, đủ control cho power-user; KHÔNG dumbed-down.
+- **1 nguồn sự thật = GitHub.** Dev ở local (máy mạnh) → push → VPS `git pull` + `pm2 restart`. KHÔNG sửa thẳng 2 nơi (đã từng lệch).
+- **Secret không qua chat** — `nano .env` trên box, không `cat`, không paste key vào hội thoại.
 
 ---
 
-## 3. LỘ TRÌNH đầu → cuối (6 milestone — mỗi cái có UI)
+## 3. LỘ TRÌNH đầu → cuối — trạng thái THẬT
 
-| # | Lucy thêm năng lực | Build (gọn) | Màn UI (flow) | Done khi |
-|---|---|---|---|---|
-| **M1 Trí nhớ** ⭐ móng | `lucy-vault/` (md, git) + `claude -p --add-dir` + ghi-lại-sau-mỗi-việc + FTS5 recall | **"Bộ não"** — duyệt vault (m là ai · dự án · điều đã học) + ô search recall | Lucy đọc vault, không hỏi lại; `/recall` ra phiên cũ; m sửa được trí nhớ |
-| **M2 Tay (MCP)** | mount MCP per-card: GitHub·Gmail·Calendar·Drive·Web(Playwright)·Notion | **"Kết nối"** — bật/tắt từng nguồn, thấy quyền rõ ràng | 1 card đọc được GitHub/mail/lịch/web |
-| **M3 Tự học** | `SKILL.md` chuẩn agentskills.io + stage "self-improve" tự sinh/refine | **"Kỹ năng"** — skill đã học, dùng mấy lần, duyệt skill mới | Lucy tự mint 1 skill từ việc lặp |
-| **M4 Chủ động** | cron tick + wake-gate + webhook + nightly "dream" | **"Lịch/Job"** — job định kỳ + trigger, kết quả đẩy Telegram | Job nền chạy, thức theo sự kiện, gộp memory đêm |
-| **M5 Token/Cost** | cache-parity (từ M1) + tool-slim + nén qua OmniRoute + ledger gộp | **"Chi phí"** — token/cost per agent·ngày, tiết kiệm bao nhiêu | Token giảm đo được; context cha sạch |
-| **M6 Đa mặt** | tách headless server; Telegram + voice(Whisper) + web adapter | **polish** — responsive, mobile, đẹp | Thêm 1 kênh không đụng não |
+| # | Năng lực | Trạng thái | Màn UI (flow) |
+|---|---|---|---|
+| **M1 Trí nhớ** ⭐ móng | `lucy-vault/` (md, git) + `claude -p --add-dir` + FTS5/trigram recall + dream (Wilson) + evidence-loop + graph-walk + galaxy 3D + 1-não thống nhất | ✅ **XONG (full stack A1–A7 + M1.5 tinh hà + bootstrap + cron_dream)** | **"Bộ não"** + tab Neural 🌌 — live |
+| **Phase 1.5 — Đa-model + Dashboard** 💰 *(NGAY)* | lát API in-house (`llm-lane.ts`, 7 provider, smoke-tested) + executor đa-nguồn (DeepSeek V4 = executor, Claude = orchestrator/critic) + **web mở thẳng Dashboard đo metrics** (token/cost/model-usage theo ngày-tháng) | 🔧 **đang làm** — lát API ✅, dropdown ✅; còn: wire executor vào engine + pick-agent + dashboard metrics | **"Dashboard"** (landing) + **"Settings → lát API"** |
+| **M2 Tay (MCP)** | mount MCP per-card: GitHub·Gmail·Calendar·Drive·Web(Playwright)·Notion — [MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md) | 📐 architect xong, chưa build | **"Kết nối"** — bật/tắt nguồn, quyền rõ |
+| **M3 Tự học** | `SKILL.md` chuẩn agentskills.io + stage self-improve tự sinh/refine | ⬜ | **"Kỹ năng"** |
+| **M4 Chủ động** | cron tick + wake-gate + webhook + nightly dream | 🔧 1 nửa (`cron_dream` ✅) | **"Lịch/Job"** |
+| **M5 Token/Cost** | cache-parity (từ M1) + tool-slim + nén + ledger gộp | 🔧 1 phần (lát API rẻ ✅; OmniRoute **bỏ** — box 2GB yếu, thay bằng lát in-house) | **"Chi phí"** (gộp vào Dashboard) |
+| **M6 Đa mặt** | tách headless server; Telegram + voice(Whisper) + web adapter; [REMOTE_CONTROL.md](REMOTE_CONTROL.md) | ⬜ | **polish** mobile |
 
-**Trung tâm UI đã có:** Board (Kanban card chạy qua stage, agent "nói" trong thread sống) — đây là điểm
-nhấn. M1–M6 thêm tab xung quanh nó. ~1 tuần/milestone → **~6–7 tuần ra "Lucy life-cockpit core".**
+**Trung tâm UI đã có:** Board (Kanban card chạy qua stage, agent "nói" trong thread sống). M1 "Bộ não" + Neural đã live.
+Phase 1.5 thêm **Dashboard làm landing** (không vào thẳng dự án nữa) + lát API.
 
-> **Gác (mở lại sau M1–M5):** business/portal/content/tribulation. **Track song song (xen sau M2):** remote-control desktop.
+> **Gác (mở lại sau):** business/portal/content/tribulation (xem [`_outdated/MONEY_PLAYBOOK`](_outdated/MONEY_PLAYBOOK.md), [`_outdated/ROADMAP_TO_PEAK`](_outdated/ROADMAP_TO_PEAK.md)).
+> **Đã bỏ:** Hermes (thay bằng lucy-bridge) · OmniRoute self-host (thay lát in-house) · Arena/Aki (radiant-bot không đụng) · voice (về sau).
 
 ---
 
 ## 4. UI/UX DIRECTION — xịn, flow rõ, đẹp
 
 **Triết lý:** Lucy là **"phòng điều khiển đội agent của m"** — không phải chatbox. Khác biệt cao cấp =
-**m XEM được agent đang làm gì real-time và lái chúng**, như Discord cho đội AI riêng.
+**m XEM được agent đang làm gì real-time, đo được sức khoẻ hệ (token/cost), và lái chúng.**
 
-- **Thẩm mỹ:** giữ **dark theme token-based đã có** (nền `#05070e`, accent cyan, viền calm) — premium, dễ nhìn lâu. KHÔNG màu mè, KHÔNG "AI slop".
-- **Bố cục:** 1 cockpit, sidebar = **các năng lực** (Bộ não · Board · Kết nối · Kỹ năng · Lịch · Chi phí · Chat). Mỗi tab **đúng 1 flow rõ ràng**, không nhồi.
-- **Flow nguyên tắc (signature UX):**
-  1. **Agent "nói ra" mọi việc** — mỗi card có thread sống, agent post tiến độ/handoff/báo cáo; m đọc được "ai đang làm gì, tới đâu".
-  2. **Duyệt đúng chỗ (HITL inline)** — khi cần quyết (gate/cost/loop), nút Duyệt/Trả-lại/Trả-lời ngay trong thread, không lạc.
-  3. **Hiện đủ nhưng sạch** — cost · agent · stage · diff đều thấy, nhưng bố cục thoáng, ưu tiên cái đang cần.
-- **Không dumbed-down:** đủ chiều sâu cho power-user (chỉnh pipeline, model, limit lúc chạy) — gói trong UI đẹp, không phải ẩn đi.
+- **Landing = Dashboard, KHÔNG vào thẳng dự án.** Vào web thấy ngay: token còn/đã dùng (ngày · tháng), cost theo model/agent, model nào sống/chết, job nền, card đang chạy. Lý do: **Claude hết token = Lucy chết** → phải đo trước, lái sau.
+- **Thẩm mỹ:** giữ **dark theme token-based** (nền `#05070e`, accent cyan, viền calm) — premium, nhìn lâu không mỏi. KHÔNG màu mè, KHÔNG "AI slop".
+- **Bố cục:** 1 cockpit, sidebar = năng lực (**Dashboard** · Bộ não · Board · Kết nối · Kỹ năng · Lịch · Chat · Settings). Mỗi tab đúng 1 flow, không nhồi.
+- **Flow nguyên tắc (signature UX):** (1) agent "nói ra" mọi việc trong thread sống; (2) duyệt đúng chỗ (HITL inline); (3) hiện đủ nhưng sạch (cost·agent·stage·diff).
+- **Không dumbed-down:** đủ chiều sâu power-user (chỉnh pipeline/model/limit lúc chạy), gói trong UI đẹp.
+
+**Metrics Dashboard cần đo (đề xuất — research thêm từ references):**
+`token in/out theo ngày → cuộn tháng` · `cost $ /agent · /model · /card` · `% tiết kiệm nhờ lát free vs Claude` ·
+`model health (live/dead, latency, RPM còn lại)` · `card throughput + thời gian/stage` · `vault: #note · #preference (k confirmed) · inbox chờ dream` · `cảnh báo ngưỡng token (sắp cạn → tự hạ model)`.
 
 ---
 
-## 5. BƯỚC ĐẦU — execute ngay sau session
-**M1, đúng 3 bước (1 buổi):**
-1. Dựng `lucy-vault/` + seed `Context/USER.md` (Lucy biết m là ai) + `Projects/` cho dự án đang chạy.
-2. Trỏ `runner.ts` + bridge: `claude -p --add-dir lucy-vault` (Lucy đọc được).
-3. Hook `engine.submit`: sau mỗi việc, ghi cái học vào `Brain/inbox/` (Lucy nhớ dần).
+## 5. VIỆC KẾ — execute ngay (Phase 1.5, theo đúng "1 line làm xong từng cái")
 
-Xong 3 bước → Lucy đã "biết m". Rồi mới thêm recall + "Bộ não" tab, rồi M2.
+1. **Wire executor đa-model vào engine** — persona gắn DeepSeek V4 (qua `llm-lane.ts`) chạy stage nặng/bulk; Claude làm orchestrator/critic. Split planner=Claude / executor=V4. Fallback chain đã test.
+2. **Pick-agent ở Board** — lúc giao việc chọn "con agent + nguồn model" cho card (không chỉ trong Settings).
+3. **Persona mới từ Hermes** — đọc `references/hermes-agent` → rút mẫu persona → mở rộng bộ persona multi-agent hợp executor model rẻ.
+4. **Dashboard landing + metrics** — dựng tab Dashboard làm trang mở mặc định, đo bộ metrics §4. Cost lấy từ ledger + `COST_MODEL.md`.
+5. **Verify cả dự án + research UI** — đối chiếu code ↔ docs, soi references, chốt hướng UI trước khi đẩy đa-model rộng.
+
+→ Xong Phase 1.5 (đa-model adapt + tự implement cho Lucy) **rồi mới sang M2 (MCP)**.
+
+**Ops để Lucy LIVE:** set `LUCY_VAULT=<repo>/lucy-vault` cho **coordinator** (não routes) + **worker** (claude -p đọc vault). Chưa set → brain routes trả `configured:false` (graceful). Reindex galaxy/recall = **`pm2 restart lucy-coordinator`** (KHÔNG phải bridge/hub).
+
+---
+
+## 6. Bản đồ docs (sau audit 2026-06-12)
+
+| Doc | Nội dung |
+|---|---|
+| **NORTH_STAR.md** ⭐ | Viễn cảnh + lộ trình + UI/UX — đọc đầu tiên |
+| **AGENT_MACHINE.md** | Kiến trúc multi-agent card-engine (Kanban + persona + channels) |
+| **MCP_ARCHITECTURE.md** | Kiến trúc M2 (MCP overkill + lớp quản tool) |
+| **M1_MEMORY_SPEC.md** · **NEURAL_GALAXY.md** · **MEMORY_PEAK.md** | Spec hệ trí nhớ M1 (đã build) + tinh hà + đề xuất peak (UI-B còn dư) |
+| **PROVIDER_MODELS.md** · **MODEL_COMPARISON.md** · **COST_MODEL.md** | Lát API: model live-verified + benchmark routing + bài toán token |
+| **LUCY_ULTIMATE_INFRA.md** · **STEAL_FROM_HERMES.md** | Thiết kế 7 lớp tổng + cơ chế rút từ Hermes source |
+| **DEPLOY_HUB.md** · **REMOTE_CONTROL.md** | Deploy hub (nginx/HTTPS/2FA) + kiến trúc remote (M6) |
+| **tasks/** | Task UI/observability đang mở (W1 parity ✅, W2 UI pass, multiagent-ux-review) |
+| **_outdated/** | Docs gác/superseded (business, Hermes/OmniRoute, vision cũ) — hồi được |
+
+## 7. Hạ tầng
+VPS Vietnix `14.225.255.73` (2GB, always-on) · pm2: `lucy-bridge` · `lucy-coordinator` · `lucy-vps-worker` · `lucy-hub` (+ `radiant-bot` không đụng).
+Lucy = **bridge** (Telegram → `claude -p`), Hermes đã tắt. Repo: github.com/billtruong003/L.U.C.Y (branch `main`). VPS clone `~/lucy`, local `c:/Users/Admin/Downloads/BillService/LUCY`.

@@ -3,7 +3,7 @@
 > **Viết 2026-06-10.** Tổng hợp研究 sâu: source Hermes ([STEAL_FROM_HERMES.md](STEAL_FROM_HERMES.md)) +
 > Hermes Atlas ecosystem + Obsidian/PKM + agent frameworks 2026 + life-automation. Mục tiêu Bill:
 > **biến Lucy thành 1 con agent siêu mạnh COVER MỌI THỨ trong tech-life** — não ở `claude -p`, tay là
-> card-engine, nhớ bằng vault, với bằng MCP. Neo: [ROADMAP_TO_PEAK.md](ROADMAP_TO_PEAK.md), [VISION_2026.md](VISION_2026.md).
+> card-engine, nhớ bằng vault, với bằng MCP. Neo: [ROADMAP_TO_PEAK.md](_outdated/ROADMAP_TO_PEAK.md), [VISION_2026.md](_outdated/VISION_2026.md).
 > Đây là **THIẾT KẾ** (chưa build) — chốt hướng trước khi code.
 
 ---

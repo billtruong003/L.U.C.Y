@@ -4,7 +4,7 @@
 > VPS = **não/hub/relay** always-on. Bill điều khiển + xem **từ mọi thiết bị, mọi nơi** (đth/laptop/desktop/web).
 > Tất cả **in-house, tận dụng lib open-source** — KHÔNG app SaaS ngoài (chậm vì relay chung + phải trả VIP).
 >
-> Doc này thay cho cụm kiến trúc Hermes cũ ([`_outdated/`](_outdated/)). Tầm nhìn tổng: [VISION_2026.md](VISION_2026.md).
+> Doc này thay cho cụm kiến trúc Hermes cũ ([`_outdated/`](_outdated/)). Tầm nhìn tổng: [VISION_2026.md](_outdated/VISION_2026.md).
 > Mọi lựa chọn dưới đây neo vào **deep-research 2026-06-07** (23 nguồn · 25 claim verify adversarial) — nguồn cuối doc.
 
 ---
@@ -186,4 +186,4 @@ R1+R2 (terminal/agent) cho giá trị ngay & dễ; R3+ (desktop) là phần "wow
 
 **Research 2026-06-07 (verify adversarial):** Sunshine [github.com/LizardByte/Sunshine](https://github.com/LizardByte/Sunshine) · moonlight-web-stream [github.com/MrCreativ3001/moonlight-web-stream](https://github.com/MrCreativ3001/moonlight-web-stream) · Selkies [github.com/selkies-project/selkies-gstreamer](https://github.com/selkies-project/selkies-gstreamer) · Neko [github.com/m1k1o/neko](https://github.com/m1k1o/neko) · KasmVNC [github.com/kasmtech/KasmVNC](https://github.com/kasmtech/KasmVNC) · NAT traversal [tailscale.com/blog/nat-traversal-improvements-pt-1](https://tailscale.com/blog/nat-traversal-improvements-pt-1) · rathole [github.com/rathole-org/rathole](https://github.com/rathole-org/rathole) · sshx [github.com/ekzhang/sshx](https://github.com/ekzhang/sshx) · Inngest Connect [inngest.com/docs/setup/connect](https://www.inngest.com/docs/setup/connect) · xterm.js [github.com/xtermjs/xterm.js](https://github.com/xtermjs/xterm.js) · Tauri vs Electron [gethopp.app/blog/tauri-vs-electron](https://www.gethopp.app/blog/tauri-vs-electron)
 
-**Nội bộ:** [VISION_2026.md](VISION_2026.md) · hub [../hub/server/src/index.ts](../hub/server/src/index.ts) · bridge [../bridge/lucy_bridge.py](../bridge/lucy_bridge.py) · kiến trúc Hermes cũ (bỏ) [_outdated/](_outdated/)
+**Nội bộ:** [VISION_2026.md](_outdated/VISION_2026.md) · hub [../hub/server/src/index.ts](../hub/server/src/index.ts) · bridge [../bridge/lucy_bridge.py](../bridge/lucy_bridge.py) · kiến trúc Hermes cũ (bỏ) [_outdated/](_outdated/)

@@ -1,8 +1,8 @@
 # Steal-from-Hermes — code-level findings để nâng Lucy
 
 > **Viết 2026-06-10.** Đọc SOURCE thật của `hermes-agent` (NousResearch, Python) — rút cơ chế mạnh nhất
-> để đưa vào Lucy (bridge `lucy_bridge.py` + agent-machine TS engine). Neo: [RESEARCH_HERMES_OMNIROUTE_2026.md](RESEARCH_HERMES_OMNIROUTE_2026.md),
-> [ROADMAP_TO_PEAK.md](ROADMAP_TO_PEAK.md). Đây là input cho thiết kế hạ tầng Lucy.
+> để đưa vào Lucy (bridge `lucy_bridge.py` + agent-machine TS engine). Neo: [RESEARCH_HERMES_OMNIROUTE_2026.md](_outdated/RESEARCH_HERMES_OMNIROUTE_2026.md),
+> [ROADMAP_TO_PEAK.md](_outdated/ROADMAP_TO_PEAK.md). Đây là input cho thiết kế hạ tầng Lucy.
 
 > **Pattern cốt lõi xuyên suốt Hermes = "forked-agent":** spawn 1 `AIAgent` phụ trong thread, đưa prompt
 > hẹp + whitelist tool + **system-prompt của cha y nguyên (để dùng chung prefix cache)**, cho ghi vào
