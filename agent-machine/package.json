@@ -19,6 +19,7 @@
     "sprint": "tsx src/autopilot-cli.ts",
     "smoke:lane": "tsx src/smoke-lane.ts",
     "smoke:autopilot": "tsx src/smoke-autopilot.ts",
+    "smoke:e2e": "tsx src/smoke-e2e.ts",
     "seed": "tsx src/seed.ts",
     "reindex": "tsx src/recall-cli.ts reindex",
     "recall": "tsx src/recall-cli.ts",
