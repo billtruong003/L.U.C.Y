@@ -125,8 +125,9 @@ export class Recall {
     const strict = tokens.map((t) => `"${t}"`).join(' ') // implicit AND, quote → an toàn ký tự đặc biệt
     let rows = this.runFts(strict, opts, limit)
     let relaxed = false
-    // relaxed: strict rỗng + ≥3 token + query không có toán tử rõ ràng → OR (bỏ stopword)
-    if (!rows.length && tokens.length >= 3 && !/["*]/.test(query)) {
+    // relaxed: strict rỗng + ≥2 token + query không có toán tử rõ ràng → OR (bỏ stopword).
+    // (≥3 cũ làm query 2 từ miss trắng tay — audit 2026-06-11.)
+    if (!rows.length && tokens.length >= 2 && !/["*]/.test(query)) {
       const kept = tokens.filter((t) => !STOPWORDS.has(t))
       const terms = kept.length ? kept : tokens
       rows = this.runFts(terms.map((t) => `"${t}"`).join(' OR '), opts, limit)

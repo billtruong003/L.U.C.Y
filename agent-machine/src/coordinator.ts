@@ -6,7 +6,7 @@ import type { Store } from './store'
 import type { Recall } from './recall'
 import { browseVault, readVaultFile, listPreferences, listInbox, readActive, buildGraph, setPinned } from './brain'
 import { dream } from './dream'
-import { recordEvidence } from './evidence'
+import { recordEvidence, hasManualEvidenceToday } from './evidence'
 
 function serializeJob(j: JobSpec) {
   // worker không cần workspace của coordinator — nó tự tạo workspace local.
@@ -28,6 +28,14 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
   const vaultDir = opts.vaultDir
   const recall = opts.recall ?? null
   const brainOn = !!(recall && vaultDir)
+  // auto-reindex debounce: agent ghi note vào vault GIỮA phiên → search vẫn thấy mà không reindex mỗi request
+  // (reindex incremental so mtime+checksum — vault nhỏ thì rẻ, nhưng vẫn chặn spam). Warm lúc start ở coordinator-main.
+  let lastReindex = Date.now()
+  const freshIndex = () => {
+    if (!recall || Date.now() - lastReindex < 30_000) return
+    lastReindex = Date.now()
+    try { recall.reindex() } catch { /* index hỏng không được chặn route đọc */ }
+  }
 
   const server = http.createServer(async (req, res) => {
     const send = (code: number, obj: unknown) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)) }
@@ -65,14 +73,19 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       if (url.startsWith('/recall') || url.startsWith('/brain')) {
         if (!brainOn || !recall || !vaultDir) return send(200, { configured: false })
         if (req.method === 'GET' && url === '/recall') {
+          freshIndex()
           const q = qs.get('q') || ''
           const after = qs.get('after') ? Number(qs.get('after')) : undefined
           return send(200, { configured: true, hits: q ? recall.search(q, { type: qs.get('type') || undefined, after, limit: Number(qs.get('limit')) || 10 }) : [] })
         }
-        if (req.method === 'GET' && url === '/brain/recent')
+        if (req.method === 'GET' && url === '/brain/recent') {
+          freshIndex()
           return send(200, { configured: true, rows: recall.recent({ timeframe: qs.get('timeframe') || undefined, type: qs.get('type') || undefined, limit: Number(qs.get('limit')) || 15 }) })
-        if (req.method === 'GET' && url === '/brain/state')
+        }
+        if (req.method === 'GET' && url === '/brain/state') {
+          freshIndex()
           return send(200, { configured: true, tree: browseVault(vaultDir), active: readActive(vaultDir), preferences: listPreferences(vaultDir), inbox: listInbox(vaultDir), stats: recall.stats() })
+        }
         if (req.method === 'GET' && url === '/brain/graph')
           return send(200, buildGraph(vaultDir, { bornWithinMs: Number(qs.get('bornMs')) || 0 }))
         if (req.method === 'GET' && url === '/brain/file') {
@@ -82,11 +95,13 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
         if (req.method === 'POST' && url === '/brain/reindex') return send(200, { configured: true, stats: recall.reindex({ full: true }) })
         if (req.method === 'POST' && url === '/brain/dream') return send(200, { configured: true, summary: dream(vaultDir) })
         // A1 evidence: Bill bấm 👍 áp dụng / 👎 bác 1 preference → ghi evidence rồi dream NGAY (confirm tức thì).
+        // Dedup: 1 evidence manual / (pref, kind) / ngày — bấm lặp không thổi confidence.
         if (req.method === 'POST' && url === '/brain/evidence') {
           const b = await readBody(req)
           const kind = b.kind === 'violated' ? 'violated' : 'applied'
-          const ok = b.prefId ? recordEvidence(vaultDir, String(b.prefId), kind) : false
-          return send(200, { configured: true, ok, summary: ok ? dream(vaultDir) : null })
+          const dup = b.prefId ? hasManualEvidenceToday(vaultDir, String(b.prefId), kind) : false
+          const ok = !!b.prefId && !dup && recordEvidence(vaultDir, String(b.prefId), kind, Date.now(), 'manual')
+          return send(200, { configured: true, ok, deduped: dup, summary: ok ? dream(vaultDir) : null })
         }
         if (req.method === 'POST' && url === '/brain/pin') {
           const b = await readBody(req)
