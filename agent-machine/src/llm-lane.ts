@@ -41,6 +41,8 @@ export const MODEL_CATALOG: ModelEntry[] = [
   { key: 'devstral-med',     label: 'Devstral Medium',          provider: 'mistral',      model: 'devstral-medium-latest',     role: 'executor', free: true, note: 'agentic coding của Mistral' },
   { key: 'codestral',        label: 'Codestral 2508',           provider: 'mistral',      model: 'codestral-2508',             role: 'executor', free: true, note: 'code-specialized' },
   { key: 'ds-v4-flash',      label: 'DeepSeek V4 Flash',        provider: 'openrouter',   model: 'deepseek/deepseek-v4-flash', role: 'executor', free: false, ctx: '1M' },
+  { key: 'or-nemotron-super', label: 'Nemotron 3 Super 120B',   provider: 'openrouter',   model: 'nvidia/nemotron-3-super-120b-a12b:free', role: 'executor', free: true, ctx: '1M', note: 'free + tool-calling, nhanh (verify 2026-06-12)' },
+  { key: 'or-gptoss-120b',   label: 'GPT-OSS 120B (OpenRouter free)', provider: 'openrouter', model: 'openai/gpt-oss-120b:free', role: 'executor', free: true, ctx: '131k', note: 'free + tool-calling' },
   // reasoning
   { key: 'ds-v4-pro',        label: 'DeepSeek V4 Pro',          provider: 'openrouter',   model: 'deepseek/deepseek-v4-pro',   role: 'reasoning', free: false, ctx: '1M', note: 'S-tier reasoning+code' },
   // fast — nhanh, việc nhẹ
@@ -55,7 +57,7 @@ export const MODEL_CATALOG: ModelEntry[] = [
 
 // Chuỗi fallback theo role (chạy lần lượt tới khi 1 cái ra content). Chỉ model đã verify.
 export const FALLBACKS: Record<Role, string[]> = {
-  executor:  ['ds-v4-flash-free', 'devstral-med', 'ds-v4-flash', 'codestral'],
+  executor:  ['ds-v4-flash-free', 'or-nemotron-super', 'devstral-med', 'or-gptoss-120b', 'ds-v4-flash', 'codestral'],
   reasoning: ['ds-v4-pro', 'ds-v4-flash', 'groq-gptoss-120b'],
   fast:      ['groq-gptoss-120b', 'cerebras-glm-47', 'groq-llama-70b'],
   content:   ['gemini-flash', 'mistral-large', 'groq-gptoss-120b'],
