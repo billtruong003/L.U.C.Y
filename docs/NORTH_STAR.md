@@ -75,13 +75,19 @@ Phase 1.5 thêm **Dashboard làm landing** (không vào thẳng dự án nữa) 
 
 ## 5. VIỆC KẾ — execute ngay (Phase 1.5, theo đúng "1 line làm xong từng cái")
 
-1. **Wire executor đa-model vào engine** — persona gắn DeepSeek V4 (qua `llm-lane.ts`) chạy stage nặng/bulk; Claude làm orchestrator/critic. Split planner=Claude / executor=V4. Fallback chain đã test.
-2. **Pick-agent ở Board** — lúc giao việc chọn "con agent + nguồn model" cho card (không chỉ trong Settings).
-3. **Persona mới từ Hermes** — đọc `references/hermes-agent` → rút mẫu persona → mở rộng bộ persona multi-agent hợp executor model rẻ.
-4. **Dashboard landing + metrics** — dựng tab Dashboard làm trang mở mặc định, đo bộ metrics §4. Cost lấy từ ledger + `COST_MODEL.md`.
-5. **Verify cả dự án + research UI** — đối chiếu code ↔ docs, soi references, chốt hướng UI trước khi đẩy đa-model rộng.
+**✅ ĐÃ XONG (2026-06-12, verify real):**
+- **Executor đa-model in-house** — `lane-runner.ts`: agentic tool-loop (read/write/edit/bash) cho model rẻ qua `llm-lane` (OpenRouter/OpenCode-Zen, DeepSeek V4). Worker `CompositeRunner`: persona có `laneModel` + có key → model rẻ; else `claude -p` (opus brain/critic). Smoke: ds-v4-flash-free tạo+verify file thật ✅. Chạy: worker `AM_RUNNER=claude`.
+- **Bộ persona 14 + 170 skill Hermes** — `agent-machine/config/personas/` (anime, avatar AniList) + `skills/` (INDEX). Review 2-bước (Giyu spec → Rengoku quality).
+- **Autopilot "Lucy trực đêm"** — `autopilot.ts` + `autopilot-main.ts` (poller) + `autopilot-cli.ts` (sprint). Okabe(opus) tự đẻ sprint; ở gate Lucy-director(opus) đọc report+diff → `/approve` hoặc `/reject`. **TRỪ** deploy(Tengen)/security(Gyomei)/secret → vẫn để Bill. Cap `AM_AUTOPILOT_MAX`. Smoke: duyệt card-tốt, trả-lại card chưa-verify ✅.
+  - Đêm: `npm run sprint -- sprint <projectId> "<mục tiêu>"` (đẻ + chạy) · `npm run autopilot` (bật duyệt-thay) · pm2 = `lucy-autopilot`.
 
-→ Xong Phase 1.5 (đa-model adapt + tự implement cho Lucy) **rồi mới sang M2 (MCP)**.
+**CÒN LẠI:**
+1. **Pick-agent ở Board** — lúc giao việc chọn "con agent + nguồn model" cho card (không chỉ Settings).
+2. **Dashboard landing + metrics** — tab Dashboard mở mặc định, đo bộ metrics §4. Cost từ ledger + `COST_MODEL.md`.
+3. **Wire skill-loader M3** — agent match trigger → load đúng SKILL.md (progressive disclosure).
+4. **Verify cả dự án + research UI** — đối chiếu code ↔ docs, soi references, chốt hướng UI.
+
+→ Xong Phase 1.5 **rồi mới sang M2 (MCP)**.
 
 **Ops để Lucy LIVE:** set `LUCY_VAULT=<repo>/lucy-vault` cho **coordinator** (não routes) + **worker** (claude -p đọc vault). Chưa set → brain routes trả `configured:false` (graceful). Reindex galaxy/recall = **`pm2 restart lucy-coordinator`** (KHÔNG phải bridge/hub).
 
