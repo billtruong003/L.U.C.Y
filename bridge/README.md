@@ -51,6 +51,14 @@ crontab -e        # thêm dòng:
 ```
 → 7h sáng: claude làm báo cáo thị trường (crypto/vàng/CK/macro) → gửi tóm tắt + file .md vào Telegram. **Deterministic** (cron gọi script, không qua model điều phối → không chế lệnh lung tung).
 
+## 🌙 Dream đêm (cron — não tự học mỗi tối)
+```bash
+chmod +x ~/lucy/bridge/cron_dream.sh
+crontab -e        # thêm dòng:
+0 2 * * * /root/lucy/bridge/cron_dream.sh >> /root/lucy-workspace/dream-cron.log 2>&1
+```
+→ 2h sáng: gộp `Brain/inbox` signal → preference → `active.md` + dọn signal quá hạn + reindex recall. **0 token** (thuần deterministic). Có học được gì mới → Lucy nhắn Telegram "🌙 Dream đêm — em vừa gộp trí nhớ"; đêm nào không có gì → im lặng.
+
 ## 🔐 Bảo mật (đọc kỹ)
 - `--permission-mode bypassPermissions` = claude chạy mọi tool KHÔNG hỏi (cần cho autonomous). → **Cửa duy nhất là allowlist `LUCY_ALLOWED_USER_ID`** (chỉ chủ nhân). Ai gửi sai id bị từ chối.
 - Bot token + user id chỉ trong `.env` (gitignored). Không commit.
