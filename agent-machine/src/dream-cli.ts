@@ -15,5 +15,6 @@ if (!s.changed && !s.contradictions.length) {
   if (s.rebutted.length) console.log(`  ✗ rebutted ${s.rebutted.length}: ${s.rebutted.join(', ')}`)
   if (s.retired.length) console.log(`  ⌫ retire ${s.retired.length}: ${s.retired.join(', ')}`)
   if (s.contradictions.length) console.log(`  ⁇ mâu thuẫn (chờ thêm tín hiệu): ${s.contradictions.join(', ')}`)
+  if (s.expiredSignals) console.log(`  🧹 dọn ${s.expiredSignals} signal quá hạn (inbox hygiene)`)
   console.log(`  → ${s.processedSignals} signal đã xử lý · ${s.activePrefs} preference đang sống`)
 }

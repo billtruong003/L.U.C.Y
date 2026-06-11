@@ -6,6 +6,7 @@ import { Budget } from './budget'
 import { makeWorkspace } from './workspace'
 import { post, threadOf } from './channels'
 import { writeSignalSafe } from './signal'
+import { distillCardSafe } from './distill'
 import { slug } from './vault'
 import type { Runner } from './runner'
 import type { Card, Stage, Persona, Project, Pipeline, RunResult } from './types'
@@ -224,6 +225,7 @@ export class Engine {
       c.status = 'done'
       c.history.push({ ts: Date.now(), stage: pipe.stages[c.stageIndex].id, event: 'done' })
       post(this.store, threadOf(c.id), 'engine', 'report', `🏁 card "${c.title}" DONE`, c.id)
+      this.distill(c) // A2: card kết thúc → học nền (fire-and-forget, không chặn)
     } else {
       c.stageIndex++
       c.status = 'queued'
@@ -428,6 +430,7 @@ export class Engine {
       case 'fail':
         c.status = 'failed'
         this.store.putCard(c)
+        this.distill(c) // A2: card fail cũng giàu bài học
         break
     }
 
@@ -435,6 +438,14 @@ export class Engine {
     if (c.parentId && c.status === 'done') {
       post(this.store, threadOf(c.parentId), persona.name, 'handoff', `↩ "${c.title}" xong — trả về`, c.parentId)
     }
+  }
+
+  // A2 auto-memory nền: distill bài học từ card vừa kết thúc → Brain/inbox (dream gộp sau).
+  // Fire-and-forget: lỗi/không có claude/không có vault = im lặng — KHÔNG đụng vòng đời card.
+  private distill(c: Card) {
+    distillCardSafe(c)
+      .then((sigs) => { if (sigs.length) post(this.store, threadOf(c.id), 'engine', 'system', `🧠 học nền: ${sigs.length} signal (${sigs.map((s) => s.topic.split('/')[1]).join(', ')})`, c.id) })
+      .catch(() => { /* nuốt — học hỏng không được làm gãy gì */ })
   }
 
   // child xong -> parent qua stage tiếp

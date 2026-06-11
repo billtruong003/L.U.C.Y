@@ -83,6 +83,7 @@ export type DreamSummary = {
   rebutted: string[]       // pref bị bác
   retired: string[]        // expired/stale
   confirmed: string[]      // unconfirmed → confirmed nhờ evidence
+  expiredSignals: number   // signal quá cửa sổ không bao giờ đủ ngưỡng → dọn (chống inbox phình vô hạn)
   processedSignals: number
   activePrefs: number
 }
@@ -176,7 +177,7 @@ export function dream(vaultDir: string, opts: { now?: Date } = {}): DreamSummary
   const byTopic = new Map<string, Preference>()
   for (const p of prefs) byTopic.set(p.topic, p)
 
-  const summary: DreamSummary = { changed: false, graduated: [], redundant: 0, contradictions: [], rebutted: [], retired: [], confirmed: [], processedSignals: 0, activePrefs: 0 }
+  const summary: DreamSummary = { changed: false, graduated: [], redundant: 0, contradictions: [], rebutted: [], retired: [], confirmed: [], expiredSignals: 0, processedSignals: 0, activePrefs: 0 }
   // gom thay đổi rồi GHI 1 LẦN (no-op → không đụng đĩa)
   const toProcess: string[] = []            // signal files → inbox/processed/
   const prefWrites: Preference[] = []       // pref tạo/đổi → ghi
@@ -197,7 +198,12 @@ export function dream(vaultDir: string, opts: { now?: Date } = {}): DreamSummary
   const windowMs = cfg.contradiction_window_days * 24 * 3600 * 1000
   const groups = new Map<string, Signal[]>()
   for (const s of signals) {
-    if (now.getTime() - Date.parse(s.created_at) > windowMs) continue // ngoài cửa → bỏ qua lượt này
+    // ngoài cửa sổ = KHÔNG BAO GIỜ đủ ngưỡng nữa → dọn sang processed (trước đây `continue` suông → kẹt inbox vĩnh viễn)
+    if (now.getTime() - Date.parse(s.created_at) > windowMs) {
+      toProcess.push(s.file); summary.expiredSignals++
+      logLines.push(`expire-signal sig=${s.id} topic="${s.topic}" (quá ${cfg.contradiction_window_days} ngày không đủ ngưỡng)`)
+      continue
+    }
     const g = groups.get(s.topic) || []
     g.push(s); groups.set(s.topic, g)
   }

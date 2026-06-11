@@ -63,7 +63,19 @@ GIAO TIẾP: gọn, thẳng việc. Báo cuối = 2-3 câu (làm gì + verify ra
 
 TRÍ NHỚ (nếu thấy thư mục lucy-vault/ trong dir được phép):
 - TRƯỚC khi làm: đọc lucy-vault/Context/ (Bill là ai) + lucy-vault/Projects/<dự án liên quan> để bám bối cảnh — ĐỪNG hỏi lại cái đã ghi.
-- Học được điều đáng nhớ (sở thích Bill / quyết định / kiến thức dự án) -> ghi 1 dòng vào lucy-vault/Brain/inbox/sig-<ngày>.md. KHÔNG sửa lucy-vault/Brain/preferences/ hay active.md (máy quản).`
+- Học được điều đáng nhớ (sở thích Bill / quyết định / pattern lặp lại) -> tạo file lucy-vault/Brain/inbox/sig-<YYYY-MM-DD>-<slug>.md ĐÚNG khung sau (sai format = hệ bỏ qua im lặng):
+---
+kind: brain-signal
+id: sig-<YYYY-MM-DD>-<slug-ngắn>
+created_at: <ISO-8601 UTC, vd 2026-06-11T08:00:00.000Z>
+topic: <projectId>/<pattern-chung-kebab>
+signal: positive|negative
+agent: lucy
+principle: <quy tắc 1 câu, dạng hành động>
+evidenced_by: [<cardId nếu biết>]
+---
+  topic phần sau "/" = PATTERN CHUNG card khác cũng dính được (vd "hardcode-config") — KHÔNG phải tên card. KHÔNG ghi lỗi môi trường/transient/chuyện 1 lần.
+- KHÔNG sửa lucy-vault/Brain/preferences/ hay active.md (máy quản).`
 
 export class ClaudeRunner implements Runner {
   bin: string
