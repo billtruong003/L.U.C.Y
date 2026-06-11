@@ -2,7 +2,7 @@
 // VPS không chạy agent; worker đến/đi tự do (máy tắt -> card xếp hàng; bật -> hút tiếp).
 import path from 'node:path'
 import fs from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
 import type { Runner } from './runner'
 import type { RunResult } from './types'
 
@@ -18,8 +18,40 @@ function ensureRepoClone(root: string, repo: { url: string; branch?: string; pro
     try { execFileSync('git', ['-C', dir, 'pull', '--ff-only'], { stdio: 'ignore' }) } catch { /* lệch -> để agent xử */ }
   }
   if (repo.branch) { try { execFileSync('git', ['-C', dir, 'checkout', repo.branch], { stdio: 'ignore' }) } catch { /* nhánh chưa có -> kệ */ } }
+  // SELF-UPGRADE: clone mới KHÔNG có node_modules → reviewer build/test không chạy được. Cấp deps cho clone.
+  // repoUrl là path local (vd /root/lucy) → symlink node_modules từ nguồn (NHANH, khỏi rebuild native).
+  // repo remote → npm install (chậm hơn). Best-effort, không chặn clone nếu lỗi.
+  try { ensureDeps(dir, fs.existsSync(repo.url) ? path.resolve(repo.url) : undefined) } catch { /* deps best-effort */ }
   return dir
 }
+
+// Tìm mọi dir có package.json (depth ≤2: monorepo Lucy = agent-machine, bridge, hub, hub/server, hub/web).
+function findPkgDirs(root: string): string[] {
+  const out: string[] = []
+  const walk = (dir: string, rel: string, depth: number) => {
+    if (depth > 2) return
+    let entries: fs.Dirent[]
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+    if (entries.some((e) => e.isFile() && e.name === 'package.json')) out.push(rel)
+    for (const e of entries) if (e.isDirectory() && e.name !== 'node_modules' && !e.name.startsWith('.')) walk(path.join(dir, e.name), rel ? rel + '/' + e.name : e.name, depth + 1)
+  }
+  walk(root, '', 0)
+  return out
+}
+
+// Cấp node_modules cho clone: ưu tiên SYMLINK từ source (local) → tức thì; else npm install (best-effort).
+export function ensureDeps(cloneDir: string, sourceDir?: string): void {
+  for (const rel of findPkgDirs(cloneDir)) {
+    const dst = path.join(cloneDir, rel, 'node_modules')
+    if (fs.existsSync(dst)) continue // đã có (symlink/cài lần trước) → bỏ qua, rẻ
+    const src = sourceDir ? path.join(sourceDir, rel, 'node_modules') : ''
+    if (src && fs.existsSync(src)) {
+      try { fs.symlinkSync(src, dst, process.platform === 'win32' ? 'junction' : 'dir'); continue } catch { /* symlink fail → thử cài */ }
+    }
+    try { execSync('npm install --no-audit --no-fund --loglevel=error', { cwd: path.join(cloneDir, rel), stdio: 'ignore', timeout: 300000 }) } catch { /* không cài được → reviewer sẽ báo, không nổ */ }
+  }
+}
+
 const FAIL = (msg: string): RunResult => ({ outcome: { decision: 'fail', summary: msg }, cost: { usd: 0, inTok: 0, outTok: 0 }, raw: '' })
 
 // V1: chụp "đã đổi gì" để báo cáo — repo: git status/diff; nháp: liệt kê file.
