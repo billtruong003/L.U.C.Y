@@ -75,7 +75,7 @@ principle: <quy tắc 1 câu, dạng hành động>
 evidenced_by: [<cardId nếu biết>]
 ---
   topic phần sau "/" = PATTERN CHUNG card khác cũng dính được (vd "hardcode-config") — KHÔNG phải tên card. KHÔNG ghi lỗi môi trường/transient/chuyện 1 lần.
-- KHÔNG sửa lucy-vault/Brain/preferences/ hay active.md (máy quản).`
+- KHÔNG sửa lucy-vault/Brain/preferences/ hay active.md (máy quản). CẤM ghi trí nhớ vào auto-memory built-in của Claude Code (~/.claude/**/memory/) — vault là não DUY NHẤT, ghi chỗ khác = lạc trôi khỏi recall/dream.`
 
 export class ClaudeRunner implements Runner {
   bin: string

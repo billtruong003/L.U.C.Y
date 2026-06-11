@@ -26,6 +26,9 @@ const HOST = process.env.LUCY_HUB_HOST || '0.0.0.0'   // nginx setup: đặt 127
 const WORKDIR = home(process.env.LUCY_WORKDIR || '~/lucy/workspace')
 const CLAUDE = process.env.CLAUDE_BIN || 'claude'
 const PERSONA = home(process.env.LUCY_PERSONA || '~/lucy/bridge/persona.md')
+// TRÍ NHỚ: vault = não DUY NHẤT — mọi claude -p phải --add-dir vault (không thì Lucy mù vault,
+// ghi nhầm auto-memory built-in của Claude Code → 2 não đánh nhau, bug 2026-06-11).
+const VAULT = home(process.env.LUCY_VAULT || '~/lucy/lucy-vault')
 const TIMEOUT = Number(process.env.LUCY_CLAUDE_TIMEOUT || 900) * 1000
 const DIST = path.join(__dirname, '..', '..', 'web', 'dist')
 const PROJECTS = home(process.env.LUCY_PROJECTS_ROOT || WORKDIR)   // gốc cho tab Projects (file tree)
@@ -81,6 +84,7 @@ const saveChat = () => { if (chat.messages.length > 400) chat.messages = chat.me
 function runClaude(prompt: string, sessionId: string | null, model: string): Promise<{ sid: string | null; text: string }> {
   const args = ['-p', prompt, '--output-format', 'json', '--permission-mode', 'bypassPermissions', '--model', model]
   if (fs.existsSync(PERSONA)) args.push('--append-system-prompt-file', PERSONA)
+  if (fs.existsSync(VAULT)) args.push('--add-dir', VAULT) // não vault luôn trong tầm mắt
   if (sessionId) args.push('--resume', sessionId)
   return new Promise((resolve) => {
     // stdio stdin='ignore' → claude khỏi chờ stdin 3s. CLAUDE phải là exe thật (win: ...\bin\claude.exe).

@@ -26,6 +26,9 @@ TOKEN   = os.environ["TELEGRAM_BOT_TOKEN"]
 ALLOWED = str(os.environ.get("LUCY_ALLOWED_USER_ID", "")).strip()   # khóa chỉ chủ nhân
 WORKDIR = os.path.expanduser(os.environ.get("LUCY_WORKDIR", "~/lucy-workspace"))
 CLAUDE  = os.environ.get("CLAUDE_BIN", "claude")
+# TRÍ NHỚ: vault = não DUY NHẤT của Lucy. Mọi claude -p PHẢI --add-dir vault, không thì Lucy mù vault
+# → ghi nhầm vào auto-memory built-in của Claude Code (2 não đánh nhau — bug 2026-06-11).
+VAULT   = os.environ.get("LUCY_VAULT", os.path.expanduser("~/lucy/lucy-vault"))
 PERSONA = os.path.expanduser(os.environ.get("LUCY_PERSONA", "~/lucy/bridge/persona.md"))
 TIMEOUT = int(os.environ.get("LUCY_CLAUDE_TIMEOUT", "900"))          # claude có thể chạy lâu
 SESS    = os.path.expanduser("~/.lucy-bridge-sessions.json")
@@ -146,6 +149,8 @@ def run_claude(prompt, session_id, model="sonnet"):
            "--permission-mode", "bypassPermissions", "--model", model]
     if os.path.exists(PERSONA):
         cmd += ["--append-system-prompt-file", PERSONA]
+    if os.path.isdir(VAULT):
+        cmd += ["--add-dir", VAULT]    # não vault luôn trong tầm mắt (persona dạy ghi vào đâu)
     if session_id:
         cmd += ["--resume", session_id]
     env = {**os.environ, "IS_SANDBOX": "1"}   # cho phép bypassPermissions khi chạy root (VPS)
