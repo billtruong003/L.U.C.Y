@@ -101,6 +101,26 @@ export function readActive(vaultDir: string): string {
   try { return fs.readFileSync(path.join(vaultDir, 'Brain', 'active.md'), 'utf8') } catch { return '' }
 }
 
+// pin/unpin 1 preference (nút 📌). Sửa ĐÚNG dòng frontmatter `pinned:` → dream sau vẫn đọc & giữ (readPreferences đọc pinned).
+export function setPinned(vaultDir: string, prefId: string, pinned: boolean): boolean {
+  const dir = path.join(vaultDir, 'Brain', 'preferences')
+  let names: string[]
+  try { names = fs.readdirSync(dir) } catch { return false }
+  for (const name of names) {
+    if (!name.endsWith('.md')) continue
+    const file = path.join(dir, name)
+    try {
+      const raw = fs.readFileSync(file, 'utf8')
+      const { data } = parseFrontmatter(raw)
+      if (data.kind !== 'brain-preference' || String(data.id || name.replace(/\.md$/, '')) !== prefId) continue
+      const next = /^pinned:.*$/m.test(raw) ? raw.replace(/^pinned:.*$/m, `pinned: ${pinned}`) : raw.replace(/^---\n/, `---\npinned: ${pinned}\n`)
+      fs.writeFileSync(file, next)
+      return true
+    } catch { /* skip */ }
+  }
+  return false
+}
+
 // ════════ TINH HÀ TRI THỨC — graph trí nhớ (NEURAL_GALAXY.md) ════════
 // node = note thật · edge = wikilink [[...]] THẬT · brightness = confidence/độ-mới · mass = số quan sát.
 // Đọc thẳng file (không đụng FTS5) → tách bạch recall(tìm) vs galaxy(nhìn).

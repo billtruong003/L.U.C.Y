@@ -155,4 +155,8 @@ export async function brainDream(): Promise<{ configured?: boolean; summary?: Dr
 export async function brainEvidence(prefId: string, kind: 'applied' | 'violated'): Promise<{ ok?: boolean; summary?: DreamSummary }> {
   const r = await fetch('/api/brain/evidence', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prefId, kind }) }); return r.json()
 }
+// B: pin/unpin 1 preference (📌 → miễn auto-retire).
+export async function brainPin(prefId: string, pinned: boolean): Promise<{ ok?: boolean }> {
+  const r = await fetch('/api/brain/pin', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prefId, pinned }) }); return r.json()
+}
 

@@ -4,7 +4,7 @@ import http from 'node:http'
 import type { Engine, JobSpec } from './engine'
 import type { Store } from './store'
 import type { Recall } from './recall'
-import { browseVault, readVaultFile, listPreferences, listInbox, readActive, buildGraph } from './brain'
+import { browseVault, readVaultFile, listPreferences, listInbox, readActive, buildGraph, setPinned } from './brain'
 import { dream } from './dream'
 import { recordEvidence } from './evidence'
 
@@ -87,6 +87,11 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
           const kind = b.kind === 'violated' ? 'violated' : 'applied'
           const ok = b.prefId ? recordEvidence(vaultDir, String(b.prefId), kind) : false
           return send(200, { configured: true, ok, summary: ok ? dream(vaultDir) : null })
+        }
+        if (req.method === 'POST' && url === '/brain/pin') {
+          const b = await readBody(req)
+          const ok = b.prefId ? setPinned(vaultDir, String(b.prefId), b.pinned !== false) : false
+          return send(200, { configured: true, ok })
         }
         return send(404, { error: 'not found' })
       }
