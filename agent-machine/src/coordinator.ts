@@ -120,7 +120,7 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
         projects: store.listProjects(),
         channels: store.readChannel().slice(-200),
         pipelines: [...store.pipelines.values()],
-        personas: [...store.personas.values()].map((p) => ({ id: p.id, name: p.name, avatar: p.avatar, model: p.model })),
+        personas: [...store.personas.values()].map((p) => ({ id: p.id, name: p.name, avatar: p.avatar, model: p.model, realm: p.realm, kind: p.kind, laneModel: p.laneModel, tags: p.tags })),
         limits: engine.limits(),
       })
       if (req.method === 'GET' && url === '/health') return send(200, { ok: true, pending: store.listCards().filter((c) => c.status === 'queued' || c.status === 'working').length })

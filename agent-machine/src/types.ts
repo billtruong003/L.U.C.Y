@@ -27,10 +27,15 @@ export type Persona = {
   name: string
   avatar?: string // link/upload — gắn được từ prompt cho Lucy hoặc tay
   systemPrompt: string
-  model: 'sonnet' | 'opus'
+  model: 'sonnet' | 'opus' // tier Claude khi chạy qua claude -p (runner THẬT). KHÔNG đổi union — runner dùng trực tiếp làm --model.
   allowedTools?: string[] // least-privilege (FS defense)
   timeoutSec?: number
   maxTurns?: number // số turn claude -p được phép (cho agent tự iterate sâu)
+  // ── Phân vai + theming (data, không đụng engine) ──
+  realm?: string // anime/manga gốc của tên (flavor, hiện ở hub) — vd "Kimetsu no Yaiba"
+  kind?: 'orchestrator' | 'specialist' | 'executor' // orchestrator/critic = Claude điều phối; executor = ứng viên lane rẻ
+  laneModel?: string // key MODEL_CATALOG (llm-lane) ưu tiên khi chạy lane rẻ — SẴN cho Phase 1.5 wire executor (runner hiện chưa đọc)
+  tags?: string[] // nhãn skill (đã dùng trong JSON, giờ first-class)
 }
 
 export type CardStatus = 'backlog' | 'queued' | 'working' | 'waiting_human' | 'blocked' | 'done' | 'failed'
