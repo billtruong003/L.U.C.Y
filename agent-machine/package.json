@@ -11,6 +11,7 @@
     "smoke:conc": "tsx src/smoke-conc.ts",
     "smoke:recover": "tsx src/smoke-recover.ts",
     "smoke:mgmt": "tsx src/smoke-mgmt.ts",
+    "smoke:memory": "tsx src/smoke-memory.ts",
     "test:blog": "tsx src/test-blog.ts",
     "coordinator": "tsx src/coordinator-main.ts",
     "worker": "tsx src/worker-main.ts",
@@ -18,6 +19,7 @@
     "reindex": "tsx src/recall-cli.ts reindex",
     "recall": "tsx src/recall-cli.ts",
     "dream": "tsx src/dream-cli.ts",
+    "bootstrap": "tsx src/bootstrap-cli.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

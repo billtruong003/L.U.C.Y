@@ -124,7 +124,8 @@ export async function readFile(p: string): Promise<{ binary?: boolean; tooBig?: 
 export type BrainEntry = { path: string; title: string; type: string; status?: string }
 export type BrainPref = { id: string; topic: string; principle: string; sign: string; status: string; confidence: number; band: string; scope?: string; pinned: boolean; path: string }
 export type BrainSig = { id: string; topic: string; signal: string; principle: string; agent: string; created_at: string; path: string }
-export type BrainHit = { file_path: string; title: string; type: string; permalink: string; tags: string; mtime: number; snippet: string; rank: number; relaxed: boolean }
+export type BrainHit = { file_path: string; title: string; type: string; permalink: string; tags: string; mtime: number; snippet: string; rank: number; relaxed: boolean; tri?: boolean }
+export type BrainRelated = { file_path: string; title: string; permalink: string; via: string }
 export type BrainState = {
   configured: boolean; offline?: boolean
   tree?: { dir: string; files: BrainEntry[] }[]
@@ -139,7 +140,7 @@ export type BrainGraph = { configured: boolean; offline?: boolean; nodes?: Graph
 export async function brainGraph(bornMs = 0): Promise<BrainGraph> { const r = await fetch('/api/brain/graph?bornMs=' + bornMs); return r.json() }
 
 export async function brainState(): Promise<BrainState> { const r = await fetch('/api/brain/state'); return r.json() }
-export async function brainRecall(q: string): Promise<{ configured: boolean; hits?: BrainHit[] }> {
+export async function brainRecall(q: string): Promise<{ configured: boolean; hits?: BrainHit[]; related?: BrainRelated[] }> {
   const r = await fetch('/api/brain/recall?q=' + encodeURIComponent(q)); return r.json()
 }
 export async function brainFile(path: string): Promise<{ configured?: boolean; path?: string; content?: string }> {

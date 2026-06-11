@@ -223,6 +223,10 @@ export default function Galaxy({ visible }: { visible: boolean }) {
     const ids = new Set<string>()
     for (const h of hits) for (const [id, p] of r.planets) if (p.n.path === h.file_path) ids.add(id)
     for (const id of ids) { const p = r.planets.get(id); if (p) p.pulseUntil = now + 2600 }
+    // A7 graph-walk: note nối hit (1 bước wikilink) → pulse NGẮN hơn (lan truyền mờ dần như xung neuron)
+    for (const rel of d.related || []) for (const [id, p] of r.planets) {
+      if (p.n.path === rel.file_path && !ids.has(id)) p.pulseUntil = Math.max(p.pulseUntil, now + 1300)
+    }
     setFound(ids.size)
     // ngắm camera tới hành tinh đầu
     const first = [...ids][0]; const fp = first && r.pos.get(first)

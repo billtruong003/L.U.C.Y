@@ -76,7 +76,9 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
           freshIndex()
           const q = qs.get('q') || ''
           const after = qs.get('after') ? Number(qs.get('after')) : undefined
-          return send(200, { configured: true, hits: q ? recall.search(q, { type: qs.get('type') || undefined, after, limit: Number(qs.get('limit')) || 10 }) : [] })
+          const hits = q ? recall.search(q, { type: qs.get('type') || undefined, after, limit: Number(qs.get('limit')) || 10 }) : []
+          // A7 graph-walk: kéo theo note nối hit 1 bước wikilink (2 chiều)
+          return send(200, { configured: true, hits, related: hits.length ? recall.related(hits.map((h) => h.file_path)) : [] })
         }
         if (req.method === 'GET' && url === '/brain/recent') {
           freshIndex()

@@ -2,6 +2,7 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { resolveClaude } from './claude-bin'
 import type { Card, Stage, Persona, RunResult, Outcome, Cost } from './types'
 
 export interface Runner {
@@ -109,13 +110,12 @@ export class ClaudeRunner implements Runner {
 
   private spawn(args: string[], ws: string, timeoutSec: number, stdin: string): Promise<{ out: string; code: number | null }> {
     return new Promise((resolve) => {
-      // Windows: claude cài qua npm = shim .ps1/.cmd → spawn không-shell ENOENT (worker local từng chết im).
-      // → shell:true + quote TỪNG arg (path Windows không chứa " hợp lệ; prompt đã đi stdin nên không cần escape).
-      const useShell = process.platform === 'win32' && !/\.(exe|js)$/i.test(this.bin)
+      // Windows: resolve claude.exe THẬT (né shim .cmd ENOENT + cmd-quoting-hell lồng shell — chết im tuỳ shell cha).
+      const r = resolveClaude(this.bin)
       const opts = { cwd: ws, env: { ...process.env, IS_SANDBOX: '1' }, stdio: ['pipe', 'pipe', 'pipe'] as ['pipe', 'pipe', 'pipe'] }
-      const ch = useShell
-        ? spawn([this.bin, ...args].map((a) => `"${a}"`).join(' '), { ...opts, shell: true })
-        : spawn(this.bin, args, opts)
+      const ch = r.shell
+        ? spawn([r.bin, ...args].map((a) => `"${a}"`).join(' '), { ...opts, shell: true })
+        : spawn(r.bin, args, opts)
       let out = ''
       const timer = setTimeout(() => ch.kill(), timeoutSec * 1000) // kill runaway (600 cũ → 10 phút). Persona tự khai.
       ch.stdout.on('data', (d) => (out += d))

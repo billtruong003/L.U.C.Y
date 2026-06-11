@@ -12,6 +12,7 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import { writeSignal } from './signal'
+import { resolveClaude } from './claude-bin'
 import type { Card } from './types'
 
 export type DistilledSignal = { topic: string; signal: 'positive' | 'negative'; principle: string; scope?: string }
@@ -87,14 +88,13 @@ export function parseDistillOutput(raw: string, projectId: string): DistilledSig
 
 function spawnClaude(prompt: string, model: string, bin: string): Promise<string> {
   return new Promise((resolve) => {
-    // Windows: claude cài qua npm = shim .ps1/.cmd → spawn không-shell ENOENT. Prompt đi qua STDIN
-    // (không phải arg) nên shell:true an toàn: args còn lại toàn token tĩnh + model đã sanitize.
+    // Windows: resolve claude.exe THẬT (né shim .cmd + cmd-quoting-hell). Prompt qua STDIN.
     const safeModel = /^[A-Za-z0-9._-]+$/.test(model) ? model : 'haiku'
-    const useShell = process.platform === 'win32' && !/\.(exe|js)$/i.test(bin)
+    const r = resolveClaude(bin)
     const args = ['-p', '--output-format', 'json', '--model', safeModel, '--max-turns', '1']
     const opts = { stdio: ['pipe', 'pipe', 'ignore'] as ['pipe', 'pipe', 'ignore'], env: { ...process.env, IS_SANDBOX: '1' } }
-    // shell-path: ghép command string TĨNH (mọi mảnh đã sanitize, prompt đi stdin) → không dính DEP0190/escaping.
-    const ch = useShell ? spawn(`"${bin}" ${args.join(' ')}`, { ...opts, shell: true }) : spawn(bin, args, opts)
+    // fallback shell (hiếm): command string TĨNH (đã sanitize, prompt đi stdin) → không escaping bẩn.
+    const ch = r.shell ? spawn(`"${r.bin}" ${args.join(' ')}`, { ...opts, shell: true }) : spawn(r.bin, args, opts)
     let out = ''
     const timer = setTimeout(() => ch.kill(), DISTILL_TIMEOUT_SEC * 1000)
     ch.stdout.on('data', (d) => (out += d))
@@ -105,14 +105,26 @@ function spawnClaude(prompt: string, model: string, bin: string): Promise<string
   })
 }
 
-// distill 1 card → ghi signal files. Trả danh sách signal đã ghi (cho log/test). Throw KHÔNG bao giờ.
-export async function distillCard(vaultDir: string, card: Card, opts: { model?: string; bin?: string } = {}): Promise<DistilledSignal[]> {
+// chạy 1 prompt distill qua claude (model rẻ) → mảng signal đã validate. Throw KHÔNG bao giờ.
+// Tái dùng bởi distillCard (sau mỗi card) + bootstrap-cli (ký ức claude-memory → signal).
+export async function runDistillPrompt(prompt: string, projectId: string, opts: { model?: string; bin?: string } = {}): Promise<DistilledSignal[]> {
   try {
     const model = opts.model || process.env.LUCY_DISTILL_MODEL || 'haiku'
     const bin = opts.bin || process.env.CLAUDE_BIN || 'claude'
-    const raw = await spawnClaude(buildPrompt(card), model, bin)
+    let raw = await spawnClaude(prompt, model, bin)
+    if (!raw.trim()) { // claude chết thoáng qua (spawn/API hiccup) → thử lại ĐÚNG 1 lần rồi thôi
+      await new Promise((r) => setTimeout(r, 2000))
+      raw = await spawnClaude(prompt, model, bin)
+    }
     if (!raw.trim()) return []
-    const sigs = parseDistillOutput(raw, card.projectId)
+    return parseDistillOutput(raw, projectId)
+  } catch { return [] }
+}
+
+// distill 1 card → ghi signal files. Trả danh sách signal đã ghi (cho log/test). Throw KHÔNG bao giờ.
+export async function distillCard(vaultDir: string, card: Card, opts: { model?: string; bin?: string } = {}): Promise<DistilledSignal[]> {
+  try {
+    const sigs = await runDistillPrompt(buildPrompt(card), card.projectId, opts)
     const written: DistilledSignal[] = []
     for (const s of sigs) {
       const f = writeSignal(vaultDir, { topic: s.topic, signal: s.signal, principle: s.principle, scope: s.scope, cardId: card.id, agent: 'distill', raw: `distill card "${card.title}" (${card.status})` })

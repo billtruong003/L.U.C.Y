@@ -207,21 +207,27 @@ export function dream(vaultDir: string, opts: { now?: Date } = {}): DreamSummary
     const g = groups.get(s.topic) || []
     g.push(s); groups.set(s.topic, g)
   }
+  // TRUST-WEIGHT: feedback Bill / bootstrap (rút từ ký ức đã xác lập) = nguồn tin cậy cao → đếm ×2
+  // (1 signal đủ ngưỡng graduate luôn). Signal máy (engine/distill/lucy) = ×1, cần lặp lại như cũ.
+  const W = (s: Signal) => (s.agent === 'bill' || s.agent === 'bootstrap') ? 2 : 1
   for (const [topic, sigs] of groups) {
     const pos = sigs.filter((s) => s.signal === 'positive')
     const neg = sigs.filter((s) => s.signal === 'negative')
-    const domSign: Sign = pos.length >= neg.length ? 'positive' : 'negative'
+    const posW = pos.reduce((a, s) => a + W(s), 0)
+    const negW = neg.reduce((a, s) => a + W(s), 0)
+    const domSign: Sign = posW >= negW ? 'positive' : 'negative'
     const dom = domSign === 'positive' ? pos : neg
     const min = domSign === 'positive' ? neg : pos
+    const domW = domSign === 'positive' ? posW : negW
     const existing = byTopic.get(topic)
 
     // cả 2 dấu mà bên trội CHƯA đủ ngưỡng → mâu thuẫn (open question), giữ nguyên signal trong inbox
-    if (min.length > 0 && dom.length < cfg.candidate_threshold) {
+    if (min.length > 0 && domW < cfg.candidate_threshold) {
       summary.contradictions.push(topic)
-      logLines.push(`contradiction topic="${topic}" pos=${pos.length} neg=${neg.length} (chờ thêm tín hiệu)`)
+      logLines.push(`contradiction topic="${topic}" pos=${posW} neg=${negW} (chờ thêm tín hiệu)`)
       continue
     }
-    if (dom.length < cfg.candidate_threshold) continue // chưa đủ ngưỡng, không mâu thuẫn → chờ
+    if (domW < cfg.candidate_threshold) continue // chưa đủ ngưỡng, không mâu thuẫn → chờ
 
     // đủ ngưỡng: minority bị "huỷ" (out-voted) → đưa processed
     for (const s of min) { toProcess.push(s.file); logLines.push(`cancel-minority sig=${s.id} topic="${topic}"`) }
@@ -231,7 +237,7 @@ export function dream(vaultDir: string, opts: { now?: Date } = {}): DreamSummary
       for (const s of dom) { toProcess.push(s.file); pushEv(existing.id, 'applied') }
       summary.redundant += dom.length
       logLines.push(`redundant topic="${topic}" +${dom.length} → applied×${dom.length} (pref ${existing.id})`)
-    } else if (existing && existing.sign !== domSign && dom.length >= cfg.candidate_threshold) {
+    } else if (existing && existing.sign !== domSign && domW >= cfg.candidate_threshold) {
       // 4) rebuttal: tín hiệu ngược đủ ngưỡng = evidence 'violated' (A1) → retire pref (trừ pinned)
       for (const s of dom) { toProcess.push(s.file); pushEv(existing.id, 'violated') }
       if (existing.pinned) { logLines.push(`rebuttal-blocked topic="${topic}" (pref ${existing.id} pinned)`) }
@@ -241,11 +247,12 @@ export function dream(vaultDir: string, opts: { now?: Date } = {}): DreamSummary
         logLines.push(`rebutted pref=${existing.id} topic="${topic}" by ${dom.length} signal ngược dấu`)
       }
     } else {
-      // tạo preference UNCONFIRMED mới
+      // tạo preference UNCONFIRMED mới. principle: ưu tiên câu chữ từ nguồn trust cao (bill/bootstrap).
+      const lead = dom.find((s) => W(s) === 2) || dom[0]
       const id = `pref-${slug(topic) || 'x'}`
       const pref: Preference = {
         file: path.join(vaultDir, 'Brain', 'preferences', id + '.md'),
-        id, topic, sign: domSign, principle: dom[0].principle, scope: dom[0].scope,
+        id, topic, sign: domSign, principle: lead.principle, scope: lead.scope,
         status: 'unconfirmed', confidence: 0, band: 'low', applied: 0, violated: 0,
         evidenced_by: [...new Set(dom.map((s) => s.id))], created_at: now.toISOString(),
         updated_at: now.toISOString(), last_evidence_at: null, pinned: false,

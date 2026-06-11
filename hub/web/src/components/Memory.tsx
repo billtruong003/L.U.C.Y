@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import {
   Brain, Search, RefreshCw, Moon, ThumbsUp, ThumbsDown, Pin, Inbox, FolderTree,
-  CircleCheck, CircleDashed, FileText, FolderGit2, Puzzle, NotebookPen, Sparkles,
+  CircleCheck, CircleDashed, FileText, FolderGit2, Puzzle, NotebookPen, Sparkles, GitBranch,
 } from 'lucide-react'
 import Markdown from './Markdown'
 import Galaxy from './Galaxy'
-import { brainState, brainRecall, brainFile, brainReindex, brainDream, brainEvidence, brainPin, type BrainState, type BrainHit, type BrainPref } from '../api'
+import { brainState, brainRecall, brainFile, brainReindex, brainDream, brainEvidence, brainPin, type BrainState, type BrainHit, type BrainPref, type BrainRelated } from '../api'
 import { showToast } from '../toast'
 
 // Tab "Bộ não" (M1 + B) — trí nhớ bền của Lucy: tinh hà sống (hero) · recall (FTS5) · preference đã học (confidence)
@@ -27,6 +27,7 @@ export default function Memory({ visible }: { visible: boolean }) {
   const [st, setSt] = useState<BrainState | null>(null)
   const [q, setQ] = useState('')
   const [hits, setHits] = useState<BrainHit[] | null>(null)
+  const [related, setRelated] = useState<BrainRelated[]>([])
   const [sel, setSel] = useState<string | null>(null)
   const [doc, setDoc] = useState('')
   const [busy, setBusy] = useState(false)
@@ -38,8 +39,8 @@ export default function Memory({ visible }: { visible: boolean }) {
   const backToGalaxy = () => { setSel(null); setHits(null); setQ('') }
   const search = () => {
     const term = q.trim()
-    if (!term) { setHits(null); return }
-    setSel(null); brainRecall(term).then((d) => setHits(d.hits || []))
+    if (!term) { setHits(null); setRelated([]); return }
+    setSel(null); brainRecall(term).then((d) => { setHits(d.hits || []); setRelated(d.related || []) })
   }
   const reindex = async () => {
     setBusy(true)
@@ -160,7 +161,7 @@ export default function Memory({ visible }: { visible: boolean }) {
               <div className="max-w-3xl mx-auto">
                 <div className="flex items-center gap-2 mb-3">
                   <button className="btn !py-1 !px-2 !text-[11px] gap-1" onClick={backToGalaxy}><Sparkles size={12} /> Tinh hà</button>
-                  <span className="text-[12px] text-inkfaint">{hits.length} kết quả cho “{q}”{hits[0]?.relaxed && <span className="text-cyan"> · relaxed-OR</span>}</span>
+                  <span className="text-[12px] text-inkfaint">{hits.length} kết quả cho “{q}”{hits[0]?.tri ? <span className="text-cyan"> · substring</span> : hits[0]?.relaxed ? <span className="text-cyan"> · relaxed-OR</span> : null}</span>
                 </div>
                 {hits.length === 0 && <Empty text="Không tìm thấy — thử từ khoá khác / Reindex" />}
                 {hits.map((h) => (
@@ -173,6 +174,18 @@ export default function Memory({ visible }: { visible: boolean }) {
                     <div className="text-[12px] text-inkdim leading-relaxed"><Snippet text={h.snippet} /></div>
                   </button>
                 ))}
+                {/* A7 graph-walk: note nối các hit qua wikilink (1 bước, 2 chiều) */}
+                {related.length > 0 && (
+                  <div className="mt-4">
+                    <div className="text-[11px] text-inkfaint mb-2 flex items-center gap-1.5"><GitBranch size={12} /> Kéo theo (nối wikilink)</div>
+                    {related.map((r) => (
+                      <button key={r.file_path} onClick={() => openFile(r.file_path)} className="card w-full text-left px-3 py-2 mb-1.5 hover:border-cyan/40 transition-colors flex items-center gap-2">
+                        <span className="text-[12px] text-ink truncate flex-1">{r.title}</span>
+                        <span className="text-[10px] text-inkfaint shrink-0">{r.via}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

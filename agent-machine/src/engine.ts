@@ -7,6 +7,7 @@ import { makeWorkspace } from './workspace'
 import { post, threadOf } from './channels'
 import { writeSignalSafe } from './signal'
 import { distillCardSafe } from './distill'
+import { writeSessionNoteSafe } from './session-note'
 import { slug } from './vault'
 import type { Runner } from './runner'
 import type { Card, Stage, Persona, Project, Pipeline, RunResult } from './types'
@@ -441,8 +442,10 @@ export class Engine {
   }
 
   // A2 auto-memory nền: distill bài học từ card vừa kết thúc → Brain/inbox (dream gộp sau).
+  // A3 session-lineage: ghi note tóm tắt phiên vào Daily/ (template + temporal anchor — chống giải lại việc cũ).
   // Fire-and-forget: lỗi/không có claude/không có vault = im lặng — KHÔNG đụng vòng đời card.
   private distill(c: Card) {
+    writeSessionNoteSafe(c) // deterministic, sync, rẻ
     distillCardSafe(c)
       .then((sigs) => { if (sigs.length) post(this.store, threadOf(c.id), 'engine', 'system', `🧠 học nền: ${sigs.length} signal (${sigs.map((s) => s.topic.split('/')[1]).join(', ')})`, c.id) })
       .catch(() => { /* nuốt — học hỏng không được làm gãy gì */ })
