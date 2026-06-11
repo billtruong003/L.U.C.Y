@@ -13,7 +13,7 @@ import Markdown from './Markdown'
 
 const ZONE_LABEL: Record<string, string> = {
   context: 'Bối cảnh', projects: 'Dự án', learned: 'Đã học', entities: 'Thực thể',
-  skills: 'Kỹ năng', timeline: 'Nhật ký', decisions: 'Quyết định', ghost: 'Chưa viết',
+  skills: 'Kỹ năng', timeline: 'Nhật ký', decisions: 'Quyết định', memory: 'Ký ức', ghost: 'Chưa viết',
 }
 
 type Hover = { label: string; zone: string; kind: string; obs: number; extra?: string } | null

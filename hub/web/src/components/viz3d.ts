@@ -78,7 +78,7 @@ void main(){
 // màu theo zone (chòm sao) — gold = lõi/người, cyan = dự án, lục = đã học, tím = entity…
 export const ZONE_COLOR: Record<string, string> = {
   context: '#ffd27f', projects: '#3fd3ff', learned: '#5fe39a', entities: '#b48bff',
-  skills: '#ffae6b', timeline: '#7fb0d0', decisions: '#ff8bd0', ghost: '#46566a',
+  skills: '#ffae6b', timeline: '#7fb0d0', decisions: '#ff8bd0', memory: '#5fd9c9', ghost: '#46566a',
 }
 export const zoneCol = (z: string) => new THREE.Color(ZONE_COLOR[z] || '#7fb0d0')
 

@@ -137,8 +137,9 @@ const GRAPH_DIRS: { dir: string; zone: string }[] = [
   { dir: 'Context', zone: 'context' }, { dir: 'Projects', zone: 'projects' }, { dir: 'Skills', zone: 'skills' },
   { dir: 'Daily', zone: 'timeline' }, { dir: 'Brain/entities', zone: 'entities' },
   { dir: 'Brain/decisions', zone: 'decisions' }, { dir: 'Brain/preferences', zone: 'learned' },
+  { dir: 'Brain/claude-memory', zone: 'memory' }, // auto-memory harness (redirect vào vault) — ký ức đã chốt
 ]
-const MASS_BASE: Record<string, number> = { person: 26, identity: 18, project: 16, note: 13, skill: 12, entity: 12, decision: 10, preference: 8, daily: 6, ghost: 4 }
+const MASS_BASE: Record<string, number> = { person: 26, identity: 18, project: 16, note: 13, skill: 12, entity: 12, decision: 10, memory: 9, preference: 8, daily: 6, ghost: 4 }
 const DAY = 86400e3
 
 export function buildGraph(vaultDir: string, opts: { bornWithinMs?: number; now?: number } = {}): BrainGraph {
@@ -153,6 +154,7 @@ export function buildGraph(vaultDir: string, opts: { bornWithinMs?: number; now?
 
   for (const { dir, zone } of GRAPH_DIRS) {
     for (const rel of listMd(vaultDir, dir)) {
+      if (zone === 'memory' && /\/MEMORY\.md$/i.test(rel)) continue // file index của auto-memory — không phải ký ức
       let raw: string, mtime: number
       try { raw = fs.readFileSync(path.join(vaultDir, rel), 'utf8'); mtime = fs.statSync(path.join(vaultDir, rel)).mtimeMs } catch { continue }
       const n = parseNote(raw, rel)
@@ -189,6 +191,7 @@ export function buildGraph(vaultDir: string, opts: { bornWithinMs?: number; now?
 }
 
 function nodeKind(zone: string, type: string, permalink: string, tags: string[]): string {
+  if (zone === 'memory') return 'memory'
   if (zone === 'learned') return 'preference'
   if (zone === 'entities') return 'entity'
   if (zone === 'decisions') return 'decision'
