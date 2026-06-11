@@ -39,3 +39,6 @@ voice/samples/
 .DS_Store
 Thumbs.db
 .persona.md
+lucy.config.cjs
+ecosystem.local.cjs
+open-hub-lan.bat

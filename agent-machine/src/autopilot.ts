@@ -67,6 +67,27 @@ Trả về DUY NHẤT 1 dòng JSON: {"action":"approve"|"return","reason":"<ng�
   return { action: 'return', reason: 'Lucy-director không đọc được kết quả rõ ràng → trả lại cho chắc (an toàn).' }
 }
 
+// Card kẹt ở waitKind 'decision' (agent hỏi / không trả outcome đúng) → Lucy trả lời/nhích thay Bill.
+// Trả 'ESCALATE' nếu chỉ Bill mới quyết được (thiếu info) → để người.
+export async function directorAnswer(card: Card, stageName: string): Promise<string> {
+  const q = card.pendingQuestion || 'Agent chưa kết luận rõ ở bước này.'
+  const reports = (card.reports || []).slice(-3).map((r) => `### ${r.persona} @ ${r.stage}\n${r.text.slice(0, 1200)}`).join('\n\n')
+  const prompt = `Bạn là Lucy — đang TRỰC ĐÊM thay Bill. Một agent đang KẸT ở bước "${stageName}", cần quyết/định hướng để tiếp.
+
+TASK: ${card.title}
+YÊU CẦU (done là gì): ${card.brief}
+TÌNH HUỐNG / CÂU HỎI: ${q}
+BÁO CÁO gần đây:
+${reports || '(chưa có)'}
+
+Đưa CÂU TRẢ LỜI/CHỈ DẪN ngắn gọn, cụ thể để agent làm tiếp ĐÚNG hướng — vd: chọn phương án hợp lý nhất, làm rõ phạm vi,
+hoặc nhắc "hoàn thành phần việc bước này rồi kết thúc bằng ĐÚNG khối JSON outcome theo contract". Nếu việc này THỰC SỰ
+cần Bill (đụng quyết định lớn / thiếu thông tin chỉ Bill biết) → trả về đúng chữ "ESCALATE".
+Trả về DUY NHẤT 1 dòng (câu trả lời, hoặc ESCALATE).`
+  const raw = await claudeOneShot(prompt)
+  return (raw || '').replace(/```/g, '').trim().slice(0, 800)
+}
+
 export interface SprintCard { title: string; brief: string; pipelineId: string }
 
 export async function generateSprint(opts: { projectName: string; projectId: string; goal: string; pipelines: string[]; existingTitles: string[] }): Promise<SprintCard[]> {
