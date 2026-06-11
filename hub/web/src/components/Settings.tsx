@@ -7,8 +7,15 @@ export default function Settings() {
   const [code, setCode] = useState('')
   const [msg, setMsg] = useState('')
 
+  type LlmModel = { key: string; label: string; provider: string; model: string; role: string; free: boolean; note?: string }
+  type LlmData = { providers: { provider: string; label: string; hasKey: boolean }[]; catalog: LlmModel[] }
+  const [llm, setLlm] = useState<LlmData | null>(null)
+  const [execModel, setExecModel] = useState<string>(() => localStorage.getItem('lucy.executorModel') || 'executor')
+  const pickModel = (k: string) => { setExecModel(k); localStorage.setItem('lucy.executorModel', k) }
+
   const load = () => fetch('/api/2fa/status').then((r) => r.json()).then((d) => setEnabled(!!d.enabled)).catch(() => setEnabled(false))
   useEffect(() => { load() }, [])
+  useEffect(() => { fetch('/api/llm/models').then((r) => r.json()).then((d: LlmData) => { if (d && d.catalog) setLlm(d) }).catch(() => {}) }, [])
 
   async function setup() {
     setMsg(''); const r = await fetch('/api/2fa/setup', { method: 'POST' }); const d = await r.json()
@@ -60,6 +67,42 @@ export default function Settings() {
             </div>
           )}
           {msg && <div className="text-[12px] mt-3 text-cyan">{msg}</div>}
+        </div>
+
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-lg">🔌</span>
+            <h3 className="display text-sm tracking-wide">LÁT API — lane model-rẻ</h3>
+            <span className="chip ml-auto text-inkfaint">{llm ? `${llm.providers.filter((p) => p.hasKey).length}/${llm.providers.length} nguồn` : '…'}</span>
+          </div>
+          <p className="text-[12px] text-inkdim mb-4">Executor chạy model rẻ (DeepSeek V4…) thay vì đốt Claude. Key quản ở <span className="mono">.env.llm</span> (không lộ ra đây). <span className="text-pink/80">claude -p (não) vẫn đi thẳng Anthropic.</span></p>
+
+          {!llm && <div className="text-[12px] text-inkfaint">Đang tải… (cần coordinator + AM_COORD_URL)</div>}
+          {llm && (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap gap-1.5">
+                {llm.providers.map((p) => (
+                  <span key={p.provider} className={'chip ' + (p.hasKey ? 'text-grn border-grn/40' : 'text-inkfaint border-line')}>
+                    {p.hasKey ? '●' : '○'} {p.label}
+                  </span>
+                ))}
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[12px] text-inkdim">Model executor (card nặng / bulk):</label>
+                <select className="input" value={execModel} onChange={(e) => pickModel(e.target.value)}>
+                  <option value="executor">⚡ Auto (executor role + fallback)</option>
+                  {(['executor', 'reasoning', 'fast', 'content'] as const).map((role) => (
+                    <optgroup key={role} label={role}>
+                      {llm.catalog.filter((m) => m.role === role).map((m) => (
+                        <option key={m.key} value={m.key}>{m.label} {m.free ? '· free' : '· paid'} ({m.provider})</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <div className="text-[11px] text-inkfaint mono">đang chọn: {execModel}</div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

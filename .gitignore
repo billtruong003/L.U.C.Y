@@ -32,6 +32,9 @@ voice/samples/
 *.wav
 *.mp3
 
+# claude code local settings (per-subproject)
+**/.claude/
+
 # os / editor
 .DS_Store
 Thumbs.db

@@ -16,6 +16,16 @@ permalink: user-bill
 - [nguyên-tắc] claude -p (não) đi THẲNG Anthropic (giữ subscription, đủ tính năng) — KHÔNG route qua proxy/OmniRoute #token
 - [hạ-tầng] VPS Vietnix 2GB (always-on coordinator) + máy local mạnh (heavy worker on-demand) #hạ-tầng
 - [quyết-định] 2026-06-10: GÁC business/portal/content, tập trung xây hạ tầng Lucy theo memory-first #hướng-đi (xem docs/NORTH_STAR.md)
+- [nghề] Bill = Game Developer + Senior Technical Artist (Unity/VR/HLSL shader), hiện @ Curly Blue (Shmackle VR), gốc HCMC giờ ở LA — KHÔNG phải backend/web dev thuần #nghề
+- [nghề] Lộ trình: FPT IS akaVerse → Gameloft VN (làm Applaydu, 50M+ tải) → Golden Sea Studio. GameVerse 2024 Finalist #nghề
+- [nghề] Từng là technical presenter demo pipeline real-time Unity↔NVIDIA Omniverse digital twin cho CEO NVIDIA Jensen Huang (thời akaVerse) #nghề
+- [kỹ-thuật] Mê AI tooling/infra — repo GitHub nhiều sao nhất là KeyStream-Gemini (proxy xoay API key Gemini), khớp với việc tự dựng Lucy #ai
+- [danh-tính] Tên thật Trương Ngọc Châu; online: billthedev.com (resume), github billtruong003, blog billthedevlab.tech, YouTube @BillTheDev #link (full ở [[owner-bill-truong-profile]] + bản đồ nền tảng [[bill-identities-platforms]])
+- [học-vấn] FPT University — Software Engineering 2022–2025, Talent Scholarship 30% (top 30%/10k); cấp 3 EMASI Van Phuc GPA 9.2/10 #học-vấn
+- [tính-cách] Mê gamification/RPG aesthetic (Solo Leveling) — profile GitHub "gamified", tool git-profile-awaken; thích TỰ build tool thay vì dùng sẵn #gu
+- [nghề] Đang mở rộng Unity/VR → AI: 3 kênh YouTube @BillTheDev (Unity/shader), @BillVRGamer (VR review), @BillAITrainer (AI experiments) #ai
+- [nghề] Có máu DẠY & chia sẻ: FullHouseDev instructor, >2.500 giờ dạy, mentor học sinh thi đấu; blog + open source #dạy
+- [lưu-ý] Demo cho CEO NVIDIA Jensen Huang là claim self-reported trong CV, CHƯA có nguồn báo chí độc lập — nhắc thì giữ mức "anh kể" #độ-tin
 
 ## Liên hệ
 - chủ_của [[project-lucy]]

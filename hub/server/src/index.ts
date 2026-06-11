@@ -495,7 +495,7 @@ for (const [route, fwd] of [['/api/am/config', '/config'], ['/api/am/card', '/ca
 
 // ---- BỘ NÃO (M1: recall + vault + dream) proxy → coordinator ----
 // GET có query (recall/file/recent) → forward nguyên query sang coordinator.
-for (const [route, fwd] of [['/api/brain/state', '/brain/state'], ['/api/brain/graph', '/brain/graph'], ['/api/brain/recall', '/recall'], ['/api/brain/recent', '/brain/recent'], ['/api/brain/file', '/brain/file']] as const) {
+for (const [route, fwd] of [['/api/brain/state', '/brain/state'], ['/api/brain/graph', '/brain/graph'], ['/api/brain/recall', '/recall'], ['/api/brain/recent', '/brain/recent'], ['/api/brain/file', '/brain/file'], ['/api/llm/models', '/llm/models']] as const) {
   app.get(route, async (req, res) => {
     if (!authed(req)) return res.status(401).json({ error: 'unauth' })
     if (!amOn()) return res.json({ configured: false })

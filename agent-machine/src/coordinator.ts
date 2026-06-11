@@ -7,6 +7,7 @@ import type { Recall } from './recall'
 import { browseVault, readVaultFile, listPreferences, listInbox, readActive, buildGraph, setPinned } from './brain'
 import { dream } from './dream'
 import { recordEvidence, hasManualEvidenceToday } from './evidence'
+import { MODEL_CATALOG, providerStatus } from './llm-lane'
 
 function serializeJob(j: JobSpec) {
   // worker không cần workspace của coordinator — nó tự tạo workspace local.
@@ -69,6 +70,8 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       if (req.method === 'POST' && url === '/approve') { const b = await readBody(req); engine.approve(b.cardId); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/reject') { const b = await readBody(req); engine.reject(b.cardId, b.feedback || ''); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/answer') { const b = await readBody(req); engine.answer(b.cardId, b.text || ''); return send(200, { ok: true }) }
+      // ── LÁT API (lane model-rẻ): catalog cho dropdown + trạng thái key (KHÔNG lộ key) ──
+      if (req.method === 'GET' && url === '/llm/models') return send(200, { catalog: MODEL_CATALOG, providers: providerStatus() })
       // ── BỘ NÃO (M1: recall + vault browse + dream). brainOn=false nếu chưa set LUCY_VAULT. ──
       if (url.startsWith('/recall') || url.startsWith('/brain')) {
         if (!brainOn || !recall || !vaultDir) return send(200, { configured: false })

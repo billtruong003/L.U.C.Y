@@ -2,7 +2,7 @@
   "name": "lucy-agent-machine",
   "private": true,
   "type": "module",
-  "description": "Lucy Agent Machine — Kanban autonomous multi-agent engine (walking skeleton)",
+  "description": "Lucy Agent Machine \u2014 Kanban autonomous multi-agent engine (walking skeleton)",
   "scripts": {
     "demo": "tsx src/demo.ts",
     "smoke": "tsx src/smoke.ts",
@@ -20,7 +20,8 @@
     "recall": "tsx src/recall-cli.ts",
     "dream": "tsx src/dream-cli.ts",
     "bootstrap": "tsx src/bootstrap-cli.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "llm": "tsx src/llm-cli.ts"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
