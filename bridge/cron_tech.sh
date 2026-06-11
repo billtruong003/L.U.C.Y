@@ -18,6 +18,12 @@ HTML_OUT="$WORKDIR/tech-$DATE_STR.html"
 RES="$(mktemp)"
 SUMM_FILE="$(mktemp)"
 
+# Chạy lại an toàn: '--if-missing' chỉ chạy khi digest hôm nay CHƯA hợp lệ (dùng cho cron retry)
+if [ "${1:-}" = "--if-missing" ] && [ -f "$MD_OUT" ] && grep -q 'TOP 3' "$MD_OUT" 2>/dev/null; then
+  echo "[skip] tech digest $DATE_STR đã hợp lệ, bỏ qua retry."
+  exit 0
+fi
+
 # 1. Claude research digest công nghệ phân tầng
 "${CLAUDE_BIN:-claude}" -p \
   "Hôm nay là $DATE_STR. Nhiệm vụ: tổng hợp DIỄN BIẾN CÔNG NGHỆ ĐÁNG CHÚ Ý NHẤT trong 24h qua. \
@@ -103,6 +109,9 @@ print(full[:3000])           # bản gọn cho Telegram
 
 SUMMARY="$(cat "$SUMM_FILE")"
 
+# Digest có HỢP LỆ không? (phải có 'TOP 3'). Nếu lỗi → KHÔNG post rác lên Discord.
+VALID=0; grep -q 'TOP 3' "$MD_OUT" 2>/dev/null && VALID=1
+
 # 3. Convert MD → HTML
 if [ -s "$MD_OUT" ]; then
   LUCY_WEB_ROOT="$WEB_ROOT" node "$(dirname "$0")/gen_brief.mjs" report \
@@ -120,7 +129,10 @@ fi
 # 5. Gửi Telegram
 API="https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN"
 
-if [ -n "$PUBLIC_URL" ]; then
+if [ "$VALID" != 1 ]; then
+  # Digest lỗi → chỉ báo riêng chủ nhân qua Telegram, KHÔNG post Discord
+  MSG="⚠️ *Tech Digest* — $DATE_STR: em chưa lấy được nội dung (claude lỗi tạm thời). Cron sẽ tự thử lại lúc 8:20, hoặc chủ nhân kêu em chạy lại."
+elif [ -n "$PUBLIC_URL" ]; then
   MSG="🔬 *Tech Digest* — $DATE_STR
 
 $SUMMARY
@@ -141,42 +153,48 @@ curl -s "$API/sendMessage" \
   --data-urlencode "text=$MSG" \
   >/dev/null || true
 
-# 6. Discord qua Aki — 1 tin gọn: TOP 3 + link report + link archive (gửi vào thread)
-TECH_CHANNEL="${LUCY_TECH_DISCORD_CHANNEL:-1514087167335596032}"
-if [ -n "$RADIANT_BOT_AGENT_SECRET" ] && [ -n "$TECH_CHANNEL" ]; then
+# 6. Discord qua Aki — 1 tin/ngày: template header + TOP 3 + link. Post CẢ channel LẪN thread.
+# CHỈ post khi digest hợp lệ (tránh đẩy rác/"lỗi" lên Discord)
+TECH_DISCORD_CHANNEL="${LUCY_TECH_DISCORD_CHANNEL:-1503999842836414496}"   # channel nổi
+TECH_DISCORD_THREAD="${LUCY_TECH_DISCORD_THREAD:-1514087167335596032}"     # thread archive
+if [ "$VALID" = 1 ] && [ -n "$RADIANT_BOT_AGENT_SECRET" ]; then
   DISCORD_MSG="$(mktemp)"
-  # Trích TOP 3 từ MD (từ dòng "🔥 TOP 3" đến trước section tiếp theo "🤖")
-  TOP3="$(python3 -c "
-import re, sys
-txt = open('$MD_OUT', encoding='utf-8').read() if '$MD_OUT' else ''
-m = re.search(r'🔥 TOP 3.*?(?=\n🤖|\n💻|\n🎮|\n🏢|\n📐|\n💥|\n💰|\n🗓️|\Z)', txt, re.S)
-print(m.group(0).strip()[:900] if m else '(chưa lấy được TOP 3)')
-" 2>/dev/null)"
-  {
-    echo "🔬 **Tech Digest — $DATE_STR**"
-    echo ""
-    echo "$TOP3"
-    echo ""
-    [ -n "$PUBLIC_URL" ] && echo "📄 Full report: $PUBLIC_URL"
-    echo "📚 Tất cả báo cáo: $PUBLIC_BASE/#tech"
-  } > "$DISCORD_MSG"
-  # Post thẳng vào channel (không tạo thread)
-  python3 -c "
-import json, hmac, hashlib, urllib.request, urllib.error, os, sys
-api   = os.environ.get('RADIANT_BOT_API_URL','http://127.0.0.1:3030').rstrip('/')
-sec   = os.environ.get('RADIANT_BOT_AGENT_SECRET','')
-ch    = sys.argv[1]
-text  = open(sys.argv[2], encoding='utf-8').read().strip()[:1900]
-raw   = json.dumps({'channel': ch, 'text': text}, ensure_ascii=False).encode('utf-8')
-sig   = 'sha256=' + hmac.new(sec.encode(), raw, hashlib.sha256).hexdigest()
-req   = urllib.request.Request(api+'/api/agent/post', data=raw, method='POST',
-          headers={'content-type':'application/json','x-lucy-signature':sig})
+  # Dựng tin: dòng template phân cách ngày + TOP 3 + link. Đếm "tin nóng" = số item trong digest.
+  MD_OUT="$MD_OUT" DATE_STR="$DATE_STR" PUBLIC_URL="$PUBLIC_URL" PUBLIC_BASE="$PUBLIC_BASE" python3 -c "
+import re, os
+md   = open(os.environ['MD_OUT'], encoding='utf-8').read()
+ds   = os.environ['DATE_STR']                       # YYYY-MM-DD
+y,m,d = ds.split('-'); date_disp = f'{d}/{m}/{y}'
+# đếm tin nóng: số dòng item (1. ... ) + (- ...) trong toàn digest
+n = len(re.findall(r'(?m)^\s*(?:\d+\.|[-•])\s+\S', md))
+# trích TOP 3
+mt = re.search(r'🔥 TOP 3.*?(?=\n🤖|\n💻|\n🎮|\n🏢|\n📐|\n💥|\n💰|\n🗓️|\Z)', md, re.S)
+top3 = mt.group(0).strip() if mt else '(chưa lấy được TOP 3)'
+if len(top3) > 1300: top3 = top3[:1300].rstrip() + ' …'
+lines = [f'📅 **{date_disp}** | 🔬 Tech Digest ({n} tin nóng)',
+         '━━━━━━━━━━━━━━━━━━━━', '', top3, '']
+if os.environ.get('PUBLIC_URL'): lines.append('📄 Full report: ' + os.environ['PUBLIC_URL'])
+lines.append('📚 Tất cả báo cáo: ' + os.environ['PUBLIC_BASE'] + '/#tech')
+open('$DISCORD_MSG','w', encoding='utf-8').write('\n'.join(lines))
+" 2>/dev/null
+  # Post tới CẢ channel lẫn thread
+  for TARGET in "$TECH_DISCORD_CHANNEL" "$TECH_DISCORD_THREAD"; do
+    [ -n "$TARGET" ] || continue
+    TARGET="$TARGET" MSG_FILE="$DISCORD_MSG" python3 -c "
+import json, hmac, hashlib, urllib.request, urllib.error, os
+api  = os.environ.get('RADIANT_BOT_API_URL','http://127.0.0.1:3030').rstrip('/')
+sec  = os.environ.get('RADIANT_BOT_AGENT_SECRET','')
+ch   = os.environ['TARGET']
+text = open(os.environ['MSG_FILE'], encoding='utf-8').read().strip()[:1900]
+raw  = json.dumps({'channel': ch, 'text': text}, ensure_ascii=False).encode('utf-8')
+sig  = 'sha256=' + hmac.new(sec.encode(), raw, hashlib.sha256).hexdigest()
+req  = urllib.request.Request(api+'/api/agent/post', data=raw, method='POST',
+         headers={'content-type':'application/json','x-lucy-signature':sig})
 try:
-  with urllib.request.urlopen(req, timeout=30) as r:
-    print(r.read().decode())
-except urllib.error.HTTPError as e:
-  print('ERR', e.code, e.read().decode(), file=sys.stderr)
-" "$TECH_CHANNEL" "$DISCORD_MSG" >> /root/lucy-workspace/tech-cron.log 2>&1 || true
+  with urllib.request.urlopen(req, timeout=30) as r: print('OK', ch, r.read().decode())
+except urllib.error.HTTPError as e: print('ERR', ch, e.code, e.read().decode())
+" >> /root/lucy-workspace/tech-cron.log 2>&1 || true
+  done
   rm -f "$DISCORD_MSG"
 fi
 
