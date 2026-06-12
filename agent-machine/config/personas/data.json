@@ -7,7 +7,7 @@
   "kind": "executor",
   "realm": "Steins;Gate",
   "laneModel": "ds-v4-flash-free",
-  "maxTurns": 12,
+  "maxTurns": 16,
   "timeoutSec": 360,
   "allowedTools": [
     "Read",

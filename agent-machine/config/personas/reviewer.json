@@ -6,8 +6,8 @@
   "model": "opus",
   "kind": "specialist",
   "realm": "Kimetsu no Yaiba",
-  "maxTurns": 7,
-  "timeoutSec": 220,
+  "maxTurns": 20,
+  "timeoutSec": 360,
   "allowedTools": [
     "Read",
     "Bash"

@@ -7,7 +7,7 @@
   "kind": "executor",
   "realm": "Kimetsu no Yaiba",
   "laneModel": "ds-v4-flash-free",
-  "maxTurns": 10,
+  "maxTurns": 16,
   "timeoutSec": 300,
   "allowedTools": [
     "Read",
