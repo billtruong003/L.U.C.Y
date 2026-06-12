@@ -7,8 +7,8 @@
   "kind": "executor",
   "realm": "Kimetsu no Yaiba",
   "laneModel": "devstral-med",
-  "maxTurns": 18,
-  "timeoutSec": 360,
+  "maxTurns": 28,
+  "timeoutSec": 480,
   "allowedTools": [
     "Read",
     "Edit",

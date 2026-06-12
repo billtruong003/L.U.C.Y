@@ -6,8 +6,8 @@
   "model": "sonnet",
   "kind": "specialist",
   "realm": "Kimetsu no Yaiba",
-  "maxTurns": 18,
-  "timeoutSec": 360,
+  "maxTurns": 28,
+  "timeoutSec": 480,
   "allowedTools": [
     "Read",
     "Write",

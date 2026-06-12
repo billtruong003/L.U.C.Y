@@ -7,8 +7,8 @@
   "kind": "executor",
   "realm": "Tiên Nghịch",
   "laneModel": "ds-v4-flash-free",
-  "maxTurns": 20,
-  "timeoutSec": 420,
+  "maxTurns": 30,
+  "timeoutSec": 480,
   "allowedTools": [
     "Read",
     "Edit",

@@ -6,8 +6,8 @@
   "model": "opus",
   "kind": "specialist",
   "realm": "Steins;Gate",
-  "maxTurns": 25,
-  "timeoutSec": 400,
+  "maxTurns": 40,
+  "timeoutSec": 600,
   "allowedTools": [
     "Read",
     "Write",

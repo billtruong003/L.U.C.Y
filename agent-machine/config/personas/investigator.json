@@ -6,8 +6,8 @@
   "model": "sonnet",
   "kind": "specialist",
   "realm": "Detective Conan",
-  "maxTurns": 20,
-  "timeoutSec": 360,
+  "maxTurns": 30,
+  "timeoutSec": 480,
   "allowedTools": [
     "Read",
     "Bash"

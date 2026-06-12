@@ -6,8 +6,8 @@
   "model": "opus",
   "kind": "orchestrator",
   "realm": "Steins;Gate",
-  "maxTurns": 16,
-  "timeoutSec": 300,
+  "maxTurns": 25,
+  "timeoutSec": 420,
   "allowedTools": [
     "Read",
     "Bash"
