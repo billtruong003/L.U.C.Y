@@ -6,6 +6,16 @@ set -e
 cd "$(dirname "$0")"
 set -a; [ -f .env ] && . ./.env; set +a
 
+# Guard: chờ claude rảnh (≤1 process) tối đa 10 phút, nếu vẫn bận thì bỏ qua
+_WAIT=0; _MAX=600
+while [ "$(pgrep -c claude 2>/dev/null || echo 0)" -gt 1 ] && [ $_WAIT -lt $_MAX ]; do
+  sleep 15; _WAIT=$((_WAIT+15))
+done
+if [ $_WAIT -ge $_MAX ]; then
+  echo "$(date '+%Y-%m-%d %H:%M') SKIP: claude busy sau ${_MAX}s — tech digest bỏ qua lần này"
+  exit 0
+fi
+
 WORKDIR="${LUCY_WORKDIR:-$HOME/lucy-workspace}"; mkdir -p "$WORKDIR"
 WEB_ROOT="/var/www/lucy-reports"
 ARCHIVE="$WEB_ROOT/archive"
@@ -153,10 +163,8 @@ curl -s "$API/sendMessage" \
   --data-urlencode "text=$MSG" \
   >/dev/null || true
 
-# 6. Discord qua Aki — 1 tin/ngày: template header + TOP 3 + link. Post CẢ channel LẪN thread.
-# CHỈ post khi digest hợp lệ (tránh đẩy rác/"lỗi" lên Discord)
-TECH_DISCORD_CHANNEL="${LUCY_TECH_DISCORD_CHANNEL:-1503999842836414496}"   # channel nổi
-TECH_DISCORD_THREAD="${LUCY_TECH_DISCORD_THREAD:-1514087167335596032}"     # thread archive
+# 6. Discord qua Aki — chỉ post vào THREAD (không post vào channel elder lounge)
+TECH_DISCORD_THREAD="${LUCY_TECH_DISCORD_THREAD:-1513957545419608174}"     # thread archive
 if [ "$VALID" = 1 ] && [ -n "$RADIANT_BOT_AGENT_SECRET" ]; then
   DISCORD_MSG="$(mktemp)"
   # Dựng tin: dòng template phân cách ngày + TOP 3 + link. Đếm "tin nóng" = số item trong digest.
@@ -177,8 +185,8 @@ if os.environ.get('PUBLIC_URL'): lines.append('📄 Full report: ' + os.environ[
 lines.append('📚 Tất cả báo cáo: ' + os.environ['PUBLIC_BASE'] + '/#tech')
 open('$DISCORD_MSG','w', encoding='utf-8').write('\n'.join(lines))
 " 2>/dev/null
-  # Post tới CẢ channel lẫn thread
-  for TARGET in "$TECH_DISCORD_CHANNEL" "$TECH_DISCORD_THREAD"; do
+  # Post chỉ vào thread (không post vào channel elder lounge)
+  for TARGET in "$TECH_DISCORD_THREAD"; do
     [ -n "$TARGET" ] || continue
     TARGET="$TARGET" MSG_FILE="$DISCORD_MSG" python3 -c "
 import json, hmac, hashlib, urllib.request, urllib.error, os

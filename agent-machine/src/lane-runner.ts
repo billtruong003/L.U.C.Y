@@ -82,7 +82,7 @@ export class LaneRunner implements Runner {
     const tools = ALL_TOOLS.filter((t) => allowed.has(TOOL_PERM[t.function.name]))
     const messages: RawMsg[] = [{ role: 'system', content: sys }, { role: 'user', content: user }]
     const cost: Cost = { usd: 0, inTok: 0, outTok: 0 } // model lane free → $0; vẫn đếm token
-    const maxTurns = persona.maxTurns ?? 16
+    const maxTurns = persona.maxTurns ?? 200
     let raw = ''
     for (let i = 0; i < maxTurns; i++) {
       let r

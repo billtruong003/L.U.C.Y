@@ -9,6 +9,16 @@ cd "$(dirname "$0")"
 set -a; [ -f .env ] && . ./.env; set +a
 export IS_SANDBOX=1
 
+# Guard: chờ claude rảnh (≤1 process) tối đa 10 phút, nếu vẫn bận thì bỏ qua (chống fail khi sprint chạy nặng)
+_WAIT=0; _MAX=600
+while [ "$(pgrep -c claude 2>/dev/null || echo 0)" -gt 1 ] && [ $_WAIT -lt $_MAX ]; do
+  sleep 15; _WAIT=$((_WAIT+15))
+done
+if [ $_WAIT -ge $_MAX ]; then
+  echo "$(date '+%Y-%m-%d %H:%M') SKIP: claude busy sau ${_MAX}s — brief bỏ qua lần này"
+  exit 0
+fi
+
 # --- Buổi (morning/afternoon) ---
 SESSION="${1:-morning}"
 case "$SESSION" in
@@ -126,11 +136,11 @@ $SUMMARY
 ⚠️ Tạo HTML thất bại — xem file: $MD_OUT"
 fi
 
-curl -s "$API/sendMessage" \
+TG_RES=$(curl -s "$API/sendMessage" \
   -d chat_id="$LUCY_ALLOWED_USER_ID" \
   -d parse_mode="Markdown" \
-  --data-urlencode "text=$MSG" \
-  >/dev/null || true
+  --data-urlencode "text=$MSG")
+echo "$TG_RES" | python3 -c "import sys,json; d=json.load(sys.stdin); print('TELEGRAM', 'OK' if d.get('ok') else 'FAIL: '+d.get('description','?'))" 2>/dev/null || echo "TELEGRAM CURL_FAIL"
 
 # 6. Post sang Discord qua Aki (radiant-bot) — summary + link cho anh em xem
 if [ -n "$RADIANT_BOT_AGENT_SECRET" ] && [ -n "$LUCY_BRIEF_DISCORD_CHANNEL" ]; then
