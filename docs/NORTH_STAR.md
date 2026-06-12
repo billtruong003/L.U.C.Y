@@ -41,7 +41,8 @@ gộp cái học vào não + tự viết skill "deploy radiant-bot".
 | # | Năng lực | Trạng thái | Màn UI (flow) |
 |---|---|---|---|
 | **M1 Trí nhớ** ⭐ móng | `lucy-vault/` (md, git) + `claude -p --add-dir` + FTS5/trigram recall + dream (Wilson) + evidence-loop + graph-walk + galaxy 3D + 1-não thống nhất | ✅ **XONG (full stack A1–A7 + M1.5 tinh hà + bootstrap + cron_dream)** | **"Bộ não"** + tab Neural 🌌 — live |
-| **Phase 1.5 — Đa-model + Dashboard** 💰 *(NGAY)* | lát API in-house (`llm-lane.ts`, 7 provider, smoke-tested) + executor đa-nguồn (DeepSeek V4 = executor, Claude = orchestrator/critic) + **web mở thẳng Dashboard đo metrics** (token/cost/model-usage theo ngày-tháng) | 🔧 **đang làm** — lát API ✅, dropdown ✅; còn: wire executor vào engine + pick-agent + dashboard metrics | **"Dashboard"** (landing) + **"Settings → lát API"** |
+| **Phase 1.5 — Đa-model + Dashboard** 💰 | lát API in-house (`llm-lane.ts`, 7 provider, smoke-tested) + executor đa-nguồn (DeepSeek V4 = executor, Claude = orchestrator/critic) + **web mở thẳng Dashboard đo metrics** (token/cost/model-usage theo ngày-tháng) | ✅ **gần xong** — lát API ✅, pick-agent ✅, Dashboard landing + /metrics + error-stats ✅ (commit a513c44); còn: skill-loader wire | **"Dashboard"** (landing) + **"Settings → lát API"** |
+| **Phase 1.6 — Lõi điều phối thông minh** 🧠 *(NGAY)* | tầng trí phán đoán ở giữa: C1 rate-limit→park+báo Telegram · C2 agent kẹt→Lucy tự triage/split · C3 chặn task-to decompose-first · C4 **não riêng từng agent** (học dần). Nền: wire turn-log + error-stats sống. Dashboard "cho Lucy" = cửa sổ soi lõi — [PHASE-1.6-CORE.md](PHASE-1.6-CORE.md) | 🔧 **đang làm** — plan ✅, [SPRINT-02.md](SPRINT-02.md) | panel 🌙 trực đêm · ⏳ runway · 🆘 cần-Bill · Agent Insights |
 | **M2 Tay (MCP)** | mount MCP per-card: GitHub·Gmail·Calendar·Drive·Web(Playwright)·Notion — [MCP_ARCHITECTURE.md](MCP_ARCHITECTURE.md) | 📐 architect xong, chưa build | **"Kết nối"** — bật/tắt nguồn, quyền rõ |
 | **M3 Tự học** | `SKILL.md` chuẩn agentskills.io + stage self-improve tự sinh/refine | ⬜ | **"Kỹ năng"** |
 | **M4 Chủ động** | cron tick + wake-gate + webhook + nightly dream | 🔧 1 nửa (`cron_dream` ✅) | **"Lịch/Job"** |
@@ -87,7 +88,7 @@ Phase 1.5 thêm **Dashboard làm landing** (không vào thẳng dự án nữa) 
 3. **Wire skill-loader M3** — agent match trigger → load đúng SKILL.md (progressive disclosure).
 4. **Verify cả dự án + research UI** — đối chiếu code ↔ docs, soi references, chốt hướng UI.
 
-→ Xong Phase 1.5 **rồi mới sang M2 (MCP)**.
+→ Xong Phase 1.5 → **Phase 1.6 (lõi điều phối, [SPRINT-02.md](SPRINT-02.md))** → rồi mới sang M2 (MCP). Lý do: *agent có não rồi mới giao thêm tay*.
 
 **Ops để Lucy LIVE:** set `LUCY_VAULT=<repo>/lucy-vault` cho **coordinator** (não routes) + **worker** (claude -p đọc vault). Chưa set → brain routes trả `configured:false` (graceful). Reindex galaxy/recall = **`pm2 restart lucy-coordinator`** (KHÔNG phải bridge/hub).
 
