@@ -43,49 +43,77 @@ export function lastJson(text: string): unknown {
   return null
 }
 
-export interface GateDecision { action: 'approve' | 'return'; reason: string }
+export interface GateDecision { action: 'approve' | 'return' | 'escalate'; reason: string }
+export interface CostDecision { action: 'continue' | 'escalate'; reason: string }
 
-export async function directorDecide(card: Card, stageName: string): Promise<GateDecision> {
+// BỨC TRANH DỰ ÁN — để director hiểu card nằm đâu trong sprint (chống "phán ngáo không thấy toàn cảnh").
+const bigPic = (ctx?: string): string => ctx ? `\n📊 TOÀN CẢNH DỰ ÁN (card này nằm trong đây):\n${ctx}\n` : ''
+
+function cardEvidence(card: Card): string {
   const reports = (card.reports || []).slice(-4).map((r) => `### ${r.persona} @ ${r.stage}\n${r.text.slice(0, 1500)}`).join('\n\n')
   const files = card.artifacts?.files?.length ? `\nFILE đổi: ${card.artifacts.files.slice(0, 30).join(', ')}` : ''
   const diff = card.artifacts?.diffstat ? `\nDIFFSTAT:\n${card.artifacts.diffstat.slice(0, 1500)}` : ''
-  const prompt = `Bạn là Lucy — trợ lý của Bill, đang TRỰC ĐÊM duyệt THAY anh ấy tại 1 checkpoint (gate).
-Đọc báo cáo + thay đổi rồi QUYẾT: cho qua (approve) hay trả lại sửa (return).
+  return (reports || '(không có báo cáo — đáng ngờ)') + files + diff
+}
 
+export async function directorDecide(card: Card, stageName: string, ctx?: string): Promise<GateDecision> {
+  const hasWork = !!(card.artifacts?.files?.length || (card.reports || []).length)
+  const prompt = `Bạn là Lucy — TRỰC ĐÊM duyệt THAY Bill tại 1 checkpoint (gate). Nhìn TOÀN CẢNH dự án rồi quyết.
+${bigPic(ctx)}
 TASK: ${card.title}
 YÊU CẦU (done là gì): ${card.brief}
 GATE ở bước: ${stageName}
-BÁO CÁO các bước trước:
-${reports || '(không có báo cáo — đáng ngờ)'}${files}${diff}
+BÁO CÁO + THAY ĐỔI:
+${cardEvidence(card)}
 
-TIÊU CHÍ: chỉ approve khi báo cáo cho thấy ĐÚNG yêu cầu + agent đã tự verify (build/test thật) + không lỗi nặng/bịa.
-Thiếu verify / lệch yêu cầu / nghi ngờ → return kèm lý do CỤ THỂ để bước trước sửa. Khi phân vân → return (an toàn hơn).
-Trả về DUY NHẤT 1 dòng JSON: {"action":"approve"|"return","reason":"<ngắn gọn vì sao>"}`
-  const raw = await claudeOneShot(prompt)
-  const j = lastJson(raw) as Partial<GateDecision> | null
-  if (j && (j.action === 'approve' || j.action === 'return') && typeof j.reason === 'string') return j as GateDecision
-  return { action: 'return', reason: 'Lucy-director không đọc được kết quả rõ ràng → trả lại cho chắc (an toàn).' }
+TIÊU CHÍ:
+- Agent ĐÃ tạo sản phẩm đúng hướng (file/doc/code + báo cáo hợp lý) → APPROVE. ĐỪNG bắt làm lại cái đã ổn (phí tiền + thời gian).
+- Chỉ RETURN khi có LỖI/THIẾU CỤ THỂ (chỉ rõ chỗ nào, cách sửa) — KHÔNG return chỉ vì "chưa chắc".
+- Thật sự cần Bill (quyết định lớn / mơ hồ chỉ Bill biết) → ESCALATE.
+Trả về DUY NHẤT 1 JSON: {"action":"approve"|"return"|"escalate","reason":"<ngắn gọn>"}`
+  for (let i = 0; i < 2; i++) { // retry 1 lần nếu parse fail (chống return-oan vì không đọc được)
+    const raw = await claudeOneShot(prompt)
+    const j = lastJson(raw) as Partial<GateDecision> | null
+    if (j && (j.action === 'approve' || j.action === 'return' || j.action === 'escalate') && typeof j.reason === 'string') return j as GateDecision
+  }
+  // parse fail 2 lần → KHÔNG return (gây rework đốt tiền oan như case Kurisu 3×) → ESCALATE để Bill xem.
+  return { action: 'escalate', reason: hasWork ? 'Director không parse được NHƯNG card đã có sản phẩm → để Bill xem (KHÔNG bắt làm lại phí tiền).' : 'Director không đọc được + card chưa có gì → để Bill.' }
 }
 
 // Card kẹt ở waitKind 'decision' (agent hỏi / không trả outcome đúng) → Lucy trả lời/nhích thay Bill.
-// Trả 'ESCALATE' nếu chỉ Bill mới quyết được (thiếu info) → để người.
-export async function directorAnswer(card: Card, stageName: string): Promise<string> {
+export async function directorAnswer(card: Card, stageName: string, ctx?: string): Promise<string> {
   const q = card.pendingQuestion || 'Agent chưa kết luận rõ ở bước này.'
   const reports = (card.reports || []).slice(-3).map((r) => `### ${r.persona} @ ${r.stage}\n${r.text.slice(0, 1200)}`).join('\n\n')
-  const prompt = `Bạn là Lucy — đang TRỰC ĐÊM thay Bill. Một agent đang KẸT ở bước "${stageName}", cần quyết/định hướng để tiếp.
-
+  const prompt = `Bạn là Lucy — TRỰC ĐÊM thay Bill. Một agent KẸT ở bước "${stageName}", cần định hướng để tiếp. Nhìn TOÀN CẢNH dự án rồi trả lời.
+${bigPic(ctx)}
 TASK: ${card.title}
-YÊU CẦU (done là gì): ${card.brief}
-TÌNH HUỐNG / CÂU HỎI: ${q}
+YÊU CẦU: ${card.brief}
+TÌNH HUỐNG/CÂU HỎI: ${q}
 BÁO CÁO gần đây:
 ${reports || '(chưa có)'}
 
-Đưa CÂU TRẢ LỜI/CHỈ DẪN ngắn gọn, cụ thể để agent làm tiếp ĐÚNG hướng — vd: chọn phương án hợp lý nhất, làm rõ phạm vi,
-hoặc nhắc "hoàn thành phần việc bước này rồi kết thúc bằng ĐÚNG khối JSON outcome theo contract". Nếu việc này THỰC SỰ
-cần Bill (đụng quyết định lớn / thiếu thông tin chỉ Bill biết) → trả về đúng chữ "ESCALATE".
+Đưa CHỈ DẪN ngắn gọn, cụ thể để agent làm tiếp ĐÚNG hướng (chọn phương án / làm rõ phạm vi / nhắc kết thúc bằng JSON outcome contract). Nếu THỰC SỰ cần Bill → trả đúng chữ "ESCALATE".
 Trả về DUY NHẤT 1 dòng (câu trả lời, hoặc ESCALATE).`
   const raw = await claudeOneShot(prompt)
   return (raw || '').replace(/```/g, '').trim().slice(0, 800)
+}
+
+// Card đụng cost-cap → Lucy QUẢN TIỀN: continue (đáng, gần xong) hay escalate (loop/lãng phí → Bill). Hard-ceiling check ở poller.
+export async function directorCost(card: Card, stageName: string, ctx?: string): Promise<CostDecision> {
+  const prompt = `Bạn là Lucy — TRỰC ĐÊM quản TIỀN thay Bill. Card này vượt ngưỡng cost mềm (đã tốn $${(card.cost?.usd || 0).toFixed(2)}). Nhìn TOÀN CẢNH rồi quyết: cấp thêm để tiếp (continue) hay dừng cho Bill xem (escalate)?
+${bigPic(ctx)}
+TASK: ${card.title}
+YÊU CẦU: ${card.brief}
+ĐANG Ở bước: ${stageName}
+BÁO CÁO + THAY ĐỔI:
+${cardEvidence(card)}
+
+TIÊU CHÍ: đang tiến triển tốt + gần xong + KHÔNG loop → continue. Loop/lặp lại/lãng phí/đi lạc → escalate (để Bill).
+Trả về DUY NHẤT 1 JSON: {"action":"continue"|"escalate","reason":"<ngắn gọn>"}`
+  const raw = await claudeOneShot(prompt)
+  const j = lastJson(raw) as Partial<CostDecision> | null
+  if (j && (j.action === 'continue' || j.action === 'escalate') && typeof j.reason === 'string') return j as CostDecision
+  return { action: 'escalate', reason: 'Director không quyết được cost → để Bill (an toàn về tiền).' }
 }
 
 export interface SprintCard { title: string; brief: string; pipelineId: string }
