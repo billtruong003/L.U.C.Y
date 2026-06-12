@@ -11,10 +11,12 @@ import Aki from './components/Aki'
 import Logs from './components/Logs'
 import Settings from './components/Settings'
 import Draw from './components/Draw'
+import Dashboard from './components/Dashboard'
 import { me, amState, amTrashProject, amCreateProject, type AmProject } from './api'
 import { showToast } from './toast'
 
 const TABS = [
+  { id: 'dashboard', label: 'Dashboard', icon: '📊', sub: 'Cost · Providers · Agent Insights' },
   { id: 'chat', label: 'Chat', icon: '💬', sub: 'Trò chuyện & ra lệnh' },
   { id: 'workspace', label: 'Dự án', icon: '🗂️', sub: 'Kanban · Lucy · Channels' },
   { id: 'memory', label: 'Bộ não', icon: '🧠', sub: 'Trí nhớ · recall · dream' },
@@ -30,7 +32,7 @@ const TABS = [
 
 export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null)
-  const [tab, setTab] = useState('workspace')
+  const [tab, setTab] = useState('dashboard')
   const [open, setOpen] = useState(false)   // sidebar drawer (mobile)
 
   // project list for sidebar "note list"
@@ -225,6 +227,7 @@ export default function App() {
         </header>
 
         <section className="flex-1 min-h-0 relative">
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'dashboard' ? '' : 'opacity-0 pointer-events-none')}><Dashboard /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'chat' ? '' : 'opacity-0 pointer-events-none')}><Chat /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'workspace' ? '' : 'opacity-0 pointer-events-none')}>
             <ProjectsView openProjectId={openProjectId} onOpenProjectChange={setOpenProjectId} />

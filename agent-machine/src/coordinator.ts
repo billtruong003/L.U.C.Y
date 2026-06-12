@@ -8,6 +8,8 @@ import { browseVault, readVaultFile, listPreferences, listInbox, readActive, bui
 import { dream } from './dream'
 import { recordEvidence, hasManualEvidenceToday } from './evidence'
 import { MODEL_CATALOG, providerStatus } from './llm-lane'
+import { buildMetrics } from './metrics'
+import { buildErrorStats } from './error-stats'
 
 function serializeJob(j: JobSpec) {
   // worker không cần workspace của coordinator — nó tự tạo workspace local.
@@ -53,7 +55,7 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       }
       if (req.method === 'POST' && url === '/worker/claim') { const j = engine.claim(); return send(200, { job: j ? serializeJob(j) : null }) }
       if (req.method === 'POST' && url === '/worker/result') { const b = await readBody(req); engine.submit(b.jobId, b.result); return send(200, { ok: true }) }
-      if (req.method === 'POST' && url === '/card') { const b = await readBody(req); const mdl = (b.model === 'opus' || b.model === 'sonnet') ? b.model : undefined; return send(200, { card: engine.createCard(b.title, b.brief, b.pipelineId, undefined, 0, b.projectId || 'default', !!b.deferred, mdl, Array.isArray(b.blockedBy) ? b.blockedBy : []) }) }
+      if (req.method === 'POST' && url === '/card') { const b = await readBody(req); const mdl = (b.model === 'opus' || b.model === 'sonnet' || b.model === 'laneModel') ? b.model : undefined; return send(200, { card: engine.createCard(b.title, b.brief, b.pipelineId, undefined, 0, b.projectId || 'default', !!b.deferred, mdl, Array.isArray(b.blockedBy) ? b.blockedBy : [], b.personaId || undefined) }) }
       if (req.method === 'POST' && url === '/card/remove') { const b = await readBody(req); return send(200, { ok: engine.removeCard(b.cardId) }) }
       if (req.method === 'POST' && url === '/card/activate') { const b = await readBody(req); engine.activate(b.cardId); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/project') { const b = await readBody(req); return send(200, { project: engine.createProject(b.name, { repoUrl: b.repoUrl, branch: b.branch, description: b.description, skill: b.skill }) }) }
@@ -70,6 +72,49 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       if (req.method === 'POST' && url === '/approve') { const b = await readBody(req); engine.approve(b.cardId); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/reject') { const b = await readBody(req); engine.reject(b.cardId, b.feedback || ''); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/answer') { const b = await readBody(req); engine.answer(b.cardId, b.text || ''); return send(200, { ok: true }) }
+      // ── METRICS: gom ledger→shape frontend (tokenDay/Month, cost theo model·agent·card, providers, alerts) ──
+      if (req.method === 'GET' && url === '/metrics') {
+        const m = buildMetrics(store, recall)
+        const today = new Date().toISOString().slice(0, 10)
+        const monthPfx = today.slice(0, 7)
+        let tokenDay = 0, tokenMonth = 0, costDay = 0, costMonth = 0
+        for (const [day, d] of Object.entries(m.tokenByDay)) {
+          const toks = d.inTok + d.outTok
+          if (day === today) { tokenDay = toks; costDay = d.usd }
+          if (day.startsWith(monthPfx)) { tokenMonth += toks; costMonth += d.usd }
+        }
+        const costByModel = Object.entries(m.costByModel)
+          .map(([model, g]) => ({ model, usd: g.usd, tokens: g.inTok + g.outTok }))
+          .sort((a, b) => b.usd - a.usd).slice(0, 8)
+        const costByAgent = Object.entries(m.costByAgent)
+          .map(([pId, g]) => {
+            const pName = store.personas.get(pId)?.name ?? pId
+            return { agent: pName.split('·')[0].trim(), usd: g.usd, tokens: g.inTok + g.outTok }
+          })
+          .sort((a, b) => b.usd - a.usd).slice(0, 8)
+        const ledger = store.readLedger()
+        const cardCost = new Map<string, { usd: number; tokens: number }>()
+        for (const e of ledger) {
+          const c = cardCost.get(e.cardId) ?? { usd: 0, tokens: 0 }
+          c.usd += e.usd; c.tokens += e.inTok + e.outTok
+          cardCost.set(e.cardId, c)
+        }
+        const activeCards = store.listCards().filter(c => !['done', 'failed'].includes(c.status))
+        const costByCard = activeCards
+          .map(c => { const co = cardCost.get(c.id) ?? { usd: 0, tokens: 0 }; return { cardId: c.id, title: c.title, usd: co.usd, tokens: co.tokens } })
+          .filter(c => c.usd > 0).sort((a, b) => b.usd - a.usd).slice(0, 10)
+        const allCards = store.listCards()
+        const cardsRunning = allCards.filter(c => c.status === 'working').length
+        const cardsWaiting = allCards.filter(c => c.status === 'waiting_human').length
+        const cardsTotal = allCards.filter(c => !['done', 'failed', 'backlog'].includes(c.status)).length
+        const providers = providerStatus()
+        const alerts: { kind: string; message: string }[] = []
+        if (costMonth > 10) alerts.push({ kind: 'cost', message: `Chi phí tháng này $${costMonth.toFixed(2)} — vượt ngưỡng $10` })
+        else if (costDay > 2) alerts.push({ kind: 'cost', message: `Chi phí hôm nay $${costDay.toFixed(2)} — vượt ngưỡng $2` })
+        return send(200, { tokenDay, tokenMonth, costDay, costMonth, costByModel, costByAgent, costByCard, cardsRunning, cardsWaiting, cardsTotal, providers, alerts })
+      }
+      // ── ERROR-STATS: phân loại lỗi agent từ turn-log.jsonl (empty graceful nếu chưa có log) ──
+      if (req.method === 'GET' && url === '/error-stats') return send(200, buildErrorStats(store))
       // ── LÁT API (lane model-rẻ): catalog cho dropdown + trạng thái key (KHÔNG lộ key) ──
       if (req.method === 'GET' && url === '/llm/models') return send(200, { catalog: MODEL_CATALOG, providers: providerStatus() })
       // ── BỘ NÃO (M1: recall + vault browse + dream). brainOn=false nếu chưa set LUCY_VAULT. ──

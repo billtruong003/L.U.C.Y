@@ -56,7 +56,8 @@ export type Card = {
   blockKind?: 'dep' | 'delegate' // 'dep' = chờ task khác (start khi xong) · 'delegate' = nhờ con (advance khi xong)
   pendingQuestion?: string
   waitKind?: 'gate' | 'decision' | 'cost' | 'loop' // vì sao đang chờ người: gate duyệt / agent hỏi / vượt cap / lặp quá nhiều
-  modelOverride?: 'sonnet' | 'opus' // ép model cho CARD này (đè model mặc định của persona) — orchestrator/bạn chọn
+  modelOverride?: 'sonnet' | 'opus' | 'laneModel' // ép model cho CARD này (đè model mặc định của persona) — orchestrator/bạn chọn
+  personaOverride?: string // personaId cho stage ĐẦU (đè pipeline) — chọn ở Board
   reviewNotes?: string[] // feedback khi bạn TRẢ LẠI ở gate -> chèn vào prompt cho agent sửa
   lastSummary?: string // báo cáo bước TRƯỚC -> agent bước sau đọc để nối mạch (D4)
   reports?: { stage: string; persona: string; text: string; ts: number }[] // C1: narrative ĐẦY ĐỦ agent đã làm gì mỗi stage (drawer đọc full, không cụt 1 dòng)

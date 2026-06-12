@@ -21,6 +21,7 @@
     "smoke:autopilot": "tsx src/smoke-autopilot.ts",
     "smoke:e2e": "tsx src/smoke-e2e.ts",
     "smoke:clonedeps": "tsx src/smoke-clonedeps.ts",
+    "smoke:metrics": "tsx src/smoke-metrics.ts",
     "seed": "tsx src/seed.ts",
     "reindex": "tsx src/recall-cli.ts reindex",
     "recall": "tsx src/recall-cli.ts",

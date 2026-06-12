@@ -484,6 +484,18 @@ app.get('/api/am/config', async (req, res) => {
   try { const r = await amFetch('/config'); res.json({ configured: true, ...(await r.json()) }) }
   catch { res.json({ configured: true, offline: true }) }
 })
+app.get('/api/metrics', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!amOn()) return res.json({ configured: false })
+  try { const r = await amFetch('/metrics'); res.json({ configured: true, ...(await r.json()) }) }
+  catch (e) { res.json({ configured: true, offline: true, error: String(e).slice(0, 120) }) }
+})
+app.get('/api/error-stats', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!amOn()) return res.json({ configured: false })
+  try { const r = await amFetch('/error-stats'); res.json({ configured: true, ...(await r.json()) }) }
+  catch (e) { res.json({ configured: true, offline: true, error: String(e).slice(0, 120) }) }
+})
 for (const [route, fwd] of [['/api/am/config', '/config'], ['/api/am/card', '/card'], ['/api/am/card/remove', '/card/remove'], ['/api/am/card/activate', '/card/activate'], ['/api/am/approve', '/approve'], ['/api/am/reject', '/reject'], ['/api/am/answer', '/answer'], ['/api/am/project', '/project'], ['/api/am/project/remove', '/project/remove'], ['/api/am/project/trash', '/project/trash'], ['/api/am/project/restore', '/project/restore'], ['/api/am/project/purge', '/project/purge'], ['/api/am/project/channel', '/project/channel'], ['/api/am/channel/post', '/channel/post'], ['/api/am/lucy/log', '/lucy/log'], ['/api/am/pipeline', '/pipeline'], ['/api/am/pipeline/remove', '/pipeline/remove']] as const) {
   app.post(route, async (req, res) => {
     if (!authed(req)) return res.status(401).json({ error: 'unauth' })

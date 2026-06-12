@@ -79,4 +79,16 @@ export class Store {
   appendLedger(e: { ts: number; cardId: string; stage: string; persona: string } & Cost) {
     fs.appendFileSync(path.join(this.dir, 'ledger.jsonl'), JSON.stringify(e) + '\n')
   }
+
+  readLedger(): ({ ts: number; cardId: string; stage: string; persona: string } & Cost)[] {
+    try {
+      const raw = fs.readFileSync(path.join(this.dir, 'ledger.jsonl'), 'utf8')
+      const lines = raw.trim().split('\n').filter(Boolean)
+      const out: ({ ts: number; cardId: string; stage: string; persona: string } & Cost)[] = []
+      for (const l of lines) {
+        try { out.push(JSON.parse(l)) } catch { /* bỏ dòng hỏng */ }
+      }
+      return out
+    } catch { return [] }
+  }
 }

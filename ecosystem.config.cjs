@@ -16,6 +16,8 @@ const LIM = {
   AM_MAX_STAGE_VISITS: process.env.AM_MAX_STAGE_VISITS || '8',
   AM_CAP_USD: process.env.AM_CAP_USD || '200',
   AM_WEEKLY_CAP_USD: process.env.AM_WEEKLY_CAP_USD || '1000',
+  // VPS yếu → trần đồng-thời thấp: tối đa 2 lane chạy 1 lúc (đè được qua env).
+  AM_MAX_LANES: process.env.AM_MAX_LANES || '2',
 }
 
 module.exports = {
@@ -25,7 +27,7 @@ module.exports = {
     { ...base, name: 'lucy-hub', cwd: HUB, script: 'src/index.ts',
       env: { AM_COORD_URL: COORD, AM_TOKEN: TOK, LUCY_HUB_PASSWORD: PWD, LUCY_HUB_PORT: '8800', LUCY_HUB_HOST: '0.0.0.0' } },
     { ...base, name: 'lucy-worker', cwd: AM, script: 'src/worker-main.ts',
-      env: { AM_COORD_URL: COORD, AM_TOKEN: TOK, AM_RUNNER: 'claude', AM_WORKER_CONCURRENCY: process.env.AM_WORKER_CONCURRENCY || '2', LLM_ENV_FILE: path.join(ROOT, '.env.llm') } },
+      env: { AM_COORD_URL: COORD, AM_TOKEN: TOK, AM_RUNNER: 'claude', AM_WORKER_CONCURRENCY: process.env.AM_WORKER_CONCURRENCY || '1', LLM_ENV_FILE: path.join(ROOT, '.env.llm') } },
     { ...base, name: 'lucy-autopilot', cwd: AM, script: 'src/autopilot-main.ts',
       env: { AM_COORD_URL: COORD, AM_TOKEN: TOK, AM_DIRECTOR_MODEL: 'opus', AM_AUTOPILOT_MAX: process.env.AM_AUTOPILOT_MAX || '300', AM_CARD_HARD_USD: process.env.AM_CARD_HARD_USD || '20' } },
   ],

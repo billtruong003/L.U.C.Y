@@ -42,12 +42,12 @@ export class Engine {
     this.leaseMs = opts.leaseMs ?? 20 * 60e3 // card 'working' quá 20' -> coi như treo, đưa lại hàng
   }
 
-  createCard(title: string, brief: string, pipelineId: string, parentId?: string, depth = 0, projectId = 'default', deferred = false, modelOverride?: 'sonnet' | 'opus', blockedBy: string[] = []): Card {
+  createCard(title: string, brief: string, pipelineId: string, parentId?: string, depth = 0, projectId = 'default', deferred = false, modelOverride?: 'sonnet' | 'opus' | 'laneModel', blockedBy: string[] = [], personaId?: string): Card {
     const id = uid('card')
     const deps = blockedBy.filter((b) => this.store.getCard(b)) // chỉ giữ dep có thật
     const status: Card['status'] = deferred ? 'backlog' : deps.length ? 'blocked' : 'queued'
     const card: Card = {
-      id, title, brief, pipelineId, projectId, stageIndex: 0, status, modelOverride,
+      id, title, brief, pipelineId, projectId, stageIndex: 0, status, modelOverride, personaOverride: personaId || undefined,
       blockKind: deps.length ? 'dep' : undefined,
       workspace: makeWorkspace(this.store.dir, id), parentId, depth, blockedBy: deps,
       cost: { usd: 0, inTok: 0, outTok: 0 }, history: [{ ts: Date.now(), stage: '-', event: deferred ? 'created-backlog' : 'created' }],
@@ -334,12 +334,22 @@ export class Engine {
     if (!c) { this.inFlight.delete(j.id); return null }
     const pipe = this.store.pipelines.get(c.pipelineId)
     const stage = pipe?.stages[c.stageIndex]
-    const base = stage ? this.store.personas.get(stage.personaId) : undefined
+    let base = stage ? this.store.personas.get(stage.personaId) : undefined
     if (!pipe || !stage || !base) { this.inFlight.delete(j.id); c.status = 'failed'; this.store.putCard(c); return null }
+    // PersonaOverride: stage ĐẦU có thể ép persona từ card (chọn ở Board)
+    if (c.stageIndex === 0 && c.personaOverride) {
+      const overridden = this.store.personas.get(c.personaOverride)
+      if (overridden) {
+        base = overridden
+      } else {
+        post(this.store, threadOf(c.id), 'engine', 'system', `⚠️ personaOverride "${c.personaOverride}" không tìm thấy — dùng pipeline default`, c.id)
+      }
+    }
     const proj = this.store.getProject(c.projectId)
     // model: override per-card NHƯNG không HẠ CẤP stage mạnh — reviewer/architect default opus thì GIỮ opus
     // (chống "coder sonnet review chính mình"). Override chỉ nâng sonnet->opus, không hạ opus->sonnet.
-    const model = c.modelOverride ? (base.model === 'opus' ? 'opus' : c.modelOverride) : base.model
+    // 'laneModel' = dùng model rẻ của persona (laneModel field) — KHÔNG đè persona.model
+    const model = c.modelOverride && c.modelOverride !== 'laneModel' ? (base.model === 'opus' ? 'opus' : c.modelOverride) : base.model
     let persona = model !== base.model ? { ...base, model } : base
     if (proj?.skill) persona = { ...persona, systemPrompt: persona.systemPrompt + `\n\n--- SKILL DỰ ÁN "${proj.name}" ---\n${proj.skill}` }
     // repo: nếu project có repoUrl -> worker clone & làm việc trong repo thật (R2)

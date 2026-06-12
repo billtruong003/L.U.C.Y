@@ -58,7 +58,7 @@ export type AmCard = {
 export type AmMsg = { ts: number; channel: string; author: string; kind: string; text: string; cardId?: string }
 export type AmStage = { id: string; name: string; personaId: string; gate?: boolean }
 export type AmPipeline = { id: string; name: string; stages: AmStage[] }
-export type AmPersona = { id: string; name: string; avatar?: string; model?: string }
+export type AmPersona = { id: string; name: string; avatar?: string; model?: string; laneModel?: string }
 export type AmProject = { id: string; name: string; repoUrl?: string; branch?: string; description?: string; skill?: string; channels: string[]; createdAt: number; updatedAt?: number; trashed?: boolean }
 export async function amState(): Promise<{ configured: boolean; offline?: boolean; cards: AmCard[]; projects?: AmProject[]; channels: AmMsg[]; pipelines?: AmPipeline[]; personas?: AmPersona[] }> {
   const r = await fetch('/api/am/state'); return r.json()
@@ -93,8 +93,8 @@ export async function amConfig(): Promise<{ configured: boolean; offline?: boole
 export async function amSetLanes(maxLanes: number) {
   const r = await fetch('/api/am/config', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ maxLanes }) }); return r.json()
 }
-export async function amCreateCard(title: string, brief: string, pipelineId: string, projectId: string, deferred = false, model?: 'sonnet' | 'opus', blockedBy?: string[]) {
-  const r = await fetch('/api/am/card', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, brief, pipelineId, projectId, deferred, model, blockedBy }) }); return r.json()
+export async function amCreateCard(title: string, brief: string, pipelineId: string, projectId: string, deferred = false, model?: 'sonnet' | 'opus' | 'laneModel', blockedBy?: string[], personaId?: string) {
+  const r = await fetch('/api/am/card', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title, brief, pipelineId, projectId, deferred, model, blockedBy, personaId }) }); return r.json()
 }
 export async function amRemoveCard(cardId: string) {
   await fetch('/api/am/card/remove', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cardId }) })
@@ -110,6 +110,47 @@ export async function amReject(cardId: string, feedback: string) {
 }
 export async function amAnswer(cardId: string, text: string) {
   await fetch('/api/am/answer', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cardId, text }) })
+}
+
+// ---- METRICS (Dashboard landing) ----
+export type MetricsProvider = { provider: string; label: string; hasKey: boolean }
+export type MetricsCostEntry = { model: string; usd: number; tokens: number }
+export type MetricsAgentEntry = { agent: string; usd: number; tokens: number }
+export type MetricsCardEntry = { cardId: string; title: string; usd: number; tokens: number }
+export type MetricsAlert = { kind: string; message: string }
+export type MetricsData = {
+  configured: boolean; offline?: boolean
+  tokenDay: number; tokenMonth: number
+  costDay: number; costMonth: number
+  costByModel: MetricsCostEntry[]
+  costByAgent: MetricsAgentEntry[]
+  costByCard: MetricsCardEntry[]
+  cardsRunning: number; cardsWaiting: number; cardsTotal: number
+  providers: MetricsProvider[]
+  alerts: MetricsAlert[]
+}
+export async function metricsData(): Promise<MetricsData> {
+  const r = await fetch('/api/metrics'); return r.json()
+}
+
+// ---- ERROR-STATS (turn-log) — khai literal union ở FE, KHÔNG import từ backend ----
+export type ErrorCategory =
+  | 'llm-error' | 'out-of-turns' | 'salvage' | 'build-fail'
+  | 'spec-fail' | 'loop' | 'wrong-output' | 'other'
+export type ErrorByCategory = { category: ErrorCategory; count: number }
+export type ErrorByAgent = { agent: string; count: number; byCategory: Record<ErrorCategory, number> }
+export type ErrorByModel = { model: string; count: number; byCategory: Record<ErrorCategory, number> }
+export type ErrorStatsData = {
+  configured: boolean; offline?: boolean
+  total: number
+  byCategory: ErrorByCategory[]
+  byAgent: ErrorByAgent[]
+  byModel: ErrorByModel[]
+  topCategory: ErrorCategory | null
+  scope: string
+}
+export async function errorStatsData(): Promise<ErrorStatsData> {
+  const r = await fetch('/api/error-stats'); return r.json()
 }
 
 export type Entry = { name: string; type: 'dir' | 'file' }
