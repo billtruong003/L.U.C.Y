@@ -105,7 +105,10 @@ export class ClaudeRunner implements Runner {
     const resumeId = card.sessions?.[persona.id]
     let r = await this.spawn(resumeId ? [...baseArgs, '--resume', resumeId] : baseArgs, ws, timeoutSec, prompt)
     if (resumeId && r.code !== 0 && !r.out.trim()) r = await this.spawn(baseArgs, ws, timeoutSec, prompt) // resume hỏng (session ở máy khác / đã xoá) → chạy mới
-    return parseClaude(r.out)
+    const res = parseClaude(r.out)
+    // SALVAGE: agent làm xong nhưng quên JSON → suy ra outcome thay vì bounce/loop (gặp nhiều).
+    if (res.outcome.summary === NO_JSON) res.outcome = await salvageOutcome(res.report || res.raw, stage.name)
+    return res
   }
 
   private spawn(args: string[], ws: string, timeoutSec: number, stdin: string): Promise<{ out: string; code: number | null }> {
@@ -168,5 +171,46 @@ export function extractOutcome(text: string): Outcome {
     } catch { /* parse fail */ }
   }
   // không tuân contract -> raise gate để người xem (an toàn)
-  return { decision: 'needs_decision', summary: 'Agent không trả JSON outcome đúng', question: 'Output không có outcome JSON hợp lệ — cần bạn xem.' }
+  return { decision: 'needs_decision', summary: NO_JSON, question: 'Output không có outcome JSON hợp lệ — cần bạn xem.' }
+}
+
+// Sentinel: agent QUÊN khối JSON outcome (gặp NHIỀU, nhất là model rẻ / task rộng).
+export const NO_JSON = 'Agent không trả JSON outcome đúng'
+
+// claude -p single-shot (no tool) — để SALVAGE: đọc output thô → suy ra outcome.
+function claudeClassify(prompt: string, model: string, timeoutSec = 90): Promise<string> {
+  return new Promise((resolve) => {
+    const r = resolveClaude(process.env.CLAUDE_BIN || 'claude')
+    const args = ['-p', '--output-format', 'json', '--permission-mode', 'bypassPermissions', '--model', model, '--max-turns', '1']
+    const o = { env: { ...process.env, IS_SANDBOX: '1' }, stdio: ['pipe', 'pipe', 'pipe'] as ['pipe', 'pipe', 'pipe'] }
+    const ch = r.shell ? spawn([r.bin, ...args].map((a) => `"${a}"`).join(' '), { ...o, shell: true }) : spawn(r.bin, args, o)
+    let out = ''
+    const timer = setTimeout(() => ch.kill(), timeoutSec * 1000)
+    ch.stdout.on('data', (d) => (out += d))
+    ch.on('close', () => { clearTimeout(timer); try { resolve(JSON.parse(out).result ?? out) } catch { resolve(out) } })
+    ch.on('error', () => { clearTimeout(timer); resolve('') })
+    ch.stdin.on('error', () => { /* EPIPE */ })
+    ch.stdin.write(prompt); ch.stdin.end()
+  })
+}
+
+// SALVAGE outcome: agent làm việc nhưng quên JSON → đọc report → suy ra advance/rework/needs_decision.
+// Tránh bounce-sang-người / loop. Model rẻ-ish (sonnet) đủ để classify.
+export async function salvageOutcome(report: string, stageName: string): Promise<Outcome> {
+  if (!report || report.length < 20) return { decision: 'needs_decision', summary: NO_JSON, question: 'Agent không có output để cứu — cần bạn xem.' }
+  const model = process.env.AM_SALVAGE_MODEL || 'sonnet'
+  const prompt = `Một agent vừa làm xong bước "${stageName}" NHƯNG quên kết thúc bằng khối JSON outcome theo contract.
+Dựa vào OUTPUT của nó, SUY RA outcome đúng:
+- advance: đã làm xong tốt phần việc bước này.
+- rework: có lỗi / chưa đạt rõ ràng.
+- needs_decision: thật sự cần người quyết (mơ hồ / thiếu thông tin chỉ người biết).
+OUTPUT của agent:
+"""
+${report.slice(0, 7000)}
+"""
+Trả về DUY NHẤT 1 khối JSON: {"decision":"advance|rework|needs_decision","summary":"<1 câu>"}`
+  const raw = await claudeClassify(prompt, model)
+  const o = extractOutcome(raw)
+  if (o.summary === NO_JSON) return { decision: 'needs_decision', summary: 'Không cứu được outcome (cả salvage cũng lỗi)', question: 'Cần bạn xem.' }
+  return o
 }

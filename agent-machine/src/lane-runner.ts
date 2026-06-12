@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Runner } from './runner'
-import { readActiveDigest, HOUSE_SKILL, OUTCOME_CONTRACT, extractOutcome, cleanReport } from './runner'
+import { readActiveDigest, HOUSE_SKILL, OUTCOME_CONTRACT, cleanReport, salvageOutcome } from './runner'
 import { callLLMRaw, type RawMsg, type ToolDef } from './llm-lane'
 import type { Card, Stage, Persona, RunResult, Outcome, Cost } from './types'
 
@@ -106,8 +106,11 @@ export class LaneRunner implements Runner {
       // không tool, chưa có outcome → nhắc tiếp (chống dừng sớm khi model chỉ "nói")
       messages.push({ role: 'user', content: 'Tiếp tục: dùng tool nếu chưa xong, hoặc nếu đã xong bước này thì kết thúc bằng ĐÚNG khối JSON outcome.' })
     }
-    // hết turn → đẩy lên người (an toàn, dùng extractOutcome cho thông điệp chuẩn)
-    const fallback = extractOutcome(raw)
-    return { outcome: fallback.decision === 'needs_decision' ? { decision: 'needs_decision', summary: `Lane agent (${model}) hết ${maxTurns} turn chưa kết luận`, question: 'Executor chạy hết turn mà chưa ra outcome — cần bạn xem.' } : fallback, cost, raw, report: cleanReport(raw) }
+    // hết turn → SALVAGE từ output thô (agent thường ĐÃ làm, chỉ quên JSON) trước khi đẩy người.
+    const report = cleanReport(raw)
+    const outcome = report.length > 20
+      ? await salvageOutcome(report, stage.name)
+      : { decision: 'needs_decision' as const, summary: `Lane agent (${model}) hết ${maxTurns} turn chưa ra gì`, question: 'Executor chạy hết turn mà chưa ra outcome — cần bạn xem.' }
+    return { outcome, cost, raw, report }
   }
 }
