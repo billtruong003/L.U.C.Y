@@ -10,7 +10,7 @@ set -a; [ -f .env ] && . ./.env; set +a
 export IS_SANDBOX=1
 
 # Guard: chờ claude rảnh (≤1 process) tối đa 10 phút, nếu vẫn bận thì bỏ qua (chống fail khi sprint chạy nặng)
-_WAIT=0; _MAX=600
+_WAIT=0; _MAX=1800
 while [ "$(pgrep -c claude 2>/dev/null || echo 0)" -gt 1 ] && [ $_WAIT -lt $_MAX ]; do
   sleep 15; _WAIT=$((_WAIT+15))
 done
@@ -44,7 +44,7 @@ RES="$(mktemp)"
 SUMM_FILE="$(mktemp)"
 
 # 1. Gọi Claude sinh báo cáo — chi tiết, nguồn là LINK click được
-"${CLAUDE_BIN:-claude}" -p \
+"${CLAUDE_BIN:-claude}" -p --model claude-opus-4-8 \
   "Làm BÁO CÁO THỊ TRƯỜNG hôm nay, CHI TIẾT, CHUYÊN NGHIỆP, GÓC TRADER. LỌC NHIỄU MẠNH TAY — \
 ưu tiên thứ thực sự tác động giá/danh mục, BỎ tin shill/PR. Số liệu THẬT từ web/API (ghi rõ nguồn + giờ lấy). \
 $SESS_NOTE\

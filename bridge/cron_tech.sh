@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 set -a; [ -f .env ] && . ./.env; set +a
 
 # Guard: chờ claude rảnh (≤1 process) tối đa 10 phút, nếu vẫn bận thì bỏ qua
-_WAIT=0; _MAX=600
+_WAIT=0; _MAX=1800
 while [ "$(pgrep -c claude 2>/dev/null || echo 0)" -gt 1 ] && [ $_WAIT -lt $_MAX ]; do
   sleep 15; _WAIT=$((_WAIT+15))
 done
@@ -35,7 +35,7 @@ if [ "${1:-}" = "--if-missing" ] && [ -f "$MD_OUT" ] && grep -q 'TOP 3' "$MD_OUT
 fi
 
 # 1. Claude research digest công nghệ phân tầng
-"${CLAUDE_BIN:-claude}" -p \
+"${CLAUDE_BIN:-claude}" -p --model claude-opus-4-8 \
   "Hôm nay là $DATE_STR. Nhiệm vụ: tổng hợp DIỄN BIẾN CÔNG NGHỆ ĐÁNG CHÚ Ý NHẤT trong 24h qua. \
 LỌC NHIỄU MẠNH TAY — ưu tiên thứ thực sự quan trọng, BỎ tin câu view/PR/quảng cáo. Research THẬT trên web, mọi mục kèm link.
 
