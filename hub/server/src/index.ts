@@ -546,7 +546,7 @@ app.post('/api/chat/stream', async (req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' })
   const sse = (ev: Record<string, unknown>) => { try { res.write(`data: ${JSON.stringify(ev)}\n\n`) } catch { /* client ngắt */ } }
   let closed = false
-  req.on('close', () => { closed = true })
+  res.on('close', () => { closed = true }) // res (KHÔNG phải req — req 'close' fire ngay sau khi đọc body → chặn nhầm delta)
   // refresh danh sách lane key (1 lần / khi rỗng) để phân biệt lane vs claude
   if (!LANE_KEYS.size && amOn()) { try { const d = await (await amFetch('/llm/models')).json() as any; for (const m of d.catalog || []) LANE_KEYS.add(m.key) } catch { /* */ } }
   try {
@@ -578,7 +578,11 @@ app.post('/api/chat/stream', async (req, res) => {
     }
     // CLAUDE: stream-json (chữ chạy thật) — dùng subscription, giữ session chat.
     const cm = model === 'claude:opus' ? 'opus' : 'sonnet'
-    const out = await streamClaude(prompt, chat.sessionId, cm, (e) => { if (!closed) sse(e) })
+    let out = await streamClaude(prompt, chat.sessionId, cm, (e) => { if (!closed) sse(e) })
+    // resume hỏng (session cũ/khác process → claude trả rỗng) → chạy lại KHÔNG resume (như bridge ClaudeRunner)
+    if (chat.sessionId && !out.sid && (!out.text || out.text === '(rỗng)')) {
+      out = await streamClaude(prompt, null, cm, (e) => { if (!closed) sse(e) })
+    }
     chat.sessionId = out.sid || chat.sessionId
     chat.messages.push({ role: 'lucy', text: out.text, t: Date.now() }); saveChat()
     sse({ type: 'final', text: out.text, model: cm })
