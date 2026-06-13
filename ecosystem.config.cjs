@@ -29,7 +29,7 @@ module.exports = {
     { ...base, name: 'lucy-hub', cwd: HUB, script: 'src/index.ts',
       env: { AM_COORD_URL: COORD, AM_TOKEN: TOK, LUCY_HUB_PASSWORD: PWD, LUCY_HUB_PORT: '8800', LUCY_HUB_HOST: '0.0.0.0' } },
     { ...base, name: 'lucy-worker', cwd: AM, script: 'src/worker-main.ts',
-      env: { AM_COORD_URL: COORD, AM_TOKEN: TOK, AM_RUNNER: 'claude', AM_WORKER_CONCURRENCY: process.env.AM_WORKER_CONCURRENCY || '1', LLM_ENV_FILE: path.join(ROOT, '.env.llm'), AM_TURNS_LOG: TURNS } },
+      env: { AM_COORD_URL: COORD, AM_TOKEN: TOK, AM_RUNNER: 'claude', AM_WORKER_CONCURRENCY: process.env.AM_WORKER_CONCURRENCY || '1', LLM_ENV_FILE: path.join(ROOT, '.env.llm'), AM_TURNS_LOG: TURNS, LUCY_VAULT: path.join(ROOT, 'lucy-vault') } },
     { ...base, name: 'lucy-autopilot', cwd: AM, script: 'src/autopilot-main.ts',
       env: { AM_COORD_URL: COORD, AM_TOKEN: TOK, AM_DIRECTOR_MODEL: 'opus', AM_AUTOPILOT_MAX: process.env.AM_AUTOPILOT_MAX || '300', AM_CARD_HARD_USD: process.env.AM_CARD_HARD_USD || '20' } },
   ],

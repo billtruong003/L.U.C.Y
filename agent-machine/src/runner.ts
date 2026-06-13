@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { resolveClaude } from './claude-bin'
 import { loadSkillBlock } from './skill-loader'
+import { readAgentBrain } from './agent-brain'
 import { NoopTurnLogger, type TurnLogger } from './turn-log'
 import type { Card, Stage, Persona, RunResult, Outcome, Cost } from './types'
 
@@ -83,7 +84,7 @@ evidenced_by: [<cardId nếu biết>]
 // Ráp system prompt agent: digest đã-học + skill khớp card + persona + kỷ luật chung + contract (+ extra của lane).
 // 1 NGUỒN DUY NHẤT cho cả ClaudeRunner & LaneRunner → khử lặp, giữ thứ tự nối byte-identical (prompt-cache parity).
 export function buildSystemPrompt(card: Card, persona: Persona, extra = ''): string {
-  return readActiveDigest() + loadSkillBlock(card) + persona.systemPrompt + HOUSE_SKILL + OUTCOME_CONTRACT + extra
+  return readActiveDigest() + readAgentBrain(persona.id) + loadSkillBlock(card) + persona.systemPrompt + HOUSE_SKILL + OUTCOME_CONTRACT + extra
 }
 
 export class ClaudeRunner implements Runner {

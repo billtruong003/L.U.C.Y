@@ -7,6 +7,7 @@ import { Budget } from './budget'
 import { makeWorkspace } from './workspace'
 import { post, threadOf } from './channels'
 import { writeSignalSafe } from './signal'
+import { appendAgentLesson } from './agent-brain'
 import { distillCardSafe } from './distill'
 import { writeSessionNoteSafe } from './session-note'
 import { slug } from './vault'
@@ -571,6 +572,8 @@ export class Engine {
         c.stageIndex = Math.max(0, c.stageIndex - 1)
         c.status = 'queued'
         const back = pipe.stages[c.stageIndex]
+        // C1 (Track C): não nghề — builder bị trả lại HỌC từ feedback review (tránh lặp lỗi lần sau).
+        appendAgentLesson(back.personaId, result.outcome.summary, 'miss')
         c.history.push({ ts: Date.now(), stage: back.id, event: 'rework', detail: result.outcome.summary })
         post(this.store, threadOf(c.id), persona.name, 'handoff', `↩ REWORK → "${back.name}": ${result.outcome.summary}`, c.id)
         this.store.putCard(c)
