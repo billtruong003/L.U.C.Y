@@ -281,6 +281,82 @@ def run_claude(prompt, session_id, model="sonnet", persona_text=None, thinking_s
         return None, (r.stdout or "(không parse được output)")[:3500]
 
 
+def _persona_file(persona_text):
+    """File persona dùng cho --append-system-prompt-file. persona_text set → overlay Lucy base + vai; else file mặc định."""
+    if not persona_text:
+        return PERSONA
+    base = ""
+    try:
+        base = open(PERSONA).read() if os.path.exists(PERSONA) else ""
+    except Exception:
+        base = ""
+    pf = os.path.join(WORKDIR, f".persona-overlay-{os.getpid()}.md")
+    try:
+        with open(pf, "w", encoding="utf-8") as f:
+            f.write(base + "\n\n--- VAI HIỆN TẠI (persona overlay) ---\n" + persona_text)
+        return pf
+    except Exception:
+        return PERSONA
+
+
+def run_claude_stream(prompt, session_id, model, persona_text, on_delta):
+    """Đường A: claude -p stream-json partial → gọi on_delta(answer_tích_luỹ) khi có chữ mới (streaming UX).
+    Dùng subscription (claude CLI auth OAuth). Trả (session_id_mới, answer, thinking_list)."""
+    cmd = [CLAUDE, "-p", prompt, "--output-format", "stream-json",
+           "--include-partial-messages", "--verbose",
+           "--permission-mode", "bypassPermissions", "--model", model]
+    pf = _persona_file(persona_text)
+    if os.path.exists(pf):
+        cmd += ["--append-system-prompt-file", pf]
+    if os.path.isdir(VAULT):
+        cmd += ["--add-dir", VAULT]
+    if session_id:
+        cmd += ["--resume", session_id]
+    env = {**os.environ, "IS_SANDBOX": "1"}
+    answer, thinking = [], []
+    sid, final_result = None, None
+    global LAST_MODEL
+    try:
+        proc = subprocess.Popen(cmd, cwd=WORKDIR, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                stdin=subprocess.DEVNULL, env=env, text=True, bufsize=1)
+    except Exception as e:
+        return None, f"❌ Không chạy được claude: {e}", []
+    try:
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            t = d.get("type")
+            if t == "stream_event":
+                ev = d.get("event", {})
+                if ev.get("type") == "content_block_delta":
+                    delta = ev.get("delta", {})
+                    dt = delta.get("type")
+                    if dt == "text_delta":
+                        answer.append(delta.get("text", ""))
+                        try:
+                            on_delta("".join(answer))
+                        except Exception:
+                            pass
+                    elif dt == "thinking_delta":
+                        thinking.append(delta.get("thinking", ""))
+            elif t == "result":
+                sid = d.get("session_id")
+                final_result = d.get("result")
+                LAST_MODEL = next(iter(d.get("modelUsage") or {}), None) or LAST_MODEL
+        proc.wait(timeout=TIMEOUT)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return sid, ("".join(answer) or "⏱️ Claude chạy quá lâu (timeout)."), thinking
+    except Exception as e:
+        return sid, ("".join(answer) or f"❌ Lỗi stream: {e}"), thinking
+    return sid, (final_result or "".join(answer) or "(rỗng)"), thinking
+
+
 def _fan_lane(task, model):
     try:
         _, res = run_claude(task, None, model)          # mỗi lane độc lập, KHÔNG resume
@@ -524,22 +600,28 @@ def handle(msg, sessions):
         reply(chat_id, answer)
         return
 
-    # ── CLAUDE-PATH: não thật (tool+vault), giữ phiên --resume ──
+    # ── CLAUDE-PATH: não thật (tool+vault) — Đường A: STREAMING (chữ chạy realtime trên Telegram) ──
     model = "opus" if force_opus else pmodel.split(":")[-1]
     mid = send_id(chat_id, f"🤔 Em xử lý ạ… ({model})")
-    stop = threading.Event()
-    threading.Thread(target=_heartbeat, args=(chat_id, mid, stop, model), daemon=True).start()
-    sink = [] if pthink else None                       # A4: bật /think → stream-json bắt block thinking
-    try:
-        new_sid, result = run_claude(text, sessions.get(str(chat_id)), model, resolve_persona_text(ppersona), sink)
-    finally:
-        stop.set()
-    edit(chat_id, mid, f"✅ Xong ({model}).")
+    st = {"last": 0.0, "shown": ""}                      # throttle edit (Telegram ~1 edit/giây)
+    def _on_delta(acc):
+        now = time.time()
+        preview = ("…" + acc[-3400:]) if len(acc) > 3400 else acc
+        if now - st["last"] >= 0.9 and preview and preview != st["shown"]:
+            st["last"] = now; st["shown"] = preview
+            edit(chat_id, mid, preview)
+    new_sid, result, thinking = run_claude_stream(
+        text, sessions.get(str(chat_id)), model, resolve_persona_text(ppersona), _on_delta)
     if new_sid:
         sessions[str(chat_id)] = new_sid; _save(sessions)
-    if sink:
-        send(chat_id, "💭 (suy nghĩ)\n" + "\n".join(sink)[:1500])
-    reply(chat_id, result)
+    if pthink and thinking:
+        send(chat_id, "💭 (suy nghĩ)\n" + ("".join(thinking))[:1500])
+    # Chốt: ngắn → edit thẳng message đang stream (1 tin gọn); dài/bảng → notice + gửi file đẹp.
+    if not _is_richdoc(result):
+        edit(chat_id, mid, result[:3900] or "(rỗng)")
+    else:
+        edit(chat_id, mid, f"✅ Xong ({model}) — nội dung dài, em gửi file ạ.")
+        reply(chat_id, result)
 
 
 def main():
