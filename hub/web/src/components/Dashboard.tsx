@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { metricsData, amState, errorStatsData, type MetricsData, type AmCard, type AmPersona, type ErrorStatsData, type ErrorCategory } from '../api'
+import { metricsData, amState, errorStatsData, brainState, type MetricsData, type AmCard, type AmPersona, type AmMsg, type BrainSig, type ErrorStatsData, type ErrorCategory } from '../api'
 
 // ── Overview helpers ─────────────────────────────────────────────────────────
 function fmtTokens(n: number): string {
@@ -108,7 +108,7 @@ function PersonaDot({ name, size = 16 }: { name: string; size?: number }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const [innerTab, setInnerTab] = useState<'overview' | 'insights'>('overview')
+  const [innerTab, setInnerTab] = useState<'overview' | 'insights' | 'lucy'>('overview')
 
   // Overview data
   const [data, setData] = useState<MetricsData>(EMPTY_METRICS)
@@ -128,6 +128,11 @@ export default function Dashboard() {
   // Error-stats (turn-log) — nguồn KHÁC card-report, đọc qua /api/error-stats
   const [errorStats, setErrorStats] = useState<ErrorStatsData>(EMPTY_ERROR_STATS)
 
+  // 🌙 "Cho Lucy" — channels (nhật ký trực đêm) + brain inbox (hôm nay học gì)
+  const [channels, setChannels] = useState<AmMsg[]>([])
+  const [brainInbox, setBrainInbox] = useState<BrainSig[]>([])
+  const loadLucy = async () => { try { const b = await brainState(); setBrainInbox(b.inbox ?? []) } catch { /* giữ state cũ */ } }
+
   const loadOverview = () => {
     metricsData()
       .then((d) => { setData(d); setLastRefresh(Date.now()) })
@@ -142,6 +147,7 @@ export default function Dashboard() {
       setIOffline(!!s.offline)
       setCards(s.cards ?? [])
       setPersonas(s.personas ?? [])
+      setChannels(s.channels ?? [])
     } catch {
       setIOffline(true)
     } finally {
@@ -157,9 +163,11 @@ export default function Dashboard() {
     loadOverview()
     loadInsights()
     loadErrorStats()
+    loadLucy()
     const iv1 = setInterval(loadOverview, 12_000)
     const iv2 = setInterval(() => { loadInsights(); loadErrorStats() }, 10_000)
-    return () => { clearInterval(iv1); clearInterval(iv2) }
+    const iv3 = setInterval(loadLucy, 30_000)
+    return () => { clearInterval(iv1); clearInterval(iv2); clearInterval(iv3) }
   }, [])
 
   // ── Insights computed ──────────────────────────────────────────────────────
@@ -252,6 +260,9 @@ export default function Dashboard() {
         </button>
         <button className={'tab-btn' + (innerTab === 'insights' ? ' active' : '')} onClick={() => setInnerTab('insights')}>
           <span className="tab-icon">🔬</span> Agent Insights
+        </button>
+        <button className={'tab-btn' + (innerTab === 'lucy' ? ' active' : '')} onClick={() => setInnerTab('lucy')}>
+          <span className="tab-icon">🌙</span> Cho Lucy
         </button>
       </div>
 
@@ -700,6 +711,106 @@ export default function Dashboard() {
             </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ──────────────────────────────── CHO LUCY ──────────────────────────── */}
+      {innerTab === 'lucy' && (
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 flex flex-col gap-4">
+
+          {/* 🆘 B2 — Cần Bill (ưu tiên trên cùng) */}
+          {(() => {
+            const need = cards.filter((c) => c.status === 'waiting_human')
+            const wk: Record<string, string> = { gate: '🔍 chờ duyệt', decision: '💬 agent hỏi', cost: '💰 vượt cap', loop: '🔁 lặp', stuck: '🧩 kẹt → triage', 'size-gate': '📦 task to → tách' }
+            return (
+              <div className="card p-4">
+                <div className="flex items-center gap-2 mb-3"><span className="text-base">🆘</span><span className="display text-[12px] tracking-[0.14em] text-pink">CẦN BILL</span><span className="chip !py-0 !px-1.5 text-[10px]">{need.length}</span></div>
+                {need.length === 0 ? <div className="text-[12.5px] text-inkfaint">✅ Không có gì chờ — Lucy tự xoay được.</div> : (
+                  <div className="flex flex-col gap-2">
+                    {need.map((c) => (
+                      <div key={c.id} className="rounded-lg border border-pink/25 bg-pink/5 px-3 py-2">
+                        <div className="text-[12.5px] font-semibold text-ink leading-tight">{c.title}</div>
+                        <div className="text-[11px] text-inkdim mt-0.5">{wk[c.waitKind || ''] || '⛔ chờ'} · {c.projectId}{c.pendingQuestion ? ' — ' + c.pendingQuestion.slice(0, 90) : ''}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* ⏳ B3 — Runway / nhịp đốt token */}
+          {(() => {
+            const used = data.tokenDay
+            const soft = data.tokenGuard?.status?.softLimit ?? 0
+            const d = new Date()
+            const startOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+            const hoursElapsed = Math.max(0.15, (Date.now() - startOfDay) / 3_600_000)
+            const ratePerHour = used / hoursElapsed
+            const remaining = Math.max(0, soft - used)
+            const etaH = ratePerHour > 0 && soft ? remaining / ratePerHour : Infinity
+            const pct = soft ? Math.min(100, Math.round((used / soft) * 100)) : 0
+            const overSoft = soft > 0 && used >= soft
+            const col = overSoft ? '#ff9d5c' : pct > 80 ? '#ffcf5c' : '#5fe39a'
+            return (
+              <div className="card p-4">
+                <div className="flex items-center gap-2 mb-3"><span className="text-base">⏳</span><span className="display text-[12px] tracking-[0.14em] text-cyan">RUNWAY · NHỊP ĐỐT</span></div>
+                {!soft ? <div className="text-[12.5px] text-inkfaint">Token-guard chưa cấu hình (chưa có soft-cap).</div> : (
+                  <>
+                    <div className="flex items-baseline justify-between text-[12.5px] mb-2">
+                      <span className="text-inkdim">đốt <b className="text-ink mono">{fmtTokens(Math.round(ratePerHour))}</b>/giờ hôm nay</span>
+                      <span className="text-inkdim">{overSoft ? <span style={{ color: col }}>💰 đã chạm soft-cap — đang tiết kiệm</span> : <>còn <b className="text-ink mono">{fmtTokens(remaining)}</b> tới soft · ETA <b className="text-ink mono">{etaH === Infinity ? '∞' : '~' + etaH.toFixed(1) + 'h'}</b></>}</span>
+                    </div>
+                    <div className="h-2 rounded-full overflow-hidden" style={{ background: '#ffffff14' }}><div className="h-full rounded-full" style={{ width: pct + '%', background: col }} /></div>
+                    <div className="text-[10.5px] text-inkfaint mt-1.5 mono">{fmtTokens(used)} / soft {fmtTokens(soft)} ({pct}%)</div>
+                  </>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* 🌙 B1 — Nhật ký trực đêm (autopilot) */}
+          {(() => {
+            const log = channels.filter((m) => (m.text || '').includes('🌙') || m.author === 'Lucy').sort((a, b) => b.ts - a.ts).slice(0, 14)
+            return (
+              <div className="card p-4">
+                <div className="flex items-center gap-2 mb-3"><span className="text-base">🌙</span><span className="display text-[12px] tracking-[0.14em] text-[#b78cff]">NHẬT KÝ TRỰC ĐÊM</span><span className="chip !py-0 !px-1.5 text-[10px]">{log.length}</span></div>
+                {log.length === 0 ? <div className="text-[12.5px] text-inkfaint">Chưa có hoạt động trực đêm nào gần đây.</div> : (
+                  <div className="flex flex-col gap-1.5">
+                    {log.map((m, i) => (
+                      <div key={i} className="flex gap-2 text-[12px] leading-snug">
+                        <span className="text-inkfaint mono shrink-0 text-[10.5px] pt-0.5">{new Date(m.ts).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span className="text-inkdim">{(m.text || '').replace(/^🌙 Lucy trực đêm\s*/, '')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* 🧠 B4 — Hôm nay em học gì */}
+          {(() => {
+            const today = new Date().toISOString().slice(0, 10)
+            const todayLearned = brainInbox.filter((s) => (s.created_at || '').slice(0, 10) === today)
+            const show = todayLearned.length ? todayLearned : brainInbox.slice(-6).reverse()
+            return (
+              <div className="card p-4">
+                <div className="flex items-center gap-2 mb-3"><span className="text-base">🧠</span><span className="display text-[12px] tracking-[0.14em] text-grn">{todayLearned.length ? 'HÔM NAY EM HỌC' : 'GẦN ĐÂY EM HỌC'}</span><span className="chip !py-0 !px-1.5 text-[10px]">{show.length}</span></div>
+                {show.length === 0 ? <div className="text-[12.5px] text-inkfaint">Chưa có signal mới — vault đang chờ dream gộp.</div> : (
+                  <div className="flex flex-col gap-2">
+                    {show.map((s, i) => (
+                      <div key={i} className="rounded-lg border border-line px-3 py-2">
+                        <div className="text-[12.5px] text-ink leading-snug">{s.signal === 'negative' ? '⚠️' : '✅'} {s.principle}</div>
+                        <div className="text-[10.5px] text-inkfaint mt-0.5 mono">{s.topic} · {s.agent}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
         </div>
       )}
 
