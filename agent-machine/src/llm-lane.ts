@@ -8,7 +8,7 @@ import { guardedFor, markGuarded } from './rate-guard'
 import { recordQuota } from './quota'
 import { availableKeys, markKeyCooldown, hasAnyKey, keysFor } from './cred-pool'
 
-export type ProviderId = 'openrouter' | 'groq' | 'gemini' | 'cerebras' | 'mistral' | 'opencode-zen' | 'zai'
+export type ProviderId = 'openrouter' | 'groq' | 'gemini' | 'cerebras' | 'mistral' | 'opencode-zen' | 'zai' | 'nous'
 
 export interface ProviderCfg { id: ProviderId; baseUrl: string; envKey: string; label: string }
 
@@ -21,6 +21,8 @@ export const PROVIDERS: Record<ProviderId, ProviderCfg> = {
   'mistral':      { id: 'mistral',      baseUrl: 'https://api.mistral.ai/v1',                          envKey: 'MISTRAL_API_KEY',      label: 'Mistral' },
   'opencode-zen': { id: 'opencode-zen', baseUrl: 'https://opencode.ai/zen/v1',                         envKey: 'OPENCODE_ZEN_API_KEY', label: 'OpenCode Zen' },
   'zai':          { id: 'zai',          baseUrl: 'https://api.z.ai/api/paas/v4',                       envKey: 'ZAI_API_KEY',          label: 'Z.ai' },
+  // Nous Portal = AGGREGATOR (265 model: Claude/GPT-5/DeepSeek/Nemotron/Hermes/GLM/Qwen...). Dùng credits-pool của Nous.
+  'nous':         { id: 'nous',         baseUrl: 'https://inference-api.nousresearch.com/v1',          envKey: 'NOUS_API_KEY',         label: 'Nous Portal' },
 }
 
 export type Role = 'executor' | 'reasoning' | 'fast' | 'content'
@@ -56,6 +58,15 @@ export const MODEL_CATALOG: ModelEntry[] = [
   // content — viết
   { key: 'gemini-flash',     label: 'Gemini 3 Flash',           provider: 'gemini',       model: 'gemini-3-flash-preview',     role: 'content', free: true, note: '1500 RPD' },
   { key: 'mistral-large',    label: 'Mistral Large',            provider: 'mistral',      model: 'mistral-large-latest',       role: 'content', free: true },
+  // ── Nous Portal (aggregator, credits-pool của Nous) — Claude/Nemotron/Hermes/DeepSeek qua 1 key ──
+  { key: 'nous-opus-fast',   label: 'Claude Opus 4.8 Fast (Nous)', provider: 'nous',      model: 'anthropic/claude-opus-4.8-fast', role: 'reasoning', free: false, note: 'orchestrator: Claude xịn + streaming, rẻ hơn claude -p' },
+  { key: 'nous-sonnet',      label: 'Claude Sonnet 4.6 (Nous)', provider: 'nous',         model: 'anthropic/claude-sonnet-4.6', role: 'reasoning', free: false, note: 'chat nhanh' },
+  { key: 'nous-nemotron-ultra', label: 'Nemotron 3 Ultra 550B (Nous)', provider: 'nous', model: 'nvidia/nemotron-3-ultra-550b-a55b', role: 'reasoning', free: false, ctx: '1M', note: 'router xịn nhất' },
+  { key: 'nous-nemotron-free', label: 'Nemotron 3 Ultra (Nous free)', provider: 'nous',  model: 'nvidia/nemotron-3-ultra:free', role: 'reasoning', free: true, ctx: '1M', note: 'router free' },
+  { key: 'nous-hermes-405b', label: 'Hermes 4 405B (Nous)',     provider: 'nous',         model: 'nousresearch/hermes-4-405b', role: 'reasoning', free: false, note: 'model nhà Nous' },
+  { key: 'nous-ds-v4-pro',   label: 'DeepSeek V4 Pro (Nous)',   provider: 'nous',         model: 'deepseek/deepseek-v4-pro',   role: 'reasoning', free: false, ctx: '1M' },
+  { key: 'nous-qwen3-coder', label: 'Qwen3 Coder Plus (Nous)',  provider: 'nous',         model: 'qwen/qwen3-coder-plus',      role: 'executor', free: false, note: 'agentic coding' },
+  { key: 'nous-gpt-oss-120b', label: 'GPT-OSS 120B (Nous)',     provider: 'nous',         model: 'openai/gpt-oss-120b',        role: 'fast', free: false },
 ]
 
 // Chuỗi fallback theo role (chạy lần lượt tới khi 1 cái ra content). Chỉ model đã verify.
