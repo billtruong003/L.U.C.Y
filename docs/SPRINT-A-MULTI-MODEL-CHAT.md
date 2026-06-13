@@ -46,10 +46,12 @@ nhưng chỉ executor-card dùng. Chat không chạm tới.
 **Ý chủ nhân:** trong auto mode, dùng 1 model **free nhưng giỏi hiểu context** làm ROUTER — nó đọc task rồi
 QUYẾT giao model nào thực thi. Chủ nhân **chỉ định** con router. Quyết định dựa trên benchmark (đã crawl).
 
-**Con router chỉ định (từ [MODEL-BENCHMARK.md](MODEL-BENCHMARK.md) §3):**
-- Mặc định: **`groq-gptoss-120b`** (nhanh + hiểu instruction tốt + free).
-- Nâng (task to/mơ hồ): **`or-nemotron-super`** (1M ctx + agentic reasoning).
+**Con router (từ [MODEL-BENCHMARK.md](MODEL-BENCHMARK.md) §3) — ⭐ chủ nhân lean Nemotron/DeepSeek, CHỐT SAU:**
+- Mặc định (lean chủ nhân): **`or-nemotron-super`** (1M ctx + agentic reasoning → route đúng hơn dù chậm hơn) hoặc **`ds-v4-flash-free`** (reasoning đa bước).
+- Router nhanh khi tải cao: **`groq-gptoss-120b`** (latency thấp).
 - Fallback 429: **`gemini-flash`**.
+- Đổi qua env `LUCY_ROUTER_MODEL` → không khoá cứng, chủ nhân thử con nào cũng được.
+- Lý do chấp nhận router chậm: route SAI (giao nhầm con cùi) đốt token downstream nhiều hơn 1 router-call chậm. Bù bằng cache-quyết-định-theo-loại-task.
 
 **Luồng auto mode:**
 ```

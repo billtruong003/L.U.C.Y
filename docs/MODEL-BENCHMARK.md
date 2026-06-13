@@ -42,13 +42,18 @@
 Router = đọc task → quyết "việc này giao model nào". Cần: **hiểu ngữ cảnh tốt + bám instruction + LATENCY THẤP**
 (router gọi rất thường xuyên, không được chậm/đắt). KHÔNG cần con mạnh nhất — cần con *cân bằng tốc/hiểu*.
 
-**Đề xuất (tiered, đều free):**
-1. **Router mặc định: `groq-gptoss-120b`** — GPT-OSS 120B trên Groq. Lý do: reasoning ~90% chất DeepSeek + instruction-following tốt + **Groq nhanh** → quyết định route trong ~1s, không đốt ngân sách. Hợp 90% case.
-2. **Router nâng (task to/mơ hồ): `or-nemotron-super`** — Nemotron Super free. Khi brief lớn / nhiều file / cần đọc context sâu để route đúng → nó có 1M ctx + agentic reasoning để "hiểu" task trước khi chia.
-3. **Fallback: `gemini-flash`** — khi 2 con trên nghẽn 429 (Gemini free 1500RPD riêng quota).
+**⭐ Chủ nhân lean (2026-06-13, chốt sau):** ưu tiên **`or-nemotron-super`** hoặc **`ds-v4-flash-free`** làm router —
+chấp nhận chậm/đắt hơn để router HIỂU context sâu hơn → route đúng hơn (đỡ rework downstream = tiết kiệm token thật sự).
+Hợp lý: lỗi route 1 lần (giao nhầm con cùi) đốt nhiều hơn nhiều so với 1 router call hơi chậm. Quyết định cuối: §A3 Sprint-A.
 
-> Vì sao KHÔNG để DeepSeek V4 làm router: mạnh nhưng free hay nghẽn + latency cao hơn → lãng phí cho việc "quyết nhanh".
-> Vì sao KHÔNG để Cerebras (8K ctx) làm router nâng: ctx 8K không đọc nổi task to.
+**Đề xuất tiered (đều free) — xếp theo lean chủ nhân:**
+1. **Router mặc định: `or-nemotron-super`** — 1M ctx (RULER 91.75%) + agentic reasoning RL → đọc task to/nhiều file vẫn hiểu, route chuẩn. Free trên OpenRouter.
+2. **Router thay thế: `ds-v4-flash-free`** — reasoning đa bước dẫn nhóm; hợp khi task cần suy luận chọn-chiến-lược. (bản pro mạnh hơn nếu chịu trả phí.)
+3. **Router nhanh (tải cao/latency-nhạy): `groq-gptoss-120b`** — khi cần quyết nhanh hàng loạt, hiểu instruction tốt + Groq nhanh.
+4. **Fallback 429: `gemini-flash`** — quota riêng 1500RPD.
+
+> Caveat tốc/giá: Nemotron/DeepSeek free **hay nghẽn + latency cao hơn** Groq → router chậm hơn. Bù lại route đúng hơn.
+> Giải: cache quyết-định-theo-loại-task (route 1 lần/loại, không gọi router mỗi card) → trung hoà chi phí. Cerebras (8K ctx) KHÔNG hợp router (đọc không nổi task to).
 
 ---
 
