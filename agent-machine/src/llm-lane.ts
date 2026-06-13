@@ -121,7 +121,7 @@ export function providerStatus(): { provider: ProviderId; label: string; hasKey:
 }
 
 export interface ChatMsg { role: 'system' | 'user' | 'assistant'; content: string }
-export interface LlmResult { content: string; modelKey: string; provider: ProviderId; model: string; usage?: unknown }
+export interface LlmResult { content: string; reasoning?: string; modelKey: string; provider: ProviderId; model: string; usage?: unknown }
 
 async function callOne(entry: ModelEntry, messages: ChatMsg[], maxTokens: number, timeoutMs: number): Promise<LlmResult> {
   const key = keyFor(entry.provider)
@@ -139,10 +139,13 @@ async function callOne(entry: ModelEntry, messages: ChatMsg[], maxTokens: number
       if (res.status === 429) throw new RateLimitError(`${entry.provider}/${entry.model} HTTP 429`, parseRetryAfterMs(res))
       throw new Error(`${entry.provider}/${entry.model} HTTP ${res.status}`)
     }
-    const data = await res.json() as { choices?: { message?: { content?: string } }[]; usage?: unknown }
-    const content = (data.choices?.[0]?.message?.content || '').trim()
+    const data = await res.json() as { choices?: { message?: { content?: string; reasoning_content?: string; reasoning?: string } }[]; usage?: unknown }
+    const msg = data.choices?.[0]?.message
+    const content = (msg?.content || '').trim()
     if (!content) throw new Error(`${entry.provider}/${entry.model} empty content`)
-    return { content, modelKey: entry.key, provider: entry.provider, model: entry.model, usage: data.usage }
+    // A4: reasoning provider trả riêng (DeepSeek 'reasoning_content', số provider 'reasoning') → surface để hiển thị tách.
+    const reasoning = (msg?.reasoning_content || msg?.reasoning || '').trim() || undefined
+    return { content, reasoning, modelKey: entry.key, provider: entry.provider, model: entry.model, usage: data.usage }
   } finally {
     clearTimeout(timer)
   }

@@ -10,6 +10,7 @@ import { recordEvidence, hasManualEvidenceToday } from './evidence'
 import { buildMetrics } from './metrics'
 import { buildErrorStats } from './error-stats'
 import { MODEL_CATALOG, providerStatus } from './llm-lane'
+import { chatLane, routeTask, routerModel, ROUTE_TABLE } from './chat-lane'
 
 function serializeJob(j: JobSpec) {
   // worker không cần workspace của coordinator — nó tự tạo workspace local.
@@ -95,7 +96,21 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       }
       if (url === '/token-guard') { return send(200, engine.tokenGuardStatus()) }
       // ── LÁT API (lane model-rẻ): catalog cho dropdown + trạng thái key (KHÔNG lộ key) ──
-      if (req.method === 'GET' && url === '/llm/models') return send(200, { catalog: MODEL_CATALOG, providers: providerStatus() })
+      if (req.method === 'GET' && url === '/llm/models') return send(200, { catalog: MODEL_CATALOG, providers: providerStatus(), routeTable: ROUTE_TABLE, router: routerModel() })
+      // ── Đợt A: chat qua lane model FREE (claude-path do bridge tự lo, KHÔNG qua đây) ──
+      if (req.method === 'POST' && url === '/chat-lane') {
+        const b = await readBody(req)
+        if (!b.model || !Array.isArray(b.messages)) return send(400, { error: 'cần {model, messages[]}' })
+        try { return send(200, await chatLane(b.model, b.messages, { maxTokens: b.maxTokens })) }
+        catch (e) { return send(502, { error: String(e instanceof Error ? e.message : e) }) }
+      }
+      // ── Đợt A: smart-routing — router model đọc brief → quyết role+model+needsTools ──
+      if (req.method === 'POST' && url === '/route') {
+        const b = await readBody(req)
+        if (!b.brief) return send(400, { error: 'cần {brief}' })
+        try { return send(200, await routeTask(String(b.brief), { router: b.router })) }
+        catch (e) { return send(502, { error: String(e instanceof Error ? e.message : e) }) }
+      }
       // ── METRICS: frontend-compatible shape ──
       if (req.method === 'GET' && url === '/metrics') {
         const m = buildMetrics(store, recall)

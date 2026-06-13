@@ -32,7 +32,12 @@ VAULT   = os.environ.get("LUCY_VAULT", os.path.expanduser("~/lucy/lucy-vault"))
 PERSONA = os.path.expanduser(os.environ.get("LUCY_PERSONA", "~/lucy/bridge/persona.md"))
 TIMEOUT = int(os.environ.get("LUCY_CLAUDE_TIMEOUT", "900"))          # claude có thể chạy lâu
 SESS    = os.path.expanduser("~/.lucy-bridge-sessions.json")
+PREFS   = os.path.expanduser("~/.lucy-bridge-prefs.json")   # Đợt A: model/persona/think theo chat_id
 API     = f"https://api.telegram.org/bot{TOKEN}"
+# Đợt A: coordinator (agent-machine) = nơi chạy llm-lane cho chat đa-model. Bridge gọi qua HTTP.
+COORD_URL   = os.environ.get("AM_COORD_URL", "http://127.0.0.1:8780")
+COORD_TOK   = os.environ.get("AM_TOKEN", "")
+PERSONA_DIR = os.path.expanduser(os.environ.get("LUCY_PERSONA_DIR", "~/lucy/agent-machine/config/personas"))
 
 os.makedirs(WORKDIR, exist_ok=True)
 
@@ -56,6 +61,70 @@ def _save(s):
         json.dump(s, open(SESS, "w"))
     except Exception:
         pass
+
+
+# ── Đợt A: prefs (model/persona/think) theo chat_id ──
+def _load_prefs():
+    try:
+        return json.load(open(PREFS))
+    except Exception:
+        return {}
+
+
+def _save_prefs(p):
+    try:
+        json.dump(p, open(PREFS, "w"))
+    except Exception:
+        pass
+
+
+def _coord(path, body=None):
+    """Gọi coordinator (POST nếu có body, GET nếu không). Trả dict; lỗi → {'error':...}."""
+    headers = {"x-worker-token": COORD_TOK} if COORD_TOK else {}
+    try:
+        if body is None:
+            r = requests.get(f"{COORD_URL}{path}", headers=headers, timeout=120)
+        else:
+            r = requests.post(f"{COORD_URL}{path}", json=body, headers=headers, timeout=180)
+        return r.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _catalog_keys():
+    """Key model lane hợp lệ (cache nhẹ mỗi gọi — catalog nhỏ)."""
+    d = _coord("/llm/models")
+    return [m.get("key") for m in (d.get("catalog") or []) if m.get("key")]
+
+
+def resolve_persona_text(pid):
+    """systemPrompt của persona từ config JSON (cho cả claude-path lẫn lane). None nếu không có."""
+    if not pid:
+        return None
+    try:
+        return json.load(open(os.path.join(PERSONA_DIR, f"{pid}.json"))).get("systemPrompt")
+    except Exception:
+        return None
+
+
+def list_personas():
+    try:
+        return sorted(n[:-5] for n in os.listdir(PERSONA_DIR) if n.endswith(".json"))
+    except Exception:
+        return []
+
+
+def run_lane(prompt, model_key, persona_id=None):
+    """Chat qua lane model FREE (KHÔNG tool/vault). Trả (model_thật, answer, thinking)."""
+    msgs = []
+    ptext = resolve_persona_text(persona_id)
+    if ptext:
+        msgs.append({"role": "system", "content": ptext})
+    msgs.append({"role": "user", "content": prompt})
+    data = _coord("/chat-lane", {"model": model_key, "messages": msgs})
+    if data.get("error"):
+        return None, f"❌ lane lỗi: {data['error']}", None
+    return data.get("model"), (data.get("answer") or "(rỗng)"), data.get("thinking")
 
 
 def send(chat_id, text):
@@ -143,12 +212,26 @@ def reply(chat_id, text):
     send_document(chat_id, path, caption="Lucy")
 
 
-def run_claude(prompt, session_id, model="sonnet"):
-    """Chạy claude -p, trả (session_id_mới, text). model: sonnet (nhanh, mặc định) | opus (sâu, chậm)."""
+def run_claude(prompt, session_id, model="sonnet", persona_text=None):
+    """Chạy claude -p, trả (session_id_mới, text). model: sonnet (nhanh, mặc định) | opus (sâu, chậm).
+    persona_text: nếu set → overlay persona (Lucy base + role) qua file tạm (Đợt A /persona)."""
     cmd = [CLAUDE, "-p", prompt, "--output-format", "json",
            "--permission-mode", "bypassPermissions", "--model", model]
-    if os.path.exists(PERSONA):
-        cmd += ["--append-system-prompt-file", PERSONA]
+    persona_file = PERSONA
+    if persona_text:
+        base = ""
+        try:
+            base = open(PERSONA).read() if os.path.exists(PERSONA) else ""
+        except Exception:
+            base = ""
+        persona_file = os.path.join(WORKDIR, f".persona-overlay-{os.getpid()}.md")
+        try:
+            with open(persona_file, "w", encoding="utf-8") as f:
+                f.write(base + "\n\n--- VAI HIỆN TẠI (persona overlay) ---\n" + persona_text)
+        except Exception:
+            persona_file = PERSONA
+    if os.path.exists(persona_file):
+        cmd += ["--append-system-prompt-file", persona_file]
     if os.path.isdir(VAULT):
         cmd += ["--add-dir", VAULT]    # não vault luôn trong tầm mắt (persona dạy ghi vào đâu)
     if session_id:
@@ -282,9 +365,11 @@ def handle(msg, sessions):
         return
     if text == "/info":
         sid = sessions.get(str(chat_id))
+        _pf = _load_prefs().get(str(chat_id), {})
         send(chat_id,
              "🔎 Lucy đang chạy bằng gì:\n"
              "• Engine: claude -p (Claude Code CLI) — TRỰC TIẾP, KHÔNG qua Hermes\n"
+             f"• Chat model (pref): {_pf.get('model', 'claude:sonnet')} · persona: {_pf.get('persona') or 'Lucy'} · think: {'on' if _pf.get('think') else 'off'}\n"
              f"• Model: {LAST_MODEL or 'chưa rõ (gửi 1 tin trước đã)'}\n"
              f"• claude CLI: {CLAUDE_VER}\n"
              "• Quyền: bypassPermissions (em tự chạy tool: Read/Write/Bash/Web…)\n"
@@ -318,18 +403,106 @@ def handle(msg, sessions):
         threading.Thread(target=orch_run, args=(chat_id, goal, m), daemon=True).start()
         return
 
-    model = "sonnet"                                    # mặc định NHANH
+    # ── Đợt A: /model — đổi model chat (claude:sonnet|claude:opus | <lane-key> | auto) ──
+    prefs = _load_prefs()
+    cur = prefs.get(str(chat_id), {})
+    if text.startswith("/model"):
+        arg = text[6:].strip()
+        if not arg:
+            keys = _catalog_keys()
+            now = cur.get("model", "claude:sonnet")
+            send(chat_id,
+                 f"🧬 Model hiện tại: *{now}*\n\nĐổi: `/model <key>`\n"
+                 "• `claude:sonnet` / `claude:opus` — não thật (tool+vault), mặc định\n"
+                 "• `auto` — smart-router tự chọn model theo task\n"
+                 "• lane (chat thuần, KHÔNG tool): " + (", ".join(keys) if keys else "(coordinator chưa sẵn)"))
+            return
+        if arg not in (["auto", "claude:sonnet", "claude:opus", "sonnet", "opus"] + _catalog_keys()):
+            send(chat_id, f"❌ Key lạ: `{arg}`. Gõ `/model` để xem danh sách.")
+            return
+        if arg in ("sonnet", "opus"):
+            arg = "claude:" + arg
+        cur["model"] = arg
+        prefs[str(chat_id)] = cur; _save_prefs(prefs)
+        note = "có tool+vault (não thật)" if arg.startswith("claude") else ("smart-router chọn" if arg == "auto" else "chat thuần, KHÔNG sửa file/đọc vault")
+        send(chat_id, f"✅ Đã đổi model → *{arg}* ({note}).")
+        return
+    # ── Đợt A: /persona — đổi vai ──
+    if text.startswith("/persona"):
+        arg = text[8:].strip()
+        if not arg:
+            now = cur.get("persona") or "(Lucy mặc định)"
+            send(chat_id, f"🎭 Persona hiện tại: *{now}*\nĐổi: `/persona <id>` · bỏ: `/persona default`\nCó: " + ", ".join(list_personas()))
+            return
+        if arg in ("default", "lucy", "none"):
+            cur.pop("persona", None); prefs[str(chat_id)] = cur; _save_prefs(prefs)
+            send(chat_id, "✅ Về persona Lucy mặc định.")
+            return
+        if arg not in list_personas():
+            send(chat_id, f"❌ Không có persona `{arg}`. Có: " + ", ".join(list_personas()))
+            return
+        cur["persona"] = arg; prefs[str(chat_id)] = cur; _save_prefs(prefs)
+        send(chat_id, f"✅ Đổi vai → *{arg}* (overlay lên Lucy).")
+        return
+    # ── Đợt A: /think on|off — hiện block suy nghĩ (lane model có reasoning) ──
+    if text.startswith("/think"):
+        arg = text[6:].strip().lower()
+        if arg in ("on", "1", "bật"):
+            cur["think"] = True
+        elif arg in ("off", "0", "tắt"):
+            cur["think"] = False
+        else:
+            send(chat_id, f"💭 Hiện thinking: {'BẬT' if cur.get('think') else 'tắt'}. Gõ `/think on` hoặc `/think off`.")
+            return
+        prefs[str(chat_id)] = cur; _save_prefs(prefs)
+        send(chat_id, f"✅ Thinking → {'BẬT' if cur['think'] else 'tắt'}.")
+        return
+
+    pmodel = cur.get("model", "claude:sonnet")          # mặc định = não thật, sonnet
+    ppersona = cur.get("persona")
+    pthink = bool(cur.get("think"))
     low = text.lower()
+    force_opus = False
     if low.startswith("!o ") or low.startswith("!opus "):
-        model = "opus"                                   # việc sâu/khó → Opus (chậm hơn)
+        force_opus = True                                # ép Opus 1 lượt (đè pref)
         text = text.split(" ", 1)[1].strip() if " " in text else ""
     if not text:
         return
+
+    # ── Đợt A A3: auto = smart-router quyết claude(tool) vs lane(free) ──
+    if pmodel == "auto" and not force_opus:
+        dec = _coord("/route", {"brief": text})
+        if dec.get("error") or dec.get("needsTools", True):
+            why = dec.get("reason", "cần tool / router lỗi → an toàn về claude")
+            send(chat_id, f"🧭 auto → claude (não thật): {why}")
+            pmodel = "claude:sonnet"
+        else:
+            mk = dec.get("modelKey")
+            send(chat_id, f"🧭 auto → lane *{mk}* ({dec.get('role')}): {dec.get('reason','')}")
+            pmodel = mk
+
+    # ── LANE-PATH: model free, chat thuần (không tool) ──
+    if not pmodel.startswith("claude") and not force_opus:
+        mid = send_id(chat_id, f"🤔 Em xử lý ạ… (lane {pmodel})")
+        stop = threading.Event()
+        threading.Thread(target=_heartbeat, args=(chat_id, mid, stop, pmodel), daemon=True).start()
+        try:
+            real, answer, thinking = run_lane(text, pmodel, ppersona)
+        finally:
+            stop.set()
+        edit(chat_id, mid, f"✅ Xong (lane {real or pmodel}).")
+        if pthink and thinking:
+            send(chat_id, "💭 (suy nghĩ)\n" + thinking[:1500])
+        reply(chat_id, answer)
+        return
+
+    # ── CLAUDE-PATH: não thật (tool+vault), giữ phiên --resume ──
+    model = "opus" if force_opus else pmodel.split(":")[-1]
     mid = send_id(chat_id, f"🤔 Em xử lý ạ… ({model})")
     stop = threading.Event()
     threading.Thread(target=_heartbeat, args=(chat_id, mid, stop, model), daemon=True).start()
     try:
-        new_sid, result = run_claude(text, sessions.get(str(chat_id)), model)
+        new_sid, result = run_claude(text, sessions.get(str(chat_id)), model, resolve_persona_text(ppersona))
     finally:
         stop.set()
     edit(chat_id, mid, f"✅ Xong ({model}).")
