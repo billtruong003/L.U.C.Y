@@ -628,8 +628,23 @@ export class Engine {
   private distill(c: Card) {
     writeSessionNoteSafe(c) // deterministic, sync, rẻ
     distillCardSafe(c)
-      .then((sigs) => { if (sigs.length) post(this.store, threadOf(c.id), 'engine', 'system', `🧠 học nền: ${sigs.length} signal (${sigs.map((s) => s.topic.split('/')[1]).join(', ')})`, c.id) })
+      .then((sigs) => {
+        if (sigs.length) post(this.store, threadOf(c.id), 'engine', 'system', `🧠 học nền: ${sigs.length} signal (${sigs.map((s) => s.topic.split('/')[1]).join(', ')})`, c.id)
+        // C4 win-lesson: signal POSITIVE từ distill = cách làm tốt → ghi vào não nghề các persona EXECUTOR đã chạy card này.
+        // (negative đã được wire ở rework). Dedup trong appendAgentLesson chặn nhồi.
+        const wins = sigs.filter((s) => s.signal === 'positive')
+        if (wins.length) for (const pid of this.executorPersonasOf(c)) for (const w of wins) appendAgentLesson(pid, w.principle, 'win')
+      })
       .catch(() => { /* nuốt — học hỏng không được làm gãy gì */ })
+  }
+
+  // persona kind='executor' đã chạy ≥1 stage của card (từ pipeline) → đối tượng nhận win-lesson kỹ thuật.
+  private executorPersonasOf(c: Card): string[] {
+    const pipe = this.store.pipelines.get(c.pipelineId)
+    if (!pipe) return []
+    const ids = new Set<string>()
+    for (const st of pipe.stages) { const p = this.store.personas.get(st.personaId); if (p?.kind === 'executor') ids.add(p.id) }
+    return [...ids]
   }
 
   // ── C2 Stuck-detector ──

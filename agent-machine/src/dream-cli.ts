@@ -1,9 +1,11 @@
 // dream-cli — chạy "gộp đêm" tay/cron. LUCY_VAULT trỏ tới lucy-vault.
-//   npm run dream            # gộp signal → preference, regen active.md (idempotent)
+//   npm run dream            # gộp signal → preference (regen active.md) + đúc kết não nghề per-agent (C4)
 import path from 'node:path'
 import { dream } from './dream'
+import { consolidateAllAgentBrainsSafe } from './agent-brain-dream'
 
 const vault = process.env.LUCY_VAULT || path.resolve(process.cwd(), '..', 'lucy-vault')
+process.env.LUCY_VAULT = vault // agent-brain-dream đọc vault qua env → đảm bảo set
 const s = dream(vault)
 if (!s.changed && !s.contradictions.length) {
   console.log(`😴 dream: không có gì mới (no-op). ${s.activePrefs} preference đang sống.`)
@@ -18,3 +20,10 @@ if (!s.changed && !s.contradictions.length) {
   if (s.expiredSignals) console.log(`  🧹 dọn ${s.expiredSignals} signal quá hạn (inbox hygiene)`)
   console.log(`  → ${s.processedSignals} signal đã xử lý · ${s.activePrefs} preference đang sống`)
 }
+
+// C4: đúc kết não nghề từng agent (gộp bài thô → rule class-level). Async, fire-safe — không có claude/vault = no-op.
+consolidateAllAgentBrainsSafe()
+  .then((done) => {
+    if (done.length) console.log(`🧠 đúc kết não nghề: ${done.map((d) => `${d.personaId} (${d.before}→${d.after})`).join(', ')}`)
+  })
+  .catch(() => { /* nuốt — đúc kết hỏng không được làm gãy dream */ })

@@ -8,6 +8,8 @@ import path from 'node:path'
 
 const MAX_LESSONS = 12       // giữ N bài gần nhất → prompt không phình, cache-parity ổn
 const MAX_LESSON_LEN = 220
+export const CONSOLIDATE_THRESHOLD = 16 // ≥ N bài thô → đáng "dream" gộp lại thành rule class-level
+export const MAX_CONSOLIDATED = 8        // sau gộp giữ ≤ N rule đúc kết
 
 function agentsDir(): string | null {
   const vault = process.env.LUCY_VAULT
@@ -59,4 +61,40 @@ export function appendAgentLesson(personaId: string, lesson: string, kind: 'miss
     const header = `# Não nghề — \`${personaId}\`\n\n> Máy quản (engine ghi từ review/done). Lần sau persona này chạy sẽ tự nạp ${MAX_LESSONS} bài gần nhất.\n\n`
     fs.writeFileSync(f, header + kept.join('\n') + '\n')
   } catch { /* ghi não không critical — nuốt lỗi để không hỏng card */ }
+}
+
+// ── C4: dream-per-persona — đọc bài thô + ghi đè bằng rule đã đúc kết ──
+
+/** Số bài học thô đang lưu (để quyết có cần consolidate không). */
+export function lessonCount(personaId: string): number {
+  const f = fileFor(personaId)
+  if (!f) return 0
+  try { return fs.readFileSync(f, 'utf8').split('\n').filter((l) => l.trim().startsWith('- ')).length } catch { return 0 }
+}
+
+/** Danh sách persona đã có file não (cho dream quét toàn bộ). */
+export function listAgentBrains(): string[] {
+  const dir = agentsDir()
+  if (!dir) return []
+  try { return fs.readdirSync(dir).filter((n) => n.endsWith('.md')).map((n) => n.slice(0, -3)).filter((id) => /^[a-z0-9_-]+$/i.test(id)) } catch { return [] }
+}
+
+/** Bài học thô (cả miss/win) làm input cho consolidate — bỏ tiền tố markdown, giữ nhãn+nội dung. */
+export function readRawLessons(personaId: string): string[] {
+  const f = fileFor(personaId)
+  if (!f) return []
+  try {
+    return fs.readFileSync(f, 'utf8').split('\n').filter((l) => l.trim().startsWith('- ')).map((l) => l.replace(/^- /, '').trim())
+  } catch { return [] }
+}
+
+/** Ghi đè não bằng các rule ĐÃ ĐÚC KẾT (class-level). Thay bài thô lẻ tẻ → giảm phình, tăng chất. */
+export function writeConsolidated(personaId: string, rules: string[], day = new Date().toISOString().slice(0, 10)): boolean {
+  const f = fileFor(personaId)
+  if (!f) return false
+  const clean2 = rules.map((r) => clean(r)).filter((r) => r.length >= 8).slice(0, MAX_CONSOLIDATED)
+  if (!clean2.length) return false // không có gì để ghi → giữ nguyên bài thô, không xoá trắng
+  const lines = clean2.map((r) => `- [🧠 đúc kết · ${day}] ${r}`)
+  const header = `# Não nghề — \`${personaId}\`\n\n> Máy quản. Đã đúc kết ${day} (${clean2.length} rule class-level từ bài thô). Lần sau persona tự nạp.\n\n`
+  try { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, header + lines.join('\n') + '\n'); return true } catch { return false }
 }
