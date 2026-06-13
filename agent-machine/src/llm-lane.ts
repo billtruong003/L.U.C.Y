@@ -4,6 +4,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import { guardedFor, markGuarded } from './rate-guard'
+import { recordQuota } from './quota'
+import { availableKeys, markKeyCooldown, hasAnyKey, keysFor } from './cred-pool'
 
 export type ProviderId = 'openrouter' | 'groq' | 'gemini' | 'cerebras' | 'mistral' | 'opencode-zen' | 'zai'
 
@@ -107,8 +110,7 @@ function loadEnvFile(): void {
 
 export function keyFor(provider: ProviderId): string | undefined {
   loadEnvFile()
-  const v = process.env[PROVIDERS[provider].envKey]
-  return v && v.length > 0 ? v : undefined
+  return keysFor(provider)[0] // B2: key đầu pool (đa key / CSV). undefined nếu không cấu hình.
 }
 
 export function entryByKey(key: string): ModelEntry | undefined {
@@ -124,31 +126,38 @@ export interface ChatMsg { role: 'system' | 'user' | 'assistant'; content: strin
 export interface LlmResult { content: string; reasoning?: string; modelKey: string; provider: ProviderId; model: string; usage?: unknown }
 
 async function callOne(entry: ModelEntry, messages: ChatMsg[], maxTokens: number, timeoutMs: number): Promise<LlmResult> {
-  const key = keyFor(entry.provider)
-  if (!key) throw new Error(`no key for ${entry.provider}`)
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
-  try {
-    const res = await fetch(`${PROVIDERS[entry.provider].baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: entry.model, messages, max_tokens: maxTokens }),
-      signal: ctrl.signal,
-    })
-    if (!res.ok) {
-      if (res.status === 429) throw new RateLimitError(`${entry.provider}/${entry.model} HTTP 429`, parseRetryAfterMs(res))
-      throw new Error(`${entry.provider}/${entry.model} HTTP ${res.status}`)
+  // B2: thử lần lượt các key còn dùng được; key nào 429 → cooldown + sang key kế; hết key 429 → RateLimitError.
+  const keys = availableKeys(entry.provider)
+  if (!keys.length) throw new Error(`no key for ${entry.provider}`)
+  let lastRate: RateLimitError | null = null
+  for (const key of keys) {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+    try {
+      const res = await fetch(`${PROVIDERS[entry.provider].baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: entry.model, messages, max_tokens: maxTokens }),
+        signal: ctrl.signal,
+      })
+      if (!res.ok) {
+        if (res.status === 429) { const ra = parseRetryAfterMs(res); markKeyCooldown(entry.provider, key, ra); lastRate = new RateLimitError(`${entry.provider}/${entry.model} HTTP 429`, ra); continue }
+        if (res.status === 401 || res.status === 403) { markKeyCooldown(entry.provider, key, 30 * 60_000) } // key hỏng → nghỉ dài, thử key khác
+        throw new Error(`${entry.provider}/${entry.model} HTTP ${res.status}`)
+      }
+      recordQuota(entry.provider, res.headers) // B3: ghi quota từ header (sau khi chắc res.ok)
+      const data = await res.json() as { choices?: { message?: { content?: string; reasoning_content?: string; reasoning?: string } }[]; usage?: unknown }
+      const msg = data.choices?.[0]?.message
+      const content = (msg?.content || '').trim()
+      if (!content) throw new Error(`${entry.provider}/${entry.model} empty content`)
+      // A4: reasoning provider trả riêng (DeepSeek 'reasoning_content', số provider 'reasoning') → surface để hiển thị tách.
+      const reasoning = (msg?.reasoning_content || msg?.reasoning || '').trim() || undefined
+      return { content, reasoning, modelKey: entry.key, provider: entry.provider, model: entry.model, usage: data.usage }
+    } finally {
+      clearTimeout(timer)
     }
-    const data = await res.json() as { choices?: { message?: { content?: string; reasoning_content?: string; reasoning?: string } }[]; usage?: unknown }
-    const msg = data.choices?.[0]?.message
-    const content = (msg?.content || '').trim()
-    if (!content) throw new Error(`${entry.provider}/${entry.model} empty content`)
-    // A4: reasoning provider trả riêng (DeepSeek 'reasoning_content', số provider 'reasoning') → surface để hiển thị tách.
-    const reasoning = (msg?.reasoning_content || msg?.reasoning || '').trim() || undefined
-    return { content, reasoning, modelKey: entry.key, provider: entry.provider, model: entry.model, usage: data.usage }
-  } finally {
-    clearTimeout(timer)
   }
+  throw lastRate ?? new Error(`${entry.provider}/${entry.model}: mọi key 401/403`)
 }
 
 export interface CallOpts { maxTokens?: number; timeoutMs?: number; fallback?: boolean }
@@ -178,13 +187,16 @@ export async function callLLM(modelKeyOrRole: string, messages: ChatMsg[], opts:
   for (const k of chain) {
     const entry = entryByKey(k)
     if (!entry || !keyFor(entry.provider)) { errors.push(`${k}: no entry/key`); continue }
+    // B1: provider đang bị rate-guard (process khác đã ăn 429) → KHÔNG gọi, coi như rate-limited.
+    const guarded = guardedFor(entry.provider)
+    if (guarded > 0) { errors.push(`${k}: rate-guard còn ${Math.round(guarded / 1000)}s`); rateLimitedCount++; rateLimitAfters.push(guarded); continue }
     attempted++
     try {
       return await callOne(entry, messages, maxTokens, timeoutMs)
     } catch (e) {
       const msg = String(e instanceof Error ? e.message : e)
       errors.push(msg)
-      if (e instanceof RateLimitError) { rateLimitedCount++; rateLimitAfters.push(e.retryAfterMs) }
+      if (e instanceof RateLimitError) { rateLimitedCount++; rateLimitAfters.push(e.retryAfterMs); markGuarded(entry.provider, e.retryAfterMs, msg) }
     }
   }
   // Có ÍT NHẤT 1 provider 429 + cả chuỗi fail → PARK (back-off), KHÔNG fail.
@@ -203,30 +215,36 @@ export interface RawMsg { role: 'system' | 'user' | 'assistant' | 'tool'; conten
 export interface RawResult { message: RawMsg; usage?: { prompt_tokens?: number; completion_tokens?: number }; modelKey: string; provider: ProviderId; model: string }
 
 async function callOneRaw(entry: ModelEntry, messages: RawMsg[], tools: ToolDef[] | undefined, maxTokens: number, timeoutMs: number): Promise<RawResult> {
-  const key = keyFor(entry.provider)
-  if (!key) throw new Error(`no key for ${entry.provider}`)
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
-  try {
-    const body: Record<string, unknown> = { model: entry.model, messages, max_tokens: maxTokens }
-    if (tools && tools.length) { body.tools = tools; body.tool_choice = 'auto' }
-    const res = await fetch(`${PROVIDERS[entry.provider].baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    })
-    if (!res.ok) {
-      if (res.status === 429) throw new RateLimitError(`${entry.provider}/${entry.model} HTTP 429`, parseRetryAfterMs(res))
-      throw new Error(`${entry.provider}/${entry.model} HTTP ${res.status}`)
+  const keys = availableKeys(entry.provider) // B2
+  if (!keys.length) throw new Error(`no key for ${entry.provider}`)
+  let lastRate: RateLimitError | null = null
+  for (const key of keys) {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+    try {
+      const body: Record<string, unknown> = { model: entry.model, messages, max_tokens: maxTokens }
+      if (tools && tools.length) { body.tools = tools; body.tool_choice = 'auto' }
+      const res = await fetch(`${PROVIDERS[entry.provider].baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      })
+      if (!res.ok) {
+        if (res.status === 429) { const ra = parseRetryAfterMs(res); markKeyCooldown(entry.provider, key, ra); lastRate = new RateLimitError(`${entry.provider}/${entry.model} HTTP 429`, ra); continue }
+        if (res.status === 401 || res.status === 403) { markKeyCooldown(entry.provider, key, 30 * 60_000) }
+        throw new Error(`${entry.provider}/${entry.model} HTTP ${res.status}`)
+      }
+      recordQuota(entry.provider, res.headers) // B3
+      const data = await res.json() as { choices?: { message?: RawMsg }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } }
+      const message = data.choices?.[0]?.message
+      if (!message) throw new Error(`${entry.provider}/${entry.model} no message`)
+      return { message, usage: data.usage, modelKey: entry.key, provider: entry.provider, model: entry.model }
+    } finally {
+      clearTimeout(timer)
     }
-    const data = await res.json() as { choices?: { message?: RawMsg }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } }
-    const message = data.choices?.[0]?.message
-    if (!message) throw new Error(`${entry.provider}/${entry.model} no message`)
-    return { message, usage: data.usage, modelKey: entry.key, provider: entry.provider, model: entry.model }
-  } finally {
-    clearTimeout(timer)
   }
+  throw lastRate ?? new Error(`${entry.provider}/${entry.model}: mọi key 401/403`)
 }
 
 /** Như callLLM nhưng GIỮ tool_calls (agentic loop). Mỗi lượt tự fallback model nếu fail. */
@@ -249,13 +267,16 @@ export async function callLLMRaw(modelKeyOrRole: string, messages: RawMsg[], opt
   for (const k of chain) {
     const entry = entryByKey(k)
     if (!entry || !keyFor(entry.provider)) { errors.push(`${k}: no entry/key`); continue }
+    // B1: rate-guard cross-process
+    const guarded = guardedFor(entry.provider)
+    if (guarded > 0) { errors.push(`${k}: rate-guard còn ${Math.round(guarded / 1000)}s`); rateLimitedCount++; rateLimitAfters.push(guarded); continue }
     attempted++
     try {
       return await callOneRaw(entry, messages, opts.tools, maxTokens, timeoutMs)
     } catch (e) {
       const msg = String(e instanceof Error ? e.message : e)
       errors.push(msg)
-      if (e instanceof RateLimitError) { rateLimitedCount++; rateLimitAfters.push(e.retryAfterMs) }
+      if (e instanceof RateLimitError) { rateLimitedCount++; rateLimitAfters.push(e.retryAfterMs); markGuarded(entry.provider, e.retryAfterMs, msg) }
     }
   }
   // Có ÍT NHẤT 1 provider 429 + cả chuỗi fail → PARK (back-off), KHÔNG fail.

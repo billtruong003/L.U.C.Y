@@ -66,6 +66,7 @@ export type Card = {
   sessions?: Record<string, string> // CACHE: claude session_id theo persona → rework dùng --resume, KHỎI quét lại project (đỡ token)
   cost: Cost
   sizeGateBypassed?: true // C3: human đã approve bypass size-gate → tick/claim bỏ qua check
+  quality?: 'fast' | 'thorough' // B4: 'thorough' = nâng cap (turn/visit/cost) cày tới hoàn thiện, vẫn chịu token-guard hard
   stageVisits?: Record<string, number> // loop-breaker: đếm số lần vào mỗi stage
   artifacts?: { files?: string[]; diffstat?: string; stage?: string; isRepo?: boolean } // báo cáo: file đã tạo/đổi ở stage gần nhất
   history: { ts: number; stage: string; event: string; detail?: string }[]

@@ -62,7 +62,7 @@ export class Engine {
     this.stuckHandler = opts.stuckHandler ?? triageCard
   }
 
-  createCard(title: string, brief: string, pipelineId: string, parentId?: string, depth = 0, projectId = 'default', deferred = false, modelOverride?: 'sonnet' | 'opus' | 'laneModel', blockedBy: string[] = [], personaId?: string): Card {
+  createCard(title: string, brief: string, pipelineId: string, parentId?: string, depth = 0, projectId = 'default', deferred = false, modelOverride?: 'sonnet' | 'opus' | 'laneModel', blockedBy: string[] = [], personaId?: string, quality?: 'fast' | 'thorough'): Card {
     const id = uid('card')
     const deps = blockedBy.filter((b) => this.store.getCard(b)) // chỉ giữ dep có thật
     // TokenGuard: hard limit → card không vào hàng, chờ Bill
@@ -71,6 +71,7 @@ export class Engine {
     const status: Card['status'] = hardBlocked ? 'waiting_human' : deferred ? 'backlog' : deps.length ? 'blocked' : 'queued'
     const card: Card = {
       id, title, brief, pipelineId, projectId, stageIndex: 0, status, modelOverride, personaOverride: personaId || undefined,
+      quality: quality === 'thorough' ? 'thorough' : undefined,
       waitKind: hardBlocked ? 'decision' : undefined,
       pendingQuestion: hardBlocked ? `⛔ Token day hard limit: đã dùng ${tokenOk!.used.toLocaleString()} / ${tokenOk!.hardLimit.toLocaleString()} tokens. Bill xoá limit hoặc đợi ngày mới.` : undefined,
       blockKind: deps.length ? 'dep' : undefined,
@@ -326,6 +327,11 @@ export class Engine {
 
   private working(): number { return this.inFlight.size }
 
+  // ── B4 quality-first: card 'thorough' được nâng cap để cày tới hoàn thiện (token-guard hard vẫn là trần tuyệt đối) ──
+  private thorough(c: Card): boolean { return c.quality === 'thorough' }
+  private effMaxVisits(c: Card): number { return this.thorough(c) ? this.maxStageVisits * 2 + 2 : this.maxStageVisits }
+  private effCardCap(c: Card): number { return this.thorough(c) && this.perCardMaxUsd !== Infinity ? this.perCardMaxUsd * 3 : this.perCardMaxUsd }
+
   // ── DISPATCH: tìm card actionable -> đẩy vào queue (mark working). KHÔNG chạy ở đây. ──
   tick(): number {
     const b = this.budget.check()
@@ -376,7 +382,7 @@ export class Engine {
       // guardrail: loop-breaker
       c.stageVisits = c.stageVisits || {}
       c.stageVisits[stage.id] = (c.stageVisits[stage.id] || 0) + 1
-      if (c.stageVisits[stage.id] > this.maxStageVisits) {
+      if (c.stageVisits[stage.id] > this.effMaxVisits(c)) { // B4: thorough → cho nhiều vòng hơn
         // loop-cap: KHÔNG fail (mất việc) cũng KHÔNG lặp tiếp (đốt token) → HỎI người HOẶC triage tự động.
         // C2 Stuck-detector: launch triage trước, nếu handler không xử lý thì fallback về loop-cap cũ
         if (!this.stuckHandled.has(c.id) && !this.stuckPending.has(c.id)) {
@@ -477,6 +483,8 @@ export class Engine {
         return null
       }
     }
+    // B4 quality-first: card 'thorough' → cho agent nhiều turn hơn (cày sâu, chấp nhận đốt token).
+    if (this.thorough(c)) persona = { ...persona, maxTurns: (persona.maxTurns ?? 12) * 2 }
     // repo: nếu project có repoUrl -> worker clone & làm việc trong repo thật (R2)
     const repo = proj?.repoUrl ? { url: proj.repoUrl, branch: proj.branch, projectId: proj.id } : undefined
     return { jobId: j.id, cardId: c.id, card: c, stage, persona, repo }
@@ -534,9 +542,9 @@ export class Engine {
     }
 
     // guardrail: per-card cost cap
-    if (c.cost.usd >= this.perCardMaxUsd) {
+    if (c.cost.usd >= this.effCardCap(c)) { // B4: thorough → cap cao hơn (vẫn chặn token-guard hard)
       c.status = 'waiting_human'; c.waitKind = 'cost'
-      c.pendingQuestion = `Card vượt cap chi phí $${this.perCardMaxUsd.toFixed(2)} (đã $${c.cost.usd.toFixed(3)}) — duyệt để chạy tiếp?`
+      c.pendingQuestion = `Card vượt cap chi phí $${this.effCardCap(c).toFixed(2)} (đã $${c.cost.usd.toFixed(3)}) — duyệt để chạy tiếp?`
       post(this.store, threadOf(c.id), 'engine', 'decision', `⛔ COST CAP: ${c.pendingQuestion}`, c.id)
       this.store.putCard(c)
       return

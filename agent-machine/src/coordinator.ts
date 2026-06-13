@@ -11,6 +11,8 @@ import { buildMetrics } from './metrics'
 import { buildErrorStats } from './error-stats'
 import { MODEL_CATALOG, providerStatus } from './llm-lane'
 import { chatLane, routeTask, routerModel, ROUTE_TABLE } from './chat-lane'
+import { guardSnapshot } from './rate-guard'
+import { quotaSnapshot } from './quota'
 
 function serializeJob(j: JobSpec) {
   // worker không cần workspace của coordinator — nó tự tạo workspace local.
@@ -67,7 +69,15 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
             if (persona && !persona.laneModel) return send(400, { error: `Persona '${persona.name}' không có laneModel — bỏ chọn 'rẻ' hoặc chọn agent có lane.` })
           }
         }
-        return send(200, { card: engine.createCard(b.title, b.brief, b.pipelineId, undefined, 0, b.projectId || 'default', !!b.deferred, mdl, Array.isArray(b.blockedBy) ? b.blockedBy : [], b.personaId || undefined) })
+        const quality = b.quality === 'thorough' ? 'thorough' : undefined // B4
+        return send(200, { card: engine.createCard(b.title, b.brief, b.pipelineId, undefined, 0, b.projectId || 'default', !!b.deferred, mdl, Array.isArray(b.blockedBy) ? b.blockedBy : [], b.personaId || undefined, quality) })
+      }
+      // B4: bật/tắt quality-first cho card đang chạy
+      if (req.method === 'POST' && url === '/card/quality') {
+        const b = await readBody(req); const c = store.getCard(b.cardId)
+        if (!c) return send(404, { error: 'card không tồn tại' })
+        c.quality = b.quality === 'thorough' ? 'thorough' : undefined; store.putCard(c)
+        return send(200, { ok: true, quality: c.quality || 'fast' })
       }
       if (req.method === 'POST' && url === '/card/remove') { const b = await readBody(req); return send(200, { ok: engine.removeCard(b.cardId) }) }
       if (req.method === 'POST' && url === '/card/activate') { const b = await readBody(req); engine.activate(b.cardId); return send(200, { ok: true }) }
@@ -97,6 +107,8 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       if (url === '/token-guard') { return send(200, engine.tokenGuardStatus()) }
       // ── LÁT API (lane model-rẻ): catalog cho dropdown + trạng thái key (KHÔNG lộ key) ──
       if (req.method === 'GET' && url === '/llm/models') return send(200, { catalog: MODEL_CATALOG, providers: providerStatus(), routeTable: ROUTE_TABLE, router: routerModel() })
+      // B1/B3: trạng thái rate-guard (provider đang bị limit) + quota free-tier còn lại
+      if (req.method === 'GET' && url === '/llm/guard') return send(200, { guarded: guardSnapshot(), quota: quotaSnapshot() })
       // ── Đợt A: chat qua lane model FREE (claude-path do bridge tự lo, KHÔNG qua đây) ──
       if (req.method === 'POST' && url === '/chat-lane') {
         const b = await readBody(req)
