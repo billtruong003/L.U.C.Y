@@ -284,6 +284,24 @@ export default function Dashboard() {
               </div>
             )}
 
+            {data.tokenGuard?.configured && data.tokenGuard.status && (() => {
+              const g = data.tokenGuard!.status!
+              const col = g.hard ? '#ff6b6b' : g.soft ? '#ff9d5c' : '#5fe39a'
+              const label = g.hard ? '⛔ DỪNG (chạm hard limit)' : g.soft ? '💰 TIẾT KIỆM (đã hạ executor rẻ)' : '✅ Bình thường'
+              const pct = Math.min(100, Math.round((g.used / Math.max(1, g.hardLimit)) * 100))
+              return (
+                <div className="rounded-xl px-4 py-2.5 border" style={{ borderColor: col + '66', background: col + '12' }}>
+                  <div className="flex items-center justify-between text-[12.5px]">
+                    <span className="font-semibold" style={{ color: col }}>Token-guard hôm nay: {label}</span>
+                    <span className="mono text-[11px] text-inkdim">{fmtTokens(g.used)} / mềm {fmtTokens(g.softLimit)} · cứng {fmtTokens(g.hardLimit)}</span>
+                  </div>
+                  <div className="mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: '#ffffff14' }}>
+                    <div className="h-full rounded-full" style={{ width: pct + '%', background: col }} />
+                  </div>
+                </div>
+              )
+            })()}
+
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
                 { label: 'Token / ngày', value: fmtTokens(data.tokenDay), sub: 'in + out hôm nay', accent: false },

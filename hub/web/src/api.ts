@@ -52,7 +52,7 @@ export type AmCard = {
   personaOverride?: string; modelOverride?: string
   parentId?: string; cost: { usd: number }; updatedAt?: number; reviewNotes?: string[]
   workspace?: string; artifacts?: { files?: string[]; diffstat?: string; stage?: string; isRepo?: boolean }
-  lastSummary?: string; waitKind?: 'gate' | 'decision' | 'cost' | 'loop'; blockKind?: 'dep' | 'delegate'
+  lastSummary?: string; waitKind?: 'gate' | 'decision' | 'cost' | 'loop' | 'stuck' | 'size-gate'; blockKind?: 'dep' | 'delegate'; retryAfter?: number
   history?: { ts: number; stage: string; event: string; detail?: string }[]
   reports?: { stage: string; persona: string; text: string; ts: number }[] // C1: narrative đầy đủ agent đã làm gì mỗi stage
 }
@@ -127,6 +127,7 @@ export type MetricsCostEntry = { model: string; usd: number; tokens: number }
 export type MetricsAgentEntry = { agent: string; usd: number; tokens: number }
 export type MetricsCardEntry = { cardId: string; title: string; usd: number; tokens: number }
 export type MetricsAlert = { kind: string; message: string }
+export type TokenGuardStatus = { ok: boolean; soft: boolean; hard: boolean; used: number; softLimit: number; hardLimit: number }
 export type MetricsData = {
   configured: boolean; offline?: boolean
   tokenDay: number; tokenMonth: number
@@ -137,6 +138,7 @@ export type MetricsData = {
   cardsRunning: number; cardsWaiting: number; cardsTotal: number
   providers: MetricsProvider[]
   alerts: MetricsAlert[]
+  tokenGuard?: { configured: boolean; status?: TokenGuardStatus }
 }
 export async function metricsData(): Promise<MetricsData> {
   const r = await fetch('/api/metrics'); return r.json()

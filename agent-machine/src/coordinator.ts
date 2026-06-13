@@ -135,7 +135,7 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
         const alerts: { kind: string; message: string }[] = []
         if (costMonth > 10) alerts.push({ kind: 'cost', message: `Chi phí tháng này $${costMonth.toFixed(2)} — vượt ngưỡng $10` })
         else if (costDay > 2) alerts.push({ kind: 'cost', message: `Chi phí hôm nay $${costDay.toFixed(2)} — vượt ngưỡng $2` })
-        return send(200, { tokenDay, tokenMonth, costDay, costMonth, costByModel, costByAgent, costByCard, cardsRunning, cardsWaiting, cardsTotal, providers, alerts })
+        return send(200, { tokenDay, tokenMonth, costDay, costMonth, costByModel, costByAgent, costByCard, cardsRunning, cardsWaiting, cardsTotal, providers, alerts, tokenGuard: engine.tokenGuardStatus() })
       }
       // ── ERROR-STATS: phân loại lỗi agent từ turn-log.jsonl (đọc env AM_TURNS_LOG cục bộ) ──
       if (req.method === 'GET' && url === '/error-stats') return send(200, buildErrorStats(store))

@@ -10,10 +10,21 @@ const STATUS: Record<string, { label: string; color: string; icon: string }> = {
   working: { label: 'ĐANG CHẠY', color: '#3fd3ff', icon: '⏳' },
   waiting_human: { label: 'CHỜ BẠN DUYỆT', color: '#ff5d9e', icon: '⛔' },
   blocked: { label: 'HOLD', color: '#c9a85f', icon: '⏸' },
+  parked: { label: 'RATE-LIMIT', color: '#ff9d5c', icon: '⏸' },
   done: { label: 'XONG', color: '#5fe39a', icon: '✓' },
   failed: { label: 'LỖI', color: '#ff6b6b', icon: '✕' },
 }
-const ORDER = ['backlog', 'queued', 'working', 'waiting_human', 'blocked', 'done', 'failed']
+const ORDER = ['backlog', 'queued', 'working', 'waiting_human', 'blocked', 'parked', 'done', 'failed']
+
+// Sub-badge: hiện rõ LÕI điều phối đang tác động lên card (triage/split/size-gate/rate-limit)
+// ngoài cột status — để Bill thấy "não" đang làm gì chứ không chỉ trạng thái thô.
+function subBadge(c: { status: string; waitKind?: string; blockKind?: string; blockedBy?: string[]; retryAfter?: number }): { t: string; c: string } | null {
+  if (c.status === 'parked') { const m = c.retryAfter ? Math.max(0, Math.round((c.retryAfter - Date.now()) / 60000)) : 0; return { t: `⏸ rate-limit · còn ~${m}′`, c: '#ff9d5c' } }
+  if (c.waitKind === 'stuck') return { t: '🧩 kẹt → triage', c: '#b78cff' }
+  if (c.waitKind === 'size-gate') return { t: '📦 task to → tách', c: '#ff9d5c' }
+  if (c.status === 'blocked' && c.blockKind === 'delegate') return { t: `🧩 split · ${c.blockedBy?.length || 0} việc con`, c: '#b78cff' }
+  return null
+}
 const EVENT_ICON: Record<string, string> = { created: '✚', 'created-backlog': '🕓', activated: '▶', 'enter-stage': '→', advance: '↑', done: '🏁', delegate: '📨', needs_decision: '⛔', fail: '✕', 'reject-rework': '↩', recovered: '♻' }
 const fmtElapsed = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); const m = Math.floor(s / 60); return m > 0 ? `${m}:${String(s % 60).padStart(2, '0')}` : `${s}s` }
 
@@ -202,6 +213,7 @@ export default function Board({ projectId }: { projectId?: string } = {}) {
                           </div>
                           {/* B1: stepper tiến độ pipeline — thấy ngay đang ở bước nào / còn mấy bước */}
                           <Stepper stages={pipeMap.get(c.pipelineId)?.stages || []} idx={c.stageIndex} done={c.status === 'done'} color={meta.color} />
+                          {(() => { const b = subBadge(c); return b ? <div className="mt-1.5 text-[10px] font-semibold leading-none" style={{ color: b.c }}>{b.t}</div> : null })()}
                           <div className="mt-2 flex items-center gap-2 text-[10.5px]">
                             {pr && <span className="flex items-center gap-1 text-inkdim">{pr.avatar ? <img src={pr.avatar} alt="" className="h-4 w-4 rounded-full object-cover" /> : <Dot s={pr.name} />} {pr.name.replace(/·.*/, '').trim()}</span>}
                             {c.status === 'working' && c.updatedAt && <span className="flex items-center gap-1 text-cyan mono"><span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan animate-pulse" />{fmtElapsed(now - c.updatedAt)}</span>}
@@ -234,6 +246,7 @@ function Detail({ c, stage, persona, pipeName, personaMap, onClose, onApprove, o
       <div className="h-12 shrink-0 flex items-center gap-2 px-4 border-b border-line">
         <span className="h-2 w-2 rounded-full" style={{ background: meta.color, boxShadow: `0 0 8px ${meta.color}` }} />
         <span className="display text-[12px] tracking-[0.14em]" style={{ color: meta.color }}>{meta.label}</span>
+        {(() => { const b = subBadge(c); return b ? <span className="text-[10.5px] font-semibold" style={{ color: b.c }}>{b.t}</span> : null })()}
         <button className="btn btn-icon !w-7 !h-7 ml-auto" title="Xoá card" onClick={() => setConfirmDel(true)}>🗑</button>
         <button className="btn btn-icon !w-7 !h-7" onClick={onClose}>✕</button>
       </div>
