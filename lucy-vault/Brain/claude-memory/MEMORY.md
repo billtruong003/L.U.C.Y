@@ -1,5 +1,6 @@
 # Memory Index
 
+- [Report every task](report-every-task.md) — ⭐Bill: xong mỗi task phải chủ động báo cáo (Telegram), không làm lặng lẽ
 - [Owner = Bill Truong (billthedev)](owner-bill-truong-profile.md) — Game dev & Senior Technical Artist (Unity/VR/shader), tên thật Trương Ngọc Châu, HCMC→LA; FPT Univ SE; mê RPG-gamification + AI tooling. GitHub real = billtruong003 (NOT Bill-the-dev)
 - [Bill identities & platforms](bill-identities-platforms.md) — bản đồ mọi handle (GitHub/LinkedIn/FB/IG/YouTube/itch) + trạng thái truy cập; FB/IG/LinkedIn login-wall, GitHub/portfolio/itch đào tốt
 - [Lucy's take on owner](lucy-take-on-owner.md) — game/tech-art guy doing infra as side turf → keep devops answers gọn + copy-paste; real numbers only on markets
