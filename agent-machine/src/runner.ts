@@ -100,9 +100,16 @@ export class ClaudeRunner implements Runner {
     // TRÍ NHỚ: prepend digest preference Lucy ĐÃ HỌC (Brain/active.md do dream sinh) vào ĐẦU system prompt.
     // Strip dòng timestamp "Cập nhật:" → prefix byte-ổn định giữa các lượt (giữ prompt-cache parity).
     fs.writeFileSync(personaFile, buildSystemPrompt(card, persona))
-    const notes = card.reviewNotes?.length ? `\n\n⚠️ PHẢN HỒI cần SỬA (bị trả lại — fix kỹ những điểm này):\n- ${card.reviewNotes.join('\n- ')}` : ''
+    // C3.1: reviewNotes slice(-3) — chỉ 3 ghi chú gần nhất vào prompt, tránh phình khi rework nhiều lần
+    const recentNotes = card.reviewNotes?.slice(-3) ?? []
+    const notes = recentNotes.length ? `\n\n⚠️ PHẢN HỒI cần SỬA (bị trả lại — fix kỹ những điểm này):\n- ${recentNotes.join('\n- ')}` : ''
     const prev = card.lastSummary ? `\n\n↪ Bước TRƯỚC đã làm: ${card.lastSummary}\n(đọc kết quả bước trước trong workspace, nối tiếp — đừng làm lại từ đầu.)` : ''
-    const prompt = `Card: ${card.title}\n\n${card.brief}\n\nStage hiện tại: ${stage.name}.${prev}${notes}`
+    // C3.2: brief truncation khi rework (≥ 2 lần cùng stage) — workspace đã có context, brief dài chỉ phình token
+    const stageVisitCount = card.stageVisits?.[stage.id] ?? 0
+    const briefText = stageVisitCount >= 2 && card.brief.length > 800
+      ? card.brief.slice(0, 800) + `\n...[còn ${card.brief.length - 800} ký tự — workspace có context đủ, đọc file nếu cần]`
+      : card.brief
+    const prompt = `Card: ${card.title}\n\n${briefText}\n\nStage hiện tại: ${stage.name}.${prev}${notes}`
     // prompt đi qua STDIN (không phải arg): né giới hạn command-line Windows + né escaping khi cần shell (shim .ps1/.cmd).
     const baseArgs = [
       '-p', '--output-format', 'json', '--permission-mode', 'bypassPermissions',
@@ -114,8 +121,9 @@ export class ClaudeRunner implements Runner {
     const vault = process.env.LUCY_VAULT
     if (vault && fs.existsSync(vault)) baseArgs.push('--add-dir', vault)
     const timeoutSec = persona.timeoutSec ?? 300
-    // CACHE: cùng (card, persona) chạy lại (rework) → --resume session cũ để agent NHỚ đã đọc/sửa gì, KHỎI quét lại project (đỡ token).
-    const resumeId = card.sessions?.[persona.id]
+    // CACHE: cùng (card, persona, stage) chạy lại (rework) → --resume session cũ để agent NHỚ đã đọc/sửa gì, KHỎI quét lại project (đỡ token).
+    // Key kèm stageIndex: cùng persona ở stage khác nhau KHÔNG resume nhầm session (C3.3).
+    const resumeId = card.sessions?.[`${persona.id}:${card.stageIndex}`]
     let r = await this.spawn(resumeId ? [...baseArgs, '--resume', resumeId] : baseArgs, ws, timeoutSec, prompt)
     if (resumeId && r.code !== 0 && !r.out.trim()) r = await this.spawn(baseArgs, ws, timeoutSec, prompt) // resume hỏng (session ở máy khác / đã xoá) → chạy mới
     const res = parseClaude(r.out)

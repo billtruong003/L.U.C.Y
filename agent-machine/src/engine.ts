@@ -281,6 +281,7 @@ export class Engine {
       this.distill(c) // A2: card kết thúc → học nền (fire-and-forget, không chặn)
     } else {
       c.stageIndex++
+      c.reviewNotes = [] // C3: notes stage cũ không liên quan stage mới → clear để tránh prompt phình
       c.status = 'queued'
       c.history.push({ ts: Date.now(), stage: pipe.stages[c.stageIndex].id, event: 'enter-stage' })
     }
@@ -506,8 +507,9 @@ export class Engine {
       c.reports = (c.reports || []).concat({ stage: stage.id, persona: persona.name, text: result.report.slice(0, 12000), ts: Date.now() }).slice(-20)
       post(this.store, threadOf(c.id), persona.name, 'report', result.report.slice(0, 2000), c.id)
     }
-    // CACHE: nhớ session_id theo persona → rework lần sau --resume, agent khỏi quét lại project (đỡ token)
-    if (result.sessionId) c.sessions = { ...(c.sessions || {}), [persona.id]: result.sessionId }
+    // CACHE: nhớ session_id theo persona:stageIndex → rework lần sau --resume khỏi quét lại project (đỡ token).
+    // Key kèm stageIndex để tránh resume sai session khi cùng persona chạy nhiều stage khác nhau.
+    if (result.sessionId) c.sessions = { ...(c.sessions || {}), [`${persona.id}:${c.stageIndex}`]: result.sessionId }
 
     // Reset rateLimitNotified: lane chạy được → đợt rate-limit đã qua
     if (!result.rateLimit) this.rateLimitNotified = false
