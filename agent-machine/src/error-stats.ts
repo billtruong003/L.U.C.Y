@@ -170,6 +170,6 @@ export function buildErrorStats(store: Store, logDir?: string): ErrorStats {
     byAgent,
     byModel,
     topCategory: byCategory.length ? byCategory[0].category : null,
-    scope: 'chỉ agent lane (LaneRunner) — runner claude thật chưa ghi turn-log',
+    scope: 'lane = per-turn ghi mọi turn; claude = 1 record outcome/run (per-turn không khả dụng vì claude -p mờ)',
   }
 }

@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { resolveClaude } from './claude-bin'
+import { loadSkillBlock } from './skill-loader'
+import { NoopTurnLogger, type TurnLogger } from './turn-log'
 import type { Card, Stage, Persona, RunResult, Outcome, Cost } from './types'
 
 export interface Runner {
@@ -78,15 +80,25 @@ evidenced_by: [<cardId nếu biết>]
   topic phần sau "/" = PATTERN CHUNG card khác cũng dính được (vd "hardcode-config") — KHÔNG phải tên card. KHÔNG ghi lỗi môi trường/transient/chuyện 1 lần.
 - KHÔNG sửa lucy-vault/Brain/preferences/ hay active.md (máy quản). CẤM ghi trí nhớ vào auto-memory built-in của Claude Code (~/.claude/**/memory/) — vault là não DUY NHẤT, ghi chỗ khác = lạc trôi khỏi recall/dream.`
 
+// Ráp system prompt agent: digest đã-học + skill khớp card + persona + kỷ luật chung + contract (+ extra của lane).
+// 1 NGUỒN DUY NHẤT cho cả ClaudeRunner & LaneRunner → khử lặp, giữ thứ tự nối byte-identical (prompt-cache parity).
+export function buildSystemPrompt(card: Card, persona: Persona, extra = ''): string {
+  return readActiveDigest() + loadSkillBlock(card) + persona.systemPrompt + HOUSE_SKILL + OUTCOME_CONTRACT + extra
+}
+
 export class ClaudeRunner implements Runner {
   bin: string
-  constructor(bin = process.env.CLAUDE_BIN || 'claude') { this.bin = bin }
+  turnLogger: TurnLogger
+  constructor(bin = process.env.CLAUDE_BIN || 'claude', turnLogger: TurnLogger = new NoopTurnLogger()) {
+    this.bin = bin
+    this.turnLogger = turnLogger
+  }
 
   async run(card: Card, stage: Stage, persona: Persona, ws: string): Promise<RunResult> {
     const personaFile = path.join(ws, '.persona.md')
     // TRÍ NHỚ: prepend digest preference Lucy ĐÃ HỌC (Brain/active.md do dream sinh) vào ĐẦU system prompt.
     // Strip dòng timestamp "Cập nhật:" → prefix byte-ổn định giữa các lượt (giữ prompt-cache parity).
-    fs.writeFileSync(personaFile, readActiveDigest() + persona.systemPrompt + HOUSE_SKILL + OUTCOME_CONTRACT)
+    fs.writeFileSync(personaFile, buildSystemPrompt(card, persona))
     const notes = card.reviewNotes?.length ? `\n\n⚠️ PHẢN HỒI cần SỬA (bị trả lại — fix kỹ những điểm này):\n- ${card.reviewNotes.join('\n- ')}` : ''
     const prev = card.lastSummary ? `\n\n↪ Bước TRƯỚC đã làm: ${card.lastSummary}\n(đọc kết quả bước trước trong workspace, nối tiếp — đừng làm lại từ đầu.)` : ''
     const prompt = `Card: ${card.title}\n\n${card.brief}\n\nStage hiện tại: ${stage.name}.${prev}${notes}`
@@ -94,7 +106,8 @@ export class ClaudeRunner implements Runner {
     const baseArgs = [
       '-p', '--output-format', 'json', '--permission-mode', 'bypassPermissions',
       '--model', persona.model, '--append-system-prompt-file', personaFile,
-'--allowedTools', (persona.allowedTools ?? ['Read', 'Write', 'Edit', 'Bash']).join(','),
+      '--max-turns', String(persona.maxTurns ?? 12), // cap turn = chặn đốt token/thời gian (40 cũ → 5 phút/task). Persona tự khai trong config.
+      '--allowedTools', (persona.allowedTools ?? ['Read', 'Write', 'Edit', 'Bash']).join(','),
     ]
     // TRÍ NHỚ: cho agent đọc/ghi vault bền (Lucy "biết" Bill + dự án xuyên phiên). Vault ổn định mọi stage → giữ prompt-cache parity.
     const vault = process.env.LUCY_VAULT
@@ -107,6 +120,14 @@ export class ClaudeRunner implements Runner {
     const res = parseClaude(r.out)
     // SALVAGE: agent làm xong nhưng quên JSON → suy ra outcome thay vì bounce/loop (gặp nhiều).
     if (res.outcome.summary === NO_JSON) res.outcome = await salvageOutcome(res.report || res.raw, stage.name)
+    // Turn log (1 record/run) — đủ cho error-stats phân loại outcome/decision
+    const common = { agent: persona.id, task: card.id, stage: stage.id, model: persona.model, turnCount: 0, token: res.cost.inTok + res.cost.outTok }
+    if (r.code !== 0 && !res.report) {
+      this.turnLogger.log({ ...common, motive: 'claude -p spawn thất bại', action: 'error', outcome: res.raw.slice(0, 500) })
+    } else {
+      const motive = (res.report || res.raw).split('\n')[0].slice(0, 200) || 'claude -p run'
+      this.turnLogger.log({ ...common, motive, action: 'outcome', outcome: res.outcome.summary, decision: res.outcome.decision })
+    }
     return res
   }
 

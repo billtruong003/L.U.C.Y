@@ -49,6 +49,7 @@ export async function jobs(): Promise<{ jobs: JobRow[] }> {
 export type AmCard = {
   id: string; title: string; brief: string; pipelineId: string; projectId: string; stageIndex: number
   status: string; depth: number; blockedBy: string[]; pendingQuestion?: string
+  personaOverride?: string; modelOverride?: string
   parentId?: string; cost: { usd: number }; updatedAt?: number; reviewNotes?: string[]
   workspace?: string; artifacts?: { files?: string[]; diffstat?: string; stage?: string; isRepo?: boolean }
   lastSummary?: string; waitKind?: 'gate' | 'decision' | 'cost' | 'loop'; blockKind?: 'dep' | 'delegate'
@@ -112,7 +113,15 @@ export async function amAnswer(cardId: string, text: string) {
   await fetch('/api/am/answer', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cardId, text }) })
 }
 
-// ---- METRICS (Dashboard landing) ----
+export type Entry = { name: string; type: 'dir' | 'file' }
+export async function tree(p: string): Promise<{ root: string; path: string; entries: Entry[] }> {
+  const r = await fetch('/api/tree?path=' + encodeURIComponent(p)); return r.json()
+}
+export async function readFile(p: string): Promise<{ binary?: boolean; tooBig?: boolean; name?: string; content?: string; size?: number }> {
+  const r = await fetch('/api/file?path=' + encodeURIComponent(p)); return r.json()
+}
+
+// ---- METRICS ----
 export type MetricsProvider = { provider: string; label: string; hasKey: boolean }
 export type MetricsCostEntry = { model: string; usd: number; tokens: number }
 export type MetricsAgentEntry = { agent: string; usd: number; tokens: number }
@@ -151,14 +160,6 @@ export type ErrorStatsData = {
 }
 export async function errorStatsData(): Promise<ErrorStatsData> {
   const r = await fetch('/api/error-stats'); return r.json()
-}
-
-export type Entry = { name: string; type: 'dir' | 'file' }
-export async function tree(p: string): Promise<{ root: string; path: string; entries: Entry[] }> {
-  const r = await fetch('/api/tree?path=' + encodeURIComponent(p)); return r.json()
-}
-export async function readFile(p: string): Promise<{ binary?: boolean; tooBig?: boolean; name?: string; content?: string; size?: number }> {
-  const r = await fetch('/api/file?path=' + encodeURIComponent(p)); return r.json()
 }
 
 // ---- BỘ NÃO (M1: recall + vault + dream) ----

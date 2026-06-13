@@ -63,6 +63,30 @@ export const FALLBACKS: Record<Role, string[]> = {
   content:   ['gemini-flash', 'mistral-large', 'groq-gptoss-120b'],
 }
 
+// ── Rate-limit detection ──
+export class RateLimitError extends Error {
+  retryAfterMs: number
+  constructor(msg: string, retryAfterMs: number) {
+    super(msg)
+    this.name = 'RateLimitError'
+    this.retryAfterMs = retryAfterMs
+  }
+}
+
+const DEFAULT_RETRY_AFTER_MS = 5 * 60_000 // 5 phút
+function parseRetryAfterMs(res: Response): number {
+  const raw = res.headers.get('retry-after')
+  if (raw) {
+    const asNum = parseInt(raw, 10)
+    if (!isNaN(asNum) && asNum > 0) return asNum * 1000
+    const asDate = Date.parse(raw)
+    if (!isNaN(asDate)) return Math.max(0, asDate - Date.now())
+  }
+  const envVal = process.env.AM_RATELIMIT_PARK_MS
+  if (envVal) { const n = parseInt(envVal, 10); if (!isNaN(n) && n > 0) return n }
+  return DEFAULT_RETRY_AFTER_MS
+}
+
 let envLoaded = false
 function loadEnvFile(): void {
   if (envLoaded) return
@@ -111,7 +135,10 @@ async function callOne(entry: ModelEntry, messages: ChatMsg[], maxTokens: number
       body: JSON.stringify({ model: entry.model, messages, max_tokens: maxTokens }),
       signal: ctrl.signal,
     })
-    if (!res.ok) throw new Error(`${entry.provider}/${entry.model} HTTP ${res.status}`)
+    if (!res.ok) {
+      if (res.status === 429) throw new RateLimitError(`${entry.provider}/${entry.model} HTTP 429`, parseRetryAfterMs(res))
+      throw new Error(`${entry.provider}/${entry.model} HTTP ${res.status}`)
+    }
     const data = await res.json() as { choices?: { message?: { content?: string } }[]; usage?: unknown }
     const content = (data.choices?.[0]?.message?.content || '').trim()
     if (!content) throw new Error(`${entry.provider}/${entry.model} empty content`)
@@ -142,14 +169,26 @@ export async function callLLM(modelKeyOrRole: string, messages: ChatMsg[], opts:
   }
 
   const errors: string[] = []
+  let attempted = 0
+  let rateLimitedCount = 0
+  const rateLimitAfters: number[] = []
   for (const k of chain) {
     const entry = entryByKey(k)
     if (!entry || !keyFor(entry.provider)) { errors.push(`${k}: no entry/key`); continue }
+    attempted++
     try {
       return await callOne(entry, messages, maxTokens, timeoutMs)
     } catch (e) {
-      errors.push(String(e instanceof Error ? e.message : e))
+      const msg = String(e instanceof Error ? e.message : e)
+      errors.push(msg)
+      if (e instanceof RateLimitError) { rateLimitedCount++; rateLimitAfters.push(e.retryAfterMs) }
     }
+  }
+  // Có ÍT NHẤT 1 provider 429 + cả chuỗi fail → PARK (back-off), KHÔNG fail.
+  // mixed 429+500: retry ngay vô ích vì đang bị giới hạn → park + notify mới đúng + tiết kiệm token.
+  if (attempted > 0 && rateLimitedCount > 0) {
+    const maxRa = Math.max(...rateLimitAfters, DEFAULT_RETRY_AFTER_MS)
+    throw new RateLimitError(`providers rate-limited (${rateLimitedCount}/${attempted}): ${errors.join(' | ')}`, maxRa)
   }
   throw new Error(`all providers failed: ${errors.join(' | ')}`)
 }
@@ -174,7 +213,10 @@ async function callOneRaw(entry: ModelEntry, messages: RawMsg[], tools: ToolDef[
       body: JSON.stringify(body),
       signal: ctrl.signal,
     })
-    if (!res.ok) throw new Error(`${entry.provider}/${entry.model} HTTP ${res.status}`)
+    if (!res.ok) {
+      if (res.status === 429) throw new RateLimitError(`${entry.provider}/${entry.model} HTTP 429`, parseRetryAfterMs(res))
+      throw new Error(`${entry.provider}/${entry.model} HTTP ${res.status}`)
+    }
     const data = await res.json() as { choices?: { message?: RawMsg }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } }
     const message = data.choices?.[0]?.message
     if (!message) throw new Error(`${entry.provider}/${entry.model} no message`)
@@ -198,19 +240,39 @@ export async function callLLMRaw(modelKeyOrRole: string, messages: RawMsg[], opt
     chain = fb ? [entry.key, ...FALLBACKS[entry.role].filter((k) => k !== entry.key)] : [entry.key]
   }
   const errors: string[] = []
+  let attempted = 0
+  let rateLimitedCount = 0
+  const rateLimitAfters: number[] = []
   for (const k of chain) {
     const entry = entryByKey(k)
     if (!entry || !keyFor(entry.provider)) { errors.push(`${k}: no entry/key`); continue }
+    attempted++
     try {
       return await callOneRaw(entry, messages, opts.tools, maxTokens, timeoutMs)
     } catch (e) {
-      errors.push(String(e instanceof Error ? e.message : e))
+      const msg = String(e instanceof Error ? e.message : e)
+      errors.push(msg)
+      if (e instanceof RateLimitError) { rateLimitedCount++; rateLimitAfters.push(e.retryAfterMs) }
     }
+  }
+  // Có ÍT NHẤT 1 provider 429 + cả chuỗi fail → PARK (back-off), KHÔNG fail.
+  // mixed 429+500: retry ngay vô ích vì đang bị giới hạn → park + notify mới đúng + tiết kiệm token.
+  if (attempted > 0 && rateLimitedCount > 0) {
+    const maxRa = Math.max(...rateLimitAfters, DEFAULT_RETRY_AFTER_MS)
+    throw new RateLimitError(`providers rate-limited (${rateLimitedCount}/${attempted}): ${errors.join(' | ')}`, maxRa)
   }
   throw new Error(`all providers (raw) failed: ${errors.join(' | ')}`)
 }
 
 /** Lane có dùng được không (có ÍT NHẤT 1 key trong chain của model/role)? — để worker chọn runner. */
+/** Tìm model lane rẻ nhất đang available (có key). */
+export function cheapestAvailableLaneKey(): string | null {
+  for (const m of MODEL_CATALOG) {
+    if (laneAvailable(m.key)) return m.key
+  }
+  return null
+}
+
 export function laneAvailable(modelKeyOrRole: string): boolean {
   let chain: string[]
   if ((['executor', 'reasoning', 'fast', 'content'] as string[]).includes(modelKeyOrRole)) chain = FALLBACKS[modelKeyOrRole as Role]

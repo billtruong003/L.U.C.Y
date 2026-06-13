@@ -7,9 +7,9 @@ import type { Recall } from './recall'
 import { browseVault, readVaultFile, listPreferences, listInbox, readActive, buildGraph, setPinned } from './brain'
 import { dream } from './dream'
 import { recordEvidence, hasManualEvidenceToday } from './evidence'
-import { MODEL_CATALOG, providerStatus } from './llm-lane'
 import { buildMetrics } from './metrics'
 import { buildErrorStats } from './error-stats'
+import { MODEL_CATALOG, providerStatus } from './llm-lane'
 
 function serializeJob(j: JobSpec) {
   // worker không cần workspace của coordinator — nó tự tạo workspace local.
@@ -55,7 +55,19 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       }
       if (req.method === 'POST' && url === '/worker/claim') { const j = engine.claim(); return send(200, { job: j ? serializeJob(j) : null }) }
       if (req.method === 'POST' && url === '/worker/result') { const b = await readBody(req); engine.submit(b.jobId, b.result); return send(200, { ok: true }) }
-      if (req.method === 'POST' && url === '/card') { const b = await readBody(req); const mdl = (b.model === 'opus' || b.model === 'sonnet' || b.model === 'laneModel') ? b.model : undefined; return send(200, { card: engine.createCard(b.title, b.brief, b.pipelineId, undefined, 0, b.projectId || 'default', !!b.deferred, mdl, Array.isArray(b.blockedBy) ? b.blockedBy : [], b.personaId || undefined) }) }
+      if (req.method === 'POST' && url === '/card') {
+        const b = await readBody(req)
+        const mdl = (b.model === 'opus' || b.model === 'sonnet' || b.model === 'laneModel') ? b.model : undefined
+        // BUG-1a: laneModel chỉ hợp lệ cho persona CÓ field laneModel — từ chối LOUD, không no-op im lặng
+        if (mdl === 'laneModel') {
+          const pid = b.personaId || (b.pipelineId && store.pipelines.get(b.pipelineId)?.stages[0]?.personaId)
+          if (pid) {
+            const persona = store.personas.get(pid)
+            if (persona && !persona.laneModel) return send(400, { error: `Persona '${persona.name}' không có laneModel — bỏ chọn 'rẻ' hoặc chọn agent có lane.` })
+          }
+        }
+        return send(200, { card: engine.createCard(b.title, b.brief, b.pipelineId, undefined, 0, b.projectId || 'default', !!b.deferred, mdl, Array.isArray(b.blockedBy) ? b.blockedBy : [], b.personaId || undefined) })
+      }
       if (req.method === 'POST' && url === '/card/remove') { const b = await readBody(req); return send(200, { ok: engine.removeCard(b.cardId) }) }
       if (req.method === 'POST' && url === '/card/activate') { const b = await readBody(req); engine.activate(b.cardId); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/project') { const b = await readBody(req); return send(200, { project: engine.createProject(b.name, { repoUrl: b.repoUrl, branch: b.branch, description: b.description, skill: b.skill }) }) }
@@ -69,10 +81,22 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       if (req.method === 'POST' && url === '/project/channel/remove') { const b = await readBody(req); return send(200, { ok: engine.removeChannel(b.projectId, b.name) }) }
       if (req.method === 'POST' && url === '/channel/post') { const b = await readBody(req); engine.postHuman(b.projectId, b.channel, b.text || '', b.mention); return send(200, { ok: true }) }
       if (req.method === 'POST' && url === '/lucy/log') { const b = await readBody(req); engine.logLucy(b.projectId, b.role === 'me' ? 'me' : 'lucy', b.text || ''); return send(200, { ok: true }) }
-      if (req.method === 'POST' && url === '/approve') { const b = await readBody(req); engine.approve(b.cardId); return send(200, { ok: true }) }
-      if (req.method === 'POST' && url === '/reject') { const b = await readBody(req); engine.reject(b.cardId, b.feedback || ''); return send(200, { ok: true }) }
-      if (req.method === 'POST' && url === '/answer') { const b = await readBody(req); engine.answer(b.cardId, b.text || ''); return send(200, { ok: true }) }
-      // ── METRICS: gom ledger→shape frontend (tokenDay/Month, cost theo model·agent·card, providers, alerts) ──
+      if (req.method === 'POST' && url === '/approve') { const b = await readBody(req); engine.approve(b.cardId, b.actor); return send(200, { ok: true }) }
+      if (req.method === 'POST' && url === '/reject') { const b = await readBody(req); engine.reject(b.cardId, b.feedback || '', b.actor); return send(200, { ok: true }) }
+      if (req.method === 'POST' && url === '/answer') { const b = await readBody(req); engine.answer(b.cardId, b.text || '', b.actor); return send(200, { ok: true }) }
+      // ── TOKEN GUARD: trạng thái token/ngày (soft → hạ executor, hard → dừng) ──
+      if (url === '/token-guard/reset') { if (req.method === 'POST') { engine.tokenGuard?.resetDay(); return send(200, { ok: true }) } }
+      // Nạp token vào NGUỒN DUY NHẤT (engine.tokenGuard). Autopilot gọi đây thay vì tự đếm → hết double-count/stale.
+      if (req.method === 'POST' && url === '/token-guard/add') {
+        const b = await readBody(req)
+        const sane = (v: unknown): number => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : 0 }
+        engine.tokenGuard?.addTokens(sane(b.inTok), sane(b.outTok))
+        return send(200, { ok: true, status: engine.tokenGuardStatus() })
+      }
+      if (url === '/token-guard') { return send(200, engine.tokenGuardStatus()) }
+      // ── LÁT API (lane model-rẻ): catalog cho dropdown + trạng thái key (KHÔNG lộ key) ──
+      if (req.method === 'GET' && url === '/llm/models') return send(200, { catalog: MODEL_CATALOG, providers: providerStatus() })
+      // ── METRICS: frontend-compatible shape ──
       if (req.method === 'GET' && url === '/metrics') {
         const m = buildMetrics(store, recall)
         const today = new Date().toISOString().slice(0, 10)
@@ -113,10 +137,8 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
         else if (costDay > 2) alerts.push({ kind: 'cost', message: `Chi phí hôm nay $${costDay.toFixed(2)} — vượt ngưỡng $2` })
         return send(200, { tokenDay, tokenMonth, costDay, costMonth, costByModel, costByAgent, costByCard, cardsRunning, cardsWaiting, cardsTotal, providers, alerts })
       }
-      // ── ERROR-STATS: phân loại lỗi agent từ turn-log.jsonl (empty graceful nếu chưa có log) ──
+      // ── ERROR-STATS: phân loại lỗi agent từ turn-log.jsonl (đọc env AM_TURNS_LOG cục bộ) ──
       if (req.method === 'GET' && url === '/error-stats') return send(200, buildErrorStats(store))
-      // ── LÁT API (lane model-rẻ): catalog cho dropdown + trạng thái key (KHÔNG lộ key) ──
-      if (req.method === 'GET' && url === '/llm/models') return send(200, { catalog: MODEL_CATALOG, providers: providerStatus() })
       // ── BỘ NÃO (M1: recall + vault browse + dream). brainOn=false nếu chưa set LUCY_VAULT. ──
       if (url.startsWith('/recall') || url.startsWith('/brain')) {
         if (!brainOn || !recall || !vaultDir) return send(200, { configured: false })
@@ -167,6 +189,7 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
         pipelines: [...store.pipelines.values()],
         personas: [...store.personas.values()].map((p) => ({ id: p.id, name: p.name, avatar: p.avatar, model: p.model, realm: p.realm, kind: p.kind, laneModel: p.laneModel, tags: p.tags })),
         limits: engine.limits(),
+        tokenGuard: engine.tokenGuardStatus(),
       })
       if (req.method === 'GET' && url === '/health') return send(200, { ok: true, pending: store.listCards().filter((c) => c.status === 'queued' || c.status === 'working').length })
       send(404, { error: 'not found' })

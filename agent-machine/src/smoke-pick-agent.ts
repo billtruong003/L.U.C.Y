@@ -181,6 +181,33 @@ async function main() {
     clean(dir)
   }
 
+  // ── 11. [BUG-2 FIX] opus override + persona CÓ laneModel → laneModel bị strip → ClaudeRunner chạy opus ──
+  {
+    const { store, engine } = setup(dir)
+    const c = engine.createCard('t', 'b', 'feat', undefined, 0, 'default', false, 'opus', [], 'tanjiro')
+    engine.tick()
+    const job = engine.claim()
+    check('BUG-2: opus override + tanjiro (có lane) → persona.laneModel stripped (route ClaudeRunner)',
+      job?.persona.laneModel === undefined,
+      `got ${job?.persona.laneModel} — nếu không undefined thì CompositeRunner vẫn route sang lane, bỏ qua opus`)
+    check('BUG-2: model vẫn là opus (không bị hạ)',
+      job?.persona.model === 'opus',
+      `got ${job?.persona.model}`)
+    clean(dir)
+  }
+
+  // ── 12. auto (không override) + persona CÓ laneModel → laneModel vẫn còn (lane routing bình thường) ──
+  {
+    const { store, engine } = setup(dir)
+    const c = engine.createCard('t', 'b', 'feat', undefined, 0, 'default', false, undefined, [], 'tanjiro')
+    engine.tick()
+    const job = engine.claim()
+    check('auto (không override) + tanjiro → persona.laneModel còn (lane routing bình thường)',
+      job?.persona.laneModel === 'deepseek-v3-0324',
+      `got ${job?.persona.laneModel}`)
+    clean(dir)
+  }
+
   console.log(`\n${fail === 0 ? '✅ ALL PASS' : '⚠️  CÓ FAIL'} — ${pass} pass, ${fail} fail`)
   process.exit(fail === 0 ? 0 : 1)
 }

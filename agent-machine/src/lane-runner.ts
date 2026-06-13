@@ -5,9 +5,10 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Runner } from './runner'
-import { readActiveDigest, HOUSE_SKILL, OUTCOME_CONTRACT, cleanReport, salvageOutcome } from './runner'
-import { callLLMRaw, type RawMsg, type ToolDef } from './llm-lane'
+import { buildSystemPrompt, cleanReport, salvageOutcome } from './runner'
+import { callLLMRaw, RateLimitError, type RawMsg, type ToolDef } from './llm-lane'
 import type { Card, Stage, Persona, RunResult, Outcome, Cost } from './types'
+import { NoopTurnLogger, type TurnLogger } from './turn-log'
 
 // Tool → quyền cần (map persona.allowedTools kiểu claude → tool lane). Least-privilege giữ nguyên.
 const TOOL_PERM: Record<string, string> = { read_file: 'Read', list_dir: 'Read', write_file: 'Write', edit_file: 'Edit', bash: 'Bash' }
@@ -72,9 +73,14 @@ BẠN CHẠY QUA LÁT API (model rẻ) — có tool: read_file · list_dir · wr
 ĐỌC/KHẢO SÁT trước rồi mới sửa; tự chạy build/test bằng bash để verify. Xong việc bước này → trả khối JSON outcome (KHÔNG kèm tool_call).`
 
 export class LaneRunner implements Runner {
+  private turnLogger: TurnLogger
+  constructor(turnLogger?: TurnLogger) {
+    this.turnLogger = turnLogger ?? new NoopTurnLogger()
+  }
+
   async run(card: Card, stage: Stage, persona: Persona, ws: string): Promise<RunResult> {
     const model = persona.laneModel || 'executor'
-    const sys = readActiveDigest() + persona.systemPrompt + HOUSE_SKILL + OUTCOME_CONTRACT + LANE_NOTE
+    const sys = buildSystemPrompt(card, persona, LANE_NOTE)
     const notes = card.reviewNotes?.length ? `\n\n⚠️ PHẢN HỒI cần SỬA:\n- ${card.reviewNotes.join('\n- ')}` : ''
     const prev = card.lastSummary ? `\n\n↪ Bước TRƯỚC: ${card.lastSummary}\n(đọc kết quả bước trước trong workspace, nối tiếp.)` : ''
     const user = `Card: ${card.title}\n\n${card.brief}\n\nStage hiện tại: ${stage.name}.${prev}${notes}`
@@ -82,16 +88,28 @@ export class LaneRunner implements Runner {
     const tools = ALL_TOOLS.filter((t) => allowed.has(TOOL_PERM[t.function.name]))
     const messages: RawMsg[] = [{ role: 'system', content: sys }, { role: 'user', content: user }]
     const cost: Cost = { usd: 0, inTok: 0, outTok: 0 } // model lane free → $0; vẫn đếm token
-    const maxTurns = persona.maxTurns ?? 200
+    const maxTurns = persona.maxTurns ?? 16
     let raw = ''
     for (let i = 0; i < maxTurns; i++) {
       let r
       try { r = await callLLMRaw(model, messages, { tools, maxTokens: 4096, timeoutMs: 90000 }) }
-      catch (e) { return { outcome: { decision: 'fail', summary: `lane lỗi: ${String(e instanceof Error ? e.message : e).slice(0, 200)}` }, cost, raw } }
-      if (r.usage) { cost.inTok += r.usage.prompt_tokens ?? 0; cost.outTok += r.usage.completion_tokens ?? 0 }
+      catch (e) {
+        const errMsg = String(e instanceof Error ? e.message : e).slice(0, 200)
+        this.turnLogger.log({ agent: persona.id, model, task: card.id, stage: stage.id, motive: 'callLLMRaw thất bại', action: 'error', outcome: errMsg, turnCount: i, token: 0 })
+        if (e instanceof RateLimitError) {
+          return { outcome: { decision: 'fail', summary: `rate-limit — park ${Math.round(e.retryAfterMs / 1000)}s` }, cost, raw, rateLimit: { retryAfterMs: e.retryAfterMs, detail: errMsg } }
+        }
+        return { outcome: { decision: 'fail', summary: `lane lỗi: ${errMsg}` }, cost, raw }
+      }
+      const inTok = r.usage?.prompt_tokens ?? 0
+      const outTok = r.usage?.completion_tokens ?? 0
+      cost.inTok += inTok
+      cost.outTok += outTok
       const msg = r.message
       messages.push({ role: 'assistant', content: msg.content ?? '', tool_calls: msg.tool_calls })
       if (msg.tool_calls?.length) {
+        const firstTool = msg.tool_calls[0].function.name
+        this.turnLogger.log({ agent: persona.id, model, task: card.id, stage: stage.id, motive: `dùng ${firstTool}`, action: 'tool_call', outcome: '', turnCount: i, token: inTok + outTok })
         for (const tc of msg.tool_calls) {
           let out: string
           try { const a = JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>; out = await execTool(tc.function.name, a, ws, allowed) }
@@ -102,8 +120,13 @@ export class LaneRunner implements Runner {
       }
       raw = msg.content ?? ''
       const oc = tryOutcome(raw)
-      if (oc) return { outcome: oc, cost, raw, report: cleanReport(raw) }
-      // không tool, chưa có outcome → nhắc tiếp (chống dừng sớm khi model chỉ "nói")
+      if (oc) {
+        this.turnLogger.log({ agent: persona.id, model, task: card.id, stage: stage.id, motive: raw.replace(/\n/g, ' '), action: 'outcome', outcome: oc.summary, turnCount: i, token: inTok + outTok, decision: oc.decision })
+        return { outcome: oc, cost, raw, report: cleanReport(raw) }
+      }
+      // không tool, chưa có outcome → text turn
+      this.turnLogger.log({ agent: persona.id, model, task: card.id, stage: stage.id, motive: raw.replace(/\n/g, ' '), action: 'text', outcome: '', turnCount: i, token: inTok + outTok })
+      // nhắc tiếp (chống dừng sớm khi model chỉ "nói")
       messages.push({ role: 'user', content: 'Tiếp tục: dùng tool nếu chưa xong, hoặc nếu đã xong bước này thì kết thúc bằng ĐÚNG khối JSON outcome.' })
     }
     // hết turn → SALVAGE từ output thô (agent thường ĐÃ làm, chỉ quên JSON) trước khi đẩy người.
@@ -111,6 +134,8 @@ export class LaneRunner implements Runner {
     const outcome = report.length > 20
       ? await salvageOutcome(report, stage.name)
       : { decision: 'needs_decision' as const, summary: `Lane agent (${model}) hết ${maxTurns} turn chưa ra gì`, question: 'Executor chạy hết turn mà chưa ra outcome — cần bạn xem.' }
+    // turn terminal: agent kẹt hết maxTurns không tự ra outcome — đúng ca card cần trace.
+    this.turnLogger.log({ agent: persona.id, model, task: card.id, stage: stage.id, motive: `hết ${maxTurns} turn — ${report.length > 20 ? 'salvage' : 'không ra gì'}`, action: 'outcome', outcome: outcome.summary, turnCount: maxTurns, token: 0, decision: outcome.decision })
     return { outcome, cost, raw, report }
   }
 }

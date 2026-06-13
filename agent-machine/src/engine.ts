@@ -1,6 +1,7 @@
 // Engine — vòng auto-process tách RÕ: dispatch (tick) -> queue -> worker claim/run/submit.
 // Local mode: worker in-process (drainLocal). Remote mode: worker quay ra qua coordinator (HTTP).
 // Guardrails: budget pause, cap lane, gate (HITL), per-card cost cap, depth-breaker, loop-breaker, workspace cô lập.
+import { spawnSync } from 'node:child_process'
 import { Store } from './store'
 import { Budget } from './budget'
 import { makeWorkspace } from './workspace'
@@ -11,9 +12,18 @@ import { writeSessionNoteSafe } from './session-note'
 import { slug } from './vault'
 import type { Runner } from './runner'
 import type { Card, Stage, Persona, Project, Pipeline, RunResult } from './types'
+import { TokenGuard, type TokenGuardStatus } from './token-guard'
+import { laneAvailable, cheapestAvailableLaneKey } from './llm-lane'
+import { notifyRateLimitParked } from './notify'
+import { triageCard } from './triage'
+import type { TriageDecision } from './triage'
 
 let _n = 0
 const uid = (p: string) => `${p}_${Date.now().toString(36)}${(_n++).toString(36)}`
+
+const VERIFY_TIMEOUT_MS = 120000 // verify-gate: cap thời gian lệnh khách quan (build/test) — chống treo queue
+const VERIFY_LOG_CAP = 1500 // cắt đuôi log verify khi nhồi vào reviewNotes (khỏi phình prompt/store)
+const TASK_SIZE_MAX_CHARS = 1500 // C3: task lớn > ngưỡng chars (title+brief) bị size-gate chặn trước executor
 
 export type JobSpec = { jobId: string; cardId: string; card: Card; stage: Stage; persona: Persona; repo?: { url: string; branch?: string; projectId: string } }
 
@@ -21,6 +31,7 @@ export class Engine {
   store: Store
   runner: Runner // worker in-process (local mode); remote thì worker bên ngoài claim/submit
   budget: Budget
+  tokenGuard: TokenGuard | null = null // optional — nếu có, check hard limit trước tạo card
   maxLanes: number
   perCardMaxUsd: number
   maxStageVisits: number
@@ -30,8 +41,14 @@ export class Engine {
 
   private pending: { id: string; cardId: string }[] = []
   private inFlight = new Map<string, string>() // jobId -> cardId
+  private rateLimitNotified = false // notify đúng 1 lần mỗi đợt rate-limit
+  // ── C2 Stuck-detector ──
+  stuckThreshold: number
+  stuckHandler: (card: Card, stageName: string) => Promise<TriageDecision>
+  private stuckHandled = new Set<string>() // tránh triage lại card đã xử lý
+  private stuckPending = new Map<string, string>() // cardId -> stageName, đang chờ triage
 
-  constructor(store: Store, runner: Runner, budget: Budget, opts: { maxLanes?: number; perCardMaxUsd?: number; maxStageVisits?: number; maxDepth?: number; leaseMs?: number } = {}) {
+  constructor(store: Store, runner: Runner, budget: Budget, opts: { maxLanes?: number; perCardMaxUsd?: number; maxStageVisits?: number; maxDepth?: number; leaseMs?: number; stuckThreshold?: number; stuckHandler?: (card: Card, stageName: string) => Promise<TriageDecision> } = {}) {
     this.store = store
     this.runner = runner
     this.budget = budget
@@ -40,22 +57,30 @@ export class Engine {
     this.maxStageVisits = opts.maxStageVisits ?? 3 // build↔test rework tối đa ~2 vòng rồi hỏi người (5 cũ → lặp 6× đốt token)
     this.maxDepth = opts.maxDepth ?? 6
     this.leaseMs = opts.leaseMs ?? 20 * 60e3 // card 'working' quá 20' -> coi như treo, đưa lại hàng
+    this.stuckThreshold = opts.stuckThreshold ?? 2
+    this.stuckHandler = opts.stuckHandler ?? triageCard
   }
 
   createCard(title: string, brief: string, pipelineId: string, parentId?: string, depth = 0, projectId = 'default', deferred = false, modelOverride?: 'sonnet' | 'opus' | 'laneModel', blockedBy: string[] = [], personaId?: string): Card {
     const id = uid('card')
     const deps = blockedBy.filter((b) => this.store.getCard(b)) // chỉ giữ dep có thật
-    const status: Card['status'] = deferred ? 'backlog' : deps.length ? 'blocked' : 'queued'
+    // TokenGuard: hard limit → card không vào hàng, chờ Bill
+    const tokenOk = this.tokenGuard ? this.tokenGuard.check() : null
+    const hardBlocked = tokenOk && !tokenOk.ok
+    const status: Card['status'] = hardBlocked ? 'waiting_human' : deferred ? 'backlog' : deps.length ? 'blocked' : 'queued'
     const card: Card = {
       id, title, brief, pipelineId, projectId, stageIndex: 0, status, modelOverride, personaOverride: personaId || undefined,
+      waitKind: hardBlocked ? 'decision' : undefined,
+      pendingQuestion: hardBlocked ? `⛔ Token day hard limit: đã dùng ${tokenOk!.used.toLocaleString()} / ${tokenOk!.hardLimit.toLocaleString()} tokens. Bill xoá limit hoặc đợi ngày mới.` : undefined,
       blockKind: deps.length ? 'dep' : undefined,
       workspace: makeWorkspace(this.store.dir, id), parentId, depth, blockedBy: deps,
-      cost: { usd: 0, inTok: 0, outTok: 0 }, history: [{ ts: Date.now(), stage: '-', event: deferred ? 'created-backlog' : 'created' }],
+      cost: { usd: 0, inTok: 0, outTok: 0 }, history: [{ ts: Date.now(), stage: '-', event: hardBlocked ? 'created-hardblocked' : deferred ? 'created-backlog' : 'created' }],
       createdAt: Date.now(), updatedAt: Date.now(),
     }
     this.ensureProject(projectId) // card luôn thuộc 1 project có thật
     this.store.putCard(card)
-    post(this.store, 'coordination', 'engine', 'system', `+ card "${title}" → pipeline ${pipelineId}${deferred ? ' (để sau)' : ''}`, id)
+    const tag = hardBlocked ? '⛔ (hard limit — chờ Bill)' : deferred ? ' (để sau)' : ''
+    post(this.store, 'coordination', 'engine', 'system', `+ card "${title}" → pipeline ${pipelineId}${tag}`, id)
     return card
   }
 
@@ -84,13 +109,14 @@ export class Engine {
   }
 
   // ── FLOW (pipeline) tự định nghĩa/sửa lúc chạy (O1) ──
-  upsertPipeline(input: { id?: string; name: string; stages: { name: string; personaId: string; gate?: boolean }[] }): Pipeline | null {
+  upsertPipeline(input: { id?: string; name: string; stages: { name: string; personaId: string; gate?: boolean; verify?: string }[] }): Pipeline | null {
     const name = (input.name || '').trim()
     if (!name || !input.stages?.length) return null
     const stages: Stage[] = []
     input.stages.forEach((s, i) => {
       if (!this.store.personas.get(s.personaId)) return // persona phải tồn tại
-      stages.push({ id: 's' + (i + 1), name: (s.name || '').trim() || `Bước ${i + 1}`, personaId: s.personaId, gate: !!s.gate })
+      const v = (s.verify || '').trim()
+      stages.push({ id: 's' + (i + 1), name: (s.name || '').trim() || `Bước ${i + 1}`, personaId: s.personaId, gate: !!s.gate, ...(v ? { verify: v } : {}) })
     })
     if (!stages.length) return null
     const id = input.id || name.toLowerCase().replace(/[^\w]+/g, '-').replace(/^-+|-+$/g, '') || 'flow'
@@ -175,49 +201,74 @@ export class Engine {
     return n
   }
 
-  approve(cardId: string) {
+  approve(cardId: string, actor: string = 'bill') {
     const c = this.store.getCard(cardId)
     if (!c || c.status !== 'waiting_human') return
-    post(this.store, threadOf(c.id), 'bill', 'decision', `✓ duyệt: ${c.pendingQuestion ?? 'tiếp tục'}`, c.id)
-    c.pendingQuestion = undefined; c.waitKind = undefined
+    post(this.store, threadOf(c.id), actor, 'decision', `✓ duyệt: ${c.pendingQuestion ?? 'tiếp tục'}`, c.id)
+    c.pendingQuestion = undefined
+    // C3: size-gate → re-queue (cùng stage), không advance (giữ executor stage)
+    if (c.waitKind === 'size-gate') {
+      c.waitKind = undefined
+      c.status = 'queued'
+      c.sizeGateBypassed = true
+      c.history.push({ ts: Date.now(), stage: '-', event: 'size-gate-approved' })
+      this.store.putCard(c)
+      return
+    }
+    c.waitKind = undefined
     c.stageVisits = {} // người đã can thiệp -> reset đếm loop (khỏi gate lại ngay)
     this.advanceCard(c)
   }
 
   // TRẢ LỜI câu hỏi của agent (needs_decision): chạy LẠI stage hiện tại kèm câu trả lời để agent làm tiếp.
   // gate/cost: coi như duyệt (advance). Đây là chỗ "pick option" thật sự, không chỉ duyệt khan.
-  answer(cardId: string, text: string) {
+  answer(cardId: string, text: string, actor: string = 'bill') {
     const c = this.store.getCard(cardId)
     if (!c || c.status !== 'waiting_human') return
     const kind = c.waitKind
     const ans = (text || '').trim()
-    post(this.store, threadOf(c.id), 'bill', 'decision', `💬 trả lời: ${ans || '(tự quyết — tiếp tục)'}`, c.id)
+    post(this.store, threadOf(c.id), actor, 'decision', `💬 trả lời: ${ans || '(tự quyết — tiếp tục)'}`, c.id)
     if (ans) c.reviewNotes = (c.reviewNotes || []).concat('Chủ trả lời câu hỏi: ' + ans)
     c.pendingQuestion = undefined; c.waitKind = undefined
     if (kind === 'decision') { c.status = 'queued'; c.history.push({ ts: Date.now(), stage: '-', event: 'answered' }); this.store.putCard(c) }
+    else if (kind === 'size-gate') { c.status = 'queued'; c.sizeGateBypassed = true; c.history.push({ ts: Date.now(), stage: '-', event: 'size-gate-approved' }); this.store.putCard(c) }
     else this.advanceCard(c)
   }
 
   // TRẢ LẠI ở gate: bạn ghi vấn đề/yêu cầu -> card lùi về stage trước (vd review -> build)
   // để agent (Max) SỬA theo feedback, rồi review lại. Loop-breaker chặn lặp vô hạn.
-  reject(cardId: string, feedback: string) {
+  reject(cardId: string, feedback: string, actor: string = 'bill') {
     const c = this.store.getCard(cardId)
     if (!c || c.status !== 'waiting_human') return
     const pipe = this.store.pipelines.get(c.pipelineId)
     if (!pipe) { c.status = 'failed'; this.store.putCard(c); return }
     const note = (feedback || '').trim() || 'Có vấn đề — làm lại kỹ hơn.'
     c.reviewNotes = (c.reviewNotes || []).concat(note)
-    // TRÍ NHỚ: feedback Bill = tín hiệu giá trị CAO → ghi brain-signal (dream gộp khi 1 việc bị trả lại lặp lại).
-    writeSignalSafe({ topic: `${c.projectId}/${slug(c.title)}`, signal: 'negative', principle: note, scope: 'review', cardId: c.id, agent: 'bill', raw: `Bill trả lại "${c.title}": ${note}` })
+    // TRÍ NHỚ: feedback người duyệt = tín hiệu giá trị CAO → ghi brain-signal (dream gộp khi 1 việc bị trả lại lặp lại).
+    writeSignalSafe({ topic: `${c.projectId}/${slug(c.title)}`, signal: 'negative', principle: note, scope: 'review', cardId: c.id, agent: actor, raw: `${actor} trả lại "${c.title}": ${note}` })
     c.pendingQuestion = undefined; c.waitKind = undefined
     c.stageVisits = {} // người trả lại kèm feedback -> reset đếm loop, cho thêm lượt sửa
     c.stageIndex = Math.max(0, c.stageIndex - 1) // lùi về stage trước gate (thường = build)
     c.status = 'queued'
     const back = pipe.stages[c.stageIndex]
-    post(this.store, threadOf(c.id), 'bill', 'decision', `✗ TRẢ LẠI: ${note}`, c.id)
+    post(this.store, threadOf(c.id), actor, 'decision', `✗ TRẢ LẠI: ${note}`, c.id)
     post(this.store, threadOf(c.id), 'engine', 'system', `↩ về "${back.name}" để sửa theo feedback`, c.id)
     c.history.push({ ts: Date.now(), stage: back.id, event: 'reject-rework', detail: note })
     this.store.putCard(c)
+  }
+
+  // verify-gate: chạy lệnh khách quan của OPERATOR trong workspace card. exit 0 = đạt.
+  // Fail-shell (spawn lỗi / timeout / ngoại lệ) coi như verify-FAIL — an toàn: thà rework thừa còn hơn false-done.
+  private runVerify(cmd: string, ws: string): { ok: boolean; log: string } {
+    try {
+      const r = spawnSync(cmd, { cwd: ws, shell: true, encoding: 'utf8', timeout: VERIFY_TIMEOUT_MS, env: { ...process.env, IS_SANDBOX: '1' } })
+      const log = `${r.stdout || ''}${r.stderr || ''}`.trim()
+      if (r.error) return { ok: false, log: `spawn lỗi: ${r.error.message}${log ? '\n' + log : ''}` }
+      if (r.status === null) return { ok: false, log: `verify timeout/kill (>${VERIFY_TIMEOUT_MS}ms)${log ? '\n' + log : ''}` }
+      return { ok: r.status === 0, log: log || `[exit ${r.status}]` }
+    } catch (e) {
+      return { ok: false, log: `verify ngoại lệ: ${String(e instanceof Error ? e.message : e)}` }
+    }
   }
 
   private advanceCard(c: Card) {
@@ -236,13 +287,21 @@ export class Engine {
   }
 
   // chỉnh giới hạn LÚC ĐANG CHẠY (dynamic): tăng/giảm queue width, cost cap...
-  setLimits(p: { maxLanes?: number; perCardMaxUsd?: number; maxDepth?: number; maxStageVisits?: number }) {
+  setLimits(p: { maxLanes?: number; perCardMaxUsd?: number; maxDepth?: number; maxStageVisits?: number; tokenSoft?: number; tokenHard?: number }) {
     if (p.maxLanes != null) this.maxLanes = Math.max(1, Math.floor(p.maxLanes))
     if (p.perCardMaxUsd != null) this.perCardMaxUsd = p.perCardMaxUsd
     if (p.maxDepth != null) this.maxDepth = Math.max(0, Math.floor(p.maxDepth))
     if (p.maxStageVisits != null) this.maxStageVisits = Math.max(1, Math.floor(p.maxStageVisits))
+    if (p.tokenSoft != null || p.tokenHard != null) {
+      this.tokenGuard?.setLimits(p.tokenSoft ?? this.tokenGuard.softLimit, p.tokenHard ?? this.tokenGuard.hardLimit)
+    }
   }
-  limits() { return { maxLanes: this.maxLanes, perCardMaxUsd: this.perCardMaxUsd, maxDepth: this.maxDepth, maxStageVisits: this.maxStageVisits, queued: this.store.listCards().filter((c) => c.status === 'queued').length, inFlight: this.inFlight.size } }
+  limits() { return { maxLanes: this.maxLanes, perCardMaxUsd: this.perCardMaxUsd, maxDepth: this.maxDepth, maxStageVisits: this.maxStageVisits, queued: this.store.listCards().filter((c) => c.status === 'queued').length, inFlight: this.inFlight.size, tokenGuard: this.tokenGuardStatus() } }
+  /** Trạng thái token guard (nếu có cấu hình). */
+  tokenGuardStatus(): { configured: boolean; status?: TokenGuardStatus } {
+    if (!this.tokenGuard) return { configured: false }
+    return { configured: true, status: this.tokenGuard.check() }
+  }
 
   // crash recovery: card 'working' (đã dispatch nhưng mất kết quả khi restart) -> queued lại.
   // Cards persist trong store; status là source-of-truth -> gate/blocked/done resume tự nhiên sau restart.
@@ -286,6 +345,16 @@ export class Engine {
       this.store.putCard(c)
     }
 
+    // parked sweep: card rate-limit hết hạn → queued lại
+    for (const c of this.store.listCards()) {
+      if (c.status !== 'parked' || !c.retryAfter || Date.now() < c.retryAfter) continue
+      c.status = 'queued'
+      c.retryAfter = undefined
+      c.history.push({ ts: Date.now(), stage: '-', event: 'rate-limit-resume' })
+      post(this.store, threadOf(c.id), 'engine', 'system', `▶ rate-limit hết → card vào hàng lại`, c.id)
+      this.store.putCard(c)
+    }
+
     let did = 0
     for (const c of this.store.listCards()) {
       if (this.working() >= this.maxLanes) break
@@ -306,13 +375,38 @@ export class Engine {
       c.stageVisits = c.stageVisits || {}
       c.stageVisits[stage.id] = (c.stageVisits[stage.id] || 0) + 1
       if (c.stageVisits[stage.id] > this.maxStageVisits) {
-        // loop-cap: KHÔNG fail (mất việc) cũng KHÔNG lặp tiếp (đốt token) → HỎI người. Duyệt=cho qua, Trả lại=cho thêm lượt sửa tay.
-        c.status = 'waiting_human'; c.waitKind = 'loop'
-        const lastBug = c.reviewNotes?.slice(-1)[0] || c.lastSummary || '—'
-        c.pendingQuestion = `Stage "${stage.name}" rework ${this.maxStageVisits} lần vẫn chưa đạt — bug còn: ${String(lastBug).slice(0, 200)}. Duyệt cho qua / Trả lại sửa (cho thêm lượt)?`
-        post(this.store, threadOf(c.id), 'engine', 'decision', `⛔ LOOP-CAP: ${c.pendingQuestion}`, c.id)
-        this.store.putCard(c)
+        // loop-cap: KHÔNG fail (mất việc) cũng KHÔNG lặp tiếp (đốt token) → HỎI người HOẶC triage tự động.
+        // C2 Stuck-detector: launch triage trước, nếu handler không xử lý thì fallback về loop-cap cũ
+        if (!this.stuckHandled.has(c.id) && !this.stuckPending.has(c.id)) {
+          const lastBug = c.reviewNotes?.slice(-1)[0] || c.lastSummary || '—'
+          c.pendingQuestion = `Stage "${stage.name}" rework ${this.maxStageVisits} lần vẫn chưa đạt — bug còn: ${String(lastBug).slice(0, 200)}. Lucy đang phân tích...`
+          c.status = 'waiting_human'; c.waitKind = 'stuck'
+          this.store.putCard(c)
+          this.triggerStuckTriage(c, stage, persona!)
+        } else {
+          // đã triage rồi → fallback về loop-cap cũ
+          c.status = 'waiting_human'; c.waitKind = 'loop'
+          const lastBug = c.reviewNotes?.slice(-1)[0] || c.lastSummary || '—'
+          c.pendingQuestion = `Stage "${stage.name}" rework ${this.maxStageVisits} lần vẫn chưa đạt — bug còn: ${String(lastBug).slice(0, 200)}. Duyệt cho qua / Trả lại sửa (cho thêm lượt)?`
+          post(this.store, threadOf(c.id), 'engine', 'decision', `⛔ LOOP-CAP: ${c.pendingQuestion}`, c.id)
+          this.store.putCard(c)
+        }
         continue
+      }
+      // ── C3: Task-size gate — chặn executor nhận task quá lớn (buộc decompose trước) ──
+      // Chỉ áp cho executor (không áp cho architect/reviewer) và bỏ qua subtask (đã decompose).
+      // Bỏ qua nếu human đã approve bypass (sizeGateBypassed).
+      if (persona.kind === 'executor' && !c.parentId && !c.sizeGateBypassed) {
+        const totalChars = c.title.length + c.brief.length
+        if (totalChars > TASK_SIZE_MAX_CHARS) {
+          c.status = 'waiting_human'
+          c.waitKind = 'size-gate'
+          c.pendingQuestion = `📏 Task quá lớn (${totalChars} ký tự, max ${TASK_SIZE_MAX_CHARS}) — cần decompose thành subtask nhỏ hơn trước khi executor xử lý. Approve để chạy tiếp (không khuyến khích) hoặc chia nhỏ task.`
+          c.history.push({ ts: Date.now(), stage: stage.id, event: 'size-gate-blocked', detail: `${totalChars} chars > ${TASK_SIZE_MAX_CHARS} max` })
+          post(this.store, threadOf(c.id), 'engine', 'decision', `⛔ SIZE-GATE: ${c.pendingQuestion}`, c.id)
+          this.store.putCard(c)
+          continue
+        }
       }
       c.status = 'working'
       this.store.putCard(c)
@@ -351,7 +445,36 @@ export class Engine {
     // 'laneModel' = dùng model rẻ của persona (laneModel field) — KHÔNG đè persona.model
     const model = c.modelOverride && c.modelOverride !== 'laneModel' ? (base.model === 'opus' ? 'opus' : c.modelOverride) : base.model
     let persona = model !== base.model ? { ...base, model } : base
+    // explicit claude model (opus/sonnet) → bỏ lane để ClaudeRunner chạy đúng model, không ngầm rơi xuống lane rẻ
+    if (c.modelOverride === 'opus' || c.modelOverride === 'sonnet') persona = { ...persona, laneModel: undefined }
     if (proj?.skill) persona = { ...persona, systemPrompt: persona.systemPrompt + `\n\n--- SKILL DỰ ÁN "${proj.name}" ---\n${proj.skill}` }
+    // TokenGuard: soft limit → ép EXECUTOR xuống lane rẻ nhất để tiết kiệm.
+    // GAP#3: CHỈ hạ executor (kind='executor' hoặc persona có laneModel) — KHÔNG hạ reviewer/architect (opus)
+    // để giữ chất lượng gate ("coder rẻ không tự review chính mình").
+    const isExecutor = base.kind === 'executor' || !!persona.laneModel
+    if (this.tokenGuard && isExecutor) {
+      const ts = this.tokenGuard.check()
+      if (ts.soft) {
+        const cheapKey = cheapestAvailableLaneKey()
+        if (cheapKey) {
+          persona = { ...persona, laneModel: cheapKey }
+          console.log(`[engine] token-guard SOFT — hạ executor "${persona.name}" xuống lane ${cheapKey} (used=${ts.used}/${ts.softLimit})`)
+        }
+      }
+    }
+    // C3: defense-in-depth — size-gate (trường hợp tick() bỏ sót)
+    if (persona.kind === 'executor' && !c.parentId && !c.sizeGateBypassed) {
+      const totalChars = c.title.length + c.brief.length
+      if (totalChars > TASK_SIZE_MAX_CHARS) {
+        this.inFlight.delete(j.id)
+        c.status = 'queued'
+        c.history.push({ ts: Date.now(), stage: stage.id, event: 'size-gate-defence', detail: `${totalChars} chars > ${TASK_SIZE_MAX_CHARS} max` })
+        post(this.store, threadOf(c.id), 'engine', 'system', `⚠ size-gate defence: ${totalChars} chars > ${TASK_SIZE_MAX_CHARS}, trả lại hàng`, c.id)
+        this.store.putCard(c)
+        console.log(`[engine] size-gate defence: ${c.id} (${totalChars} chars) blocked at claim()`)
+        return null
+      }
+    }
     // repo: nếu project có repoUrl -> worker clone & làm việc trong repo thật (R2)
     const repo = proj?.repoUrl ? { url: proj.repoUrl, branch: proj.branch, projectId: proj.id } : undefined
     return { jobId: j.id, cardId: c.id, card: c, stage, persona, repo }
@@ -370,6 +493,8 @@ export class Engine {
 
     c.cost.usd += result.cost.usd; c.cost.inTok += result.cost.inTok; c.cost.outTok += result.cost.outTok
     this.budget.add(result.cost)
+    // GAP#1: cộng token vào counter NGÀY — thiếu dòng này used()=0 mãi → token-guard không bao giờ kích hoạt
+    this.tokenGuard?.addTokens(result.cost.inTok, result.cost.outTok)
     this.store.appendLedger({ ts: Date.now(), cardId: c.id, stage: stage.id, persona: persona.id, ...result.cost })
     post(this.store, threadOf(c.id), persona.name, 'status', result.outcome.summary, c.id)
     c.history.push({ ts: Date.now(), stage: stage.id, event: result.outcome.decision, detail: result.outcome.summary })
@@ -383,6 +508,28 @@ export class Engine {
     // CACHE: nhớ session_id theo persona → rework lần sau --resume, agent khỏi quét lại project (đỡ token)
     if (result.sessionId) c.sessions = { ...(c.sessions || {}), [persona.id]: result.sessionId }
 
+    // Reset rateLimitNotified: lane chạy được → đợt rate-limit đã qua
+    if (!result.rateLimit) this.rateLimitNotified = false
+
+    // rate-limit: park card, không retry, không vào switch
+    if (result.rateLimit) {
+      c.status = 'parked'
+      c.retryAfter = Date.now() + result.rateLimit.retryAfterMs
+      // Hoàn lại loop-counter (đợt park không tính là rework)
+      c.stageVisits = c.stageVisits || {}
+      c.stageVisits[stage.id] = Math.max(0, (c.stageVisits[stage.id] ?? 1) - 1)
+      const detail = result.rateLimit.detail
+      c.history.push({ ts: Date.now(), stage: stage.id, event: 'rate-limit-parked', detail: detail.slice(0, 200) })
+      post(this.store, threadOf(c.id), 'engine', 'system', `⏸ rate-limit → park ${Math.round(result.rateLimit.retryAfterMs / 60000)}ph`, c.id)
+      // Notify 1 lần mỗi đợt (fire-and-forget, không làm vỡ submit)
+      if (!this.rateLimitNotified) {
+        this.rateLimitNotified = true
+        notifyRateLimitParked(result.rateLimit.retryAfterMs, detail).catch(() => {})
+      }
+      this.store.putCard(c)
+      return
+    }
+
     // guardrail: per-card cost cap
     if (c.cost.usd >= this.perCardMaxUsd) {
       c.status = 'waiting_human'; c.waitKind = 'cost'
@@ -395,6 +542,21 @@ export class Engine {
     switch (result.outcome.decision) {
       case 'advance':
       case 'done': // 'done' = agent xong việc của STAGE này -> advanceCard (tự kết thúc card nếu là stage CUỐI); tôn trọng gate
+        // VERIFY-GATE: agent tự đóng dấu xong KHÔNG đủ — chạy lệnh khách quan của OPERATOR (typecheck/build/test).
+        // exit≠0 → KHÔNG advance: ép rework CHÍNH stage này (loop-breaker stageVisits chặn lặp vô hạn). Chống false-done.
+        if (stage.verify) {
+          const v = this.runVerify(stage.verify, c.workspace)
+          if (!v.ok) {
+            const tail = v.log.slice(-VERIFY_LOG_CAP)
+            c.reviewNotes = (c.reviewNotes || []).concat(`⛔ VERIFY FAIL (\`${stage.verify}\`):\n${tail}`)
+            c.status = 'queued' // GIỮ NGUYÊN stageIndex → lặp lại stage này cho agent tự sửa
+            c.history.push({ ts: Date.now(), stage: stage.id, event: 'verify-fail', detail: tail.slice(0, 200) })
+            post(this.store, threadOf(c.id), 'engine', 'decision', `⛔ VERIFY FAIL "${stage.name}" (\`${stage.verify}\`) — agent báo xong nhưng kiểm khách quan vỡ → ép sửa lại`, c.id)
+            this.store.putCard(c)
+            break
+          }
+          post(this.store, threadOf(c.id), 'engine', 'status', `✅ verify "${stage.name}" qua (\`${stage.verify}\`)`, c.id)
+        }
         if (stage.gate) {
           c.status = 'waiting_human'; c.waitKind = 'gate'
           c.pendingQuestion = `Duyệt qua "${stage.name}"?`
@@ -412,6 +574,10 @@ export class Engine {
         c.history.push({ ts: Date.now(), stage: back.id, event: 'rework', detail: result.outcome.summary })
         post(this.store, threadOf(c.id), persona.name, 'handoff', `↩ REWORK → "${back.name}": ${result.outcome.summary}`, c.id)
         this.store.putCard(c)
+        // C2 Stuck-detector: nếu rework >= ngưỡng → launch triage fire-and-forget
+        if (this.isStuck(c, stage)) {
+          this.triggerStuckTriage(c, stage, persona)
+        }
         break
       }
       case 'needs_decision':
@@ -459,6 +625,135 @@ export class Engine {
     distillCardSafe(c)
       .then((sigs) => { if (sigs.length) post(this.store, threadOf(c.id), 'engine', 'system', `🧠 học nền: ${sigs.length} signal (${sigs.map((s) => s.topic.split('/')[1]).join(', ')})`, c.id) })
       .catch(() => { /* nuốt — học hỏng không được làm gãy gì */ })
+  }
+
+  // ── C2 Stuck-detector ──
+
+  /** Kiểm tra card có bị kẹt (stuck) không: rework >= ngưỡng HOẶC visit >= cap mà vẫn rework. */
+  private isStuck(c: Card, stage: Stage): boolean {
+    if (this.stuckHandled.has(c.id)) return false // đã triage rồi
+    const visits = c.stageVisits?.[stage.id] ?? 0
+    // (1) rework >= stuckThreshold trên stage này
+    if (visits >= this.stuckThreshold) return true
+    // (2) loop-breaker sắp chạm → vẫn rework
+    if (visits >= this.maxStageVisits - 1) {
+      // kiểm tra lần chạy gần nhất có phải rework không
+      const last = [...c.history].reverse().find((h) => h.stage === stage.id)
+      if (last && (last.event === 'rework' || last.event === 'verify-fail')) return true
+    }
+    return false
+  }
+
+  /** Launch triage async — fire-and-forget, không block engine. */
+  private triggerStuckTriage(c: Card, stage: Stage, persona: Persona): void {
+    const cardId = c.id
+    const stageName = stage.name
+    // tránh double-trigger
+    if (this.stuckPending.has(cardId)) return
+    this.stuckPending.set(cardId, stageName)
+    this.stuckHandled.add(cardId)
+
+    // PARK ngay: chặn card bị dispatch/rework tiếp (leo loop-cap) trong lúc triage async chạy.
+    // Triage .then sẽ ghi đè trạng thái (upgrade→queued / split→blocked / escalate→giữ).
+    c.status = 'waiting_human'; c.waitKind = 'stuck'
+    c.pendingQuestion = `⏳ Lucy đang phân tích card kẹt ở "${stageName}"…`
+    this.store.putCard(c)
+
+    this.stuckHandler(c, stageName)
+      .then((decision) => {
+        const card = this.store.getCard(cardId)
+        if (!card || card.status === 'done' || card.status === 'failed') return
+        this.stuckPending.delete(cardId)
+        post(this.store, threadOf(card.id), 'engine', 'system', `🧩 triage: ${decision.action} — ${decision.reason}`, card.id)
+        switch (decision.action) {
+          case 'split': {
+            // (a) Tạo N subtask → card chính blocked chờ chúng
+            const subs = (decision.subtasks || []).slice(0, 3)
+            if (!subs.length) {
+              // fallback: không có subtask → escalate
+              card.status = 'waiting_human'; card.waitKind = 'stuck'
+              card.pendingQuestion = `🧩 Triage chọn split nhưng không có subtask cụ thể: ${decision.reason}. Bill xem hướng giải quyết?`
+              this.store.putCard(card)
+              return
+            }
+            // depth-breaker: đã quá sâu → KHÔNG đẻ con nữa, escalate Bill.
+            if (card.depth >= this.maxDepth) {
+              card.status = 'waiting_human'; card.waitKind = 'stuck'
+              card.pendingQuestion = `🧩 Triage muốn split nhưng đã quá sâu (depth ${card.depth} ≥ ${this.maxDepth}): ${decision.reason}. Bill xem hướng?`
+              this.store.putCard(card)
+              post(this.store, threadOf(card.id), 'engine', 'system', `⛔ depth-breaker: split quá sâu (depth ${card.depth} ≥ ${this.maxDepth}) → escalate`, card.id)
+              return
+            }
+            const childIds: string[] = []
+            for (const sub of subs) {
+              const child = this.createCard(
+                sub.title, sub.brief,
+                card.pipelineId, card.id, card.depth + 1, card.projectId,
+                false, undefined, [] // con ĐỘC LẬP (blockedBy=[]) → queued chạy ngay, KHÔNG bị cha chặn (tránh deadlock)
+              )
+              childIds.push(child.id)
+            }
+            // card chính blocked chờ con xong → blockKind='delegate' để khi con xong thì ADVANCE sang stage kế (không re-run stage kẹt)
+            card.status = 'blocked'
+            card.blockedBy = childIds
+            card.blockKind = 'delegate'
+            card.history.push({ ts: Date.now(), stage: stageName, event: 'stuck-split', detail: `→ ${subs.length} subtask: ${subs.map((s) => s.title).join(', ')}` })
+            post(this.store, threadOf(card.id), 'engine', 'handoff', `🧩 STUCK → split ${subs.length} subtask: ${subs.map((s) => `"${s.title}"`).join(', ')}`, card.id)
+            this.store.putCard(card)
+            // resolveUnblocks có thể chạy subtask ngay
+            break
+          }
+          case 'upgrade': {
+            // (b) Nâng model lên opus (chỉ nếu đang sonnet)
+            if (card.modelOverride !== 'opus') {
+              card.modelOverride = 'opus'
+              card.status = 'queued'
+              card.stageVisits = {} // reset đếm loop → opus có lượt mới, không bị loop-cap re-stuck ngay
+              card.history.push({ ts: Date.now(), stage: stageName, event: 'stuck-upgrade', detail: decision.reason })
+              post(this.store, threadOf(card.id), 'engine', 'system', `⬆ STUCK → nâng lên opus: ${decision.reason}`, card.id)
+              this.store.putCard(card)
+            } else {
+              // đã opus rồi mà vẫn stuck → escalate
+              card.status = 'waiting_human'; card.waitKind = 'stuck'
+              card.pendingQuestion = `⬆ Đã opus nhưng vẫn stuck: ${decision.reason}. Bill hướng dẫn?`
+              this.store.putCard(card)
+            }
+            break
+          }
+          case 'escalate': {
+            // (c) Escalate Bill
+            card.status = 'waiting_human'; card.waitKind = 'stuck'
+            card.pendingQuestion = `🧩 STUCK — ${decision.reason}`
+            post(this.store, threadOf(card.id), 'engine', 'decision', `📢 ESCALATE: ${decision.reason}`, card.id)
+            this.store.putCard(card)
+            break
+          }
+        }
+      })
+      .catch((err) => {
+        this.stuckPending.delete(cardId)
+        const card = this.store.getCard(cardId)
+        if (!card) return
+        card.status = 'waiting_human'; card.waitKind = 'stuck'
+        card.pendingQuestion = `⛔ Triage lỗi: ${err instanceof Error ? err.message : String(err)}. Bill xem?`
+        this.store.putCard(card)
+        post(this.store, threadOf(card.id), 'engine', 'decision', `⛔ Triage crash — escalate Bill`, card.id)
+      })
+  }
+
+  /** Xử lý các card stuck-pending trong tick (nếu có). */
+  private processStuckPending(): void {
+    for (const [cardId, stageName] of this.stuckPending) {
+      const card = this.store.getCard(cardId)
+      if (!card) { this.stuckPending.delete(cardId); continue }
+      // Nếu card còn 'queued' mà đang chờ triage → tạm dừng (không cho dispatch)
+      if (card.status === 'queued') {
+        card.status = 'waiting_human'
+        card.waitKind = 'stuck'
+        card.pendingQuestion = `⏳ Lucy đang phân tích card kẹt ở "${stageName}"...`
+        this.store.putCard(card)
+      }
+    }
   }
 
   // child xong -> parent qua stage tiếp

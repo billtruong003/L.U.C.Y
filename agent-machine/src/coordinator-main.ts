@@ -8,6 +8,7 @@ import { MockRunner } from './runner'
 import { loadConfig } from './config'
 import { startCoordinator } from './coordinator'
 import { openRecallFromEnv } from './recall'
+import { TokenGuard } from './token-guard'
 import fs from 'node:fs'
 
 const PORT = Number(process.env.AM_PORT || 8780)
@@ -33,6 +34,11 @@ const engine = new Engine(store, new MockRunner({}), new Budget({
   maxStageVisits: Number(process.env.AM_MAX_STAGE_VISITS || 3), // rework tối đa ~2 vòng rồi hỏi người (chống lặp đốt token)
   leaseMs: Number(process.env.AM_LEASE_MS || 20 * 60e3),
 })
+
+// TokenGuard: giới hạn token/ngày (soft → autopilot hạ executor, hard → dừng tạo card)
+const tokenGuard = new TokenGuard(DATA)
+engine.tokenGuard = tokenGuard
+const tgInit = tokenGuard.check()
 
 if (!TOKEN) console.warn('⚠ AM_TOKEN trống — endpoint /worker KHÔNG có auth. Đặt AM_TOKEN cho production.')
 const recovered = engine.recover() // crash recovery: card 'working' mồ côi -> queued lại

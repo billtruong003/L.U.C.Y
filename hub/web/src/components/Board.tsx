@@ -53,6 +53,16 @@ export default function Board({ projectId }: { projectId?: string } = {}) {
 
   const pipeMap = useMemo(() => new Map(pipes.map((p) => [p.id, p])), [pipes])
   const personaMap = useMemo(() => new Map(personas.map((p) => [p.id, p])), [personas])
+  // BUG-1b: effective persona cho laneModel guard (form.personaId → pipeline stage-0)
+  const effectivePersonaId = form.personaId || (form.pipeline && pipeMap.get(form.pipeline)?.stages[0]?.personaId)
+  const effectivePersona = effectivePersonaId ? personaMap.get(effectivePersonaId) : undefined
+  const laneModelAvailable = !!effectivePersona?.laneModel
+  // BUG-1b: nếu persona/pipeline đổi và laneModel không khả dụng → reset form.model
+  useEffect(() => {
+    if (form.model === 'laneModel' && effectivePersonaId && !laneModelAvailable) {
+      setForm((f) => ({ ...f, model: '' }))
+    }
+  }, [form.personaId, form.pipeline, effectivePersonaId])
   const stageOf = (c: AmCard) => pipeMap.get(c.pipelineId)?.stages[c.stageIndex]
   const personaOf = (c: AmCard) => { const st = stageOf(c); return st ? personaMap.get(st.personaId) : undefined }
   const projects = useMemo(() => [...new Set(cards.map((c) => c.projectId || 'default'))].sort(), [cards])
@@ -60,7 +70,7 @@ export default function Board({ projectId }: { projectId?: string } = {}) {
   const waiting = shown.filter((c) => c.status === 'waiting_human')
   const selected = cards.find((c) => c.id === sel) || null
 
-  const create = async () => { if (!form.title.trim()) return; const pj = projectId || form.project.trim() || (proj !== 'all' ? proj : 'default'); const mdl = (form.model === 'opus' || form.model === 'sonnet' || form.model === 'laneModel') ? (form.model as 'sonnet' | 'opus' | 'laneModel') : undefined; await amCreateCard(form.title.trim(), form.brief.trim(), form.pipeline.trim() || pipes[0]?.id || 'feature', pj, form.defer, mdl, undefined, form.personaId || undefined); setForm({ ...form, title: '', brief: '', open: false }); pull() }
+  const create = async () => { if (!form.title.trim()) return; const pj = projectId || form.project.trim() || (proj !== 'all' ? proj : 'default'); const mdl = form.model === 'opus' || form.model === 'sonnet' || form.model === 'laneModel' ? (form.model as 'sonnet' | 'opus' | 'laneModel') : undefined; const pid = form.personaId || undefined; await amCreateCard(form.title.trim(), form.brief.trim(), form.pipeline.trim() || pipes[0]?.id || 'feature', pj, form.defer, mdl, undefined, pid); setForm({ ...form, title: '', brief: '', personaId: '', open: false }); pull() }
   const approve = async (id: string) => { await amApprove(id); pull() }
   const reject = async (id: string, fb: string) => { await amReject(id, fb); pull() }
   const answer = async (id: string, text: string) => { await amAnswer(id, text); pull() }
@@ -115,15 +125,15 @@ export default function Board({ projectId }: { projectId?: string } = {}) {
               {pipes.length === 0 && <option value="">(chưa có pipeline)</option>}
               {pipes.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
-            <select className="input sm:!w-40" value={form.personaId} onChange={(e) => setForm({ ...form, personaId: e.target.value, model: '' })} title="Persona override cho stage đầu (tuỳ chọn)">
-              <option value="">persona: auto</option>
-              {personas.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            <select className="input sm:!w-32" value={form.personaId} onChange={(e) => setForm({ ...form, personaId: e.target.value })} title="Persona cho stage đầu (mặc định = theo pipeline)">
+              <option value="">agent: (mặc định)</option>
+              {personas.map((p) => <option key={p.id} value={p.id}>{p.avatar ? `${p.avatar} ` : ''}{p.name}</option>)}
             </select>
             <select className="input sm:!w-28" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} title="Model cho card (mặc định = theo persona)">
               <option value="">model: auto</option>
               <option value="sonnet">sonnet</option>
               <option value="opus">opus</option>
-              {personas.find((p) => p.id === form.personaId)?.laneModel && <option value="laneModel">laneModel (rẻ)</option>}
+              {laneModelAvailable && <option value="laneModel">laneModel (rẻ)</option>}
             </select>
           </div>
           {/* row 2: rich text brief */}

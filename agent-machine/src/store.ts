@@ -1,7 +1,7 @@
 // Store — thin file-based persistence (swappable cho Postgres+pg-boss+DBOS ở M2.1).
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Card, Persona, Pipeline, Project, ChannelMsg, Cost } from './types'
+import type { Card, Persona, Pipeline, Project, ChannelMsg, Cost, LedgerEntry } from './types'
 
 export class Store {
   dir: string
@@ -80,13 +80,13 @@ export class Store {
     fs.appendFileSync(path.join(this.dir, 'ledger.jsonl'), JSON.stringify(e) + '\n')
   }
 
-  readLedger(): ({ ts: number; cardId: string; stage: string; persona: string } & Cost)[] {
+  readLedger(): LedgerEntry[] {
     try {
       const raw = fs.readFileSync(path.join(this.dir, 'ledger.jsonl'), 'utf8')
       const lines = raw.trim().split('\n').filter(Boolean)
-      const out: ({ ts: number; cardId: string; stage: string; persona: string } & Cost)[] = []
+      const out: LedgerEntry[] = []
       for (const l of lines) {
-        try { out.push(JSON.parse(l)) } catch { /* bỏ dòng hỏng */ }
+        try { out.push(JSON.parse(l) as LedgerEntry) } catch { /* bỏ dòng hỏng */ }
       }
       return out
     } catch { return [] }
