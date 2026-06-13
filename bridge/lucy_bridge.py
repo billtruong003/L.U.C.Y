@@ -212,11 +212,16 @@ def reply(chat_id, text):
     send_document(chat_id, path, caption="Lucy")
 
 
-def run_claude(prompt, session_id, model="sonnet", persona_text=None):
+def run_claude(prompt, session_id, model="sonnet", persona_text=None, thinking_sink=None):
     """Chạy claude -p, trả (session_id_mới, text). model: sonnet (nhanh, mặc định) | opus (sâu, chậm).
-    persona_text: nếu set → overlay persona (Lucy base + role) qua file tạm (Đợt A /persona)."""
-    cmd = [CLAUDE, "-p", prompt, "--output-format", "json",
+    persona_text: nếu set → overlay persona (Lucy base + role) qua file tạm (Đợt A /persona).
+    thinking_sink: list (optional) — nếu truyền → dùng stream-json, gom block 'thinking' vào đây (A4)."""
+    want_thinking = thinking_sink is not None
+    out_fmt = "stream-json" if want_thinking else "json"
+    cmd = [CLAUDE, "-p", prompt, "--output-format", out_fmt,
            "--permission-mode", "bypassPermissions", "--model", model]
+    if want_thinking:
+        cmd += ["--verbose"]   # stream-json cần verbose để phát đủ event assistant/result
     persona_file = PERSONA
     if persona_text:
         base = ""
@@ -244,9 +249,32 @@ def run_claude(prompt, session_id, model="sonnet", persona_text=None):
         return None, "⏱️ Claude chạy quá lâu (timeout). Thử chia nhỏ task ạ."
     if r.returncode != 0:
         return None, f"❌ Claude lỗi (exit {r.returncode}): {(r.stderr or r.stdout)[:600]}"
+    global LAST_MODEL
+    if want_thinking:
+        # stream-json = NDJSON: gom block 'thinking' (event assistant) + lấy event 'result' cuối.
+        sid, result = None, None
+        for line in (r.stdout or "").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            t = d.get("type")
+            if t == "assistant":
+                for b in (d.get("message", {}).get("content") or []):
+                    if b.get("type") == "thinking" and b.get("thinking"):
+                        thinking_sink.append(b["thinking"])
+            elif t == "result":
+                sid = d.get("session_id")
+                result = d.get("result")
+                LAST_MODEL = next(iter(d.get("modelUsage") or {}), None) or LAST_MODEL
+        if result is not None:
+            return sid, (result or "(rỗng)")
+        return None, (r.stdout or "(không parse được stream)")[:3500]
     try:
         data = json.loads(r.stdout)
-        global LAST_MODEL
         LAST_MODEL = next(iter(data.get("modelUsage") or {}), None) or LAST_MODEL
         return data.get("session_id"), (data.get("result") or "(rỗng)")
     except Exception:
@@ -501,13 +529,16 @@ def handle(msg, sessions):
     mid = send_id(chat_id, f"🤔 Em xử lý ạ… ({model})")
     stop = threading.Event()
     threading.Thread(target=_heartbeat, args=(chat_id, mid, stop, model), daemon=True).start()
+    sink = [] if pthink else None                       # A4: bật /think → stream-json bắt block thinking
     try:
-        new_sid, result = run_claude(text, sessions.get(str(chat_id)), model, resolve_persona_text(ppersona))
+        new_sid, result = run_claude(text, sessions.get(str(chat_id)), model, resolve_persona_text(ppersona), sink)
     finally:
         stop.set()
     edit(chat_id, mid, f"✅ Xong ({model}).")
     if new_sid:
         sessions[str(chat_id)] = new_sid; _save(sessions)
+    if sink:
+        send(chat_id, "💭 (suy nghĩ)\n" + "\n".join(sink)[:1500])
     reply(chat_id, result)
 
 
