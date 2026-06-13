@@ -13,6 +13,7 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import { writeSignal } from './signal'
 import { resolveClaude } from './claude-bin'
+import { auxComplete } from './aux-client'
 import type { Card } from './types'
 
 export type DistilledSignal = { topic: string; signal: 'positive' | 'negative'; principle: string; scope?: string }
@@ -109,6 +110,17 @@ function spawnClaude(prompt: string, model: string, bin: string): Promise<string
 // Tái dùng bởi distillCard (sau mỗi card) + bootstrap-cli (ký ức claude-memory → signal).
 export async function runDistillPrompt(prompt: string, projectId: string, opts: { model?: string; bin?: string } = {}): Promise<DistilledSignal[]> {
   try {
+    // C3: thử lane FREE trước (distill là side-task, không đáng đốt claude). Có kết quả parse ra signal → dùng luôn.
+    // Tắt bằng LUCY_AUX=0. Lỗi/không có lane → null → rớt xuống claude (an toàn).
+    if (process.env.LUCY_AUX !== '0' && !opts.model) {
+      try {
+        const auxRaw = await auxComplete(prompt, { maxTokens: 700 })
+        if (auxRaw && auxRaw.trim()) {
+          const sigs = parseDistillOutput(auxRaw, projectId)
+          if (sigs.length) return sigs // chỉ tin lane khi RA signal hợp lệ; rỗng → để claude thử kỹ hơn
+        }
+      } catch { /* lane hỏng → claude lo */ }
+    }
     const model = opts.model || process.env.LUCY_DISTILL_MODEL || 'haiku'
     const bin = opts.bin || process.env.CLAUDE_BIN || 'claude'
     let raw = await spawnClaude(prompt, model, bin)

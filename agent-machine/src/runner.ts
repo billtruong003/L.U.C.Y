@@ -81,10 +81,13 @@ evidenced_by: [<cardId nếu biết>]
   topic phần sau "/" = PATTERN CHUNG card khác cũng dính được (vd "hardcode-config") — KHÔNG phải tên card. KHÔNG ghi lỗi môi trường/transient/chuyện 1 lần.
 - KHÔNG sửa lucy-vault/Brain/preferences/ hay active.md (máy quản). CẤM ghi trí nhớ vào auto-memory built-in của Claude Code (~/.claude/**/memory/) — vault là não DUY NHẤT, ghi chỗ khác = lạc trôi khỏi recall/dream.`
 
-// Ráp system prompt agent: digest đã-học + skill khớp card + persona + kỷ luật chung + contract (+ extra của lane).
-// 1 NGUỒN DUY NHẤT cho cả ClaudeRunner & LaneRunner → khử lặp, giữ thứ tự nối byte-identical (prompt-cache parity).
+// Ráp system prompt agent. 1 NGUỒN DUY NHẤT cho ClaudeRunner & LaneRunner.
+// C1 (Đợt C) PROMPT-CACHE PARITY: nối theo độ-BIẾN-ĐỘNG tăng dần → prefix dài ổn định = trúng prefix-cache (~25% rẻ).
+//   TĨNH-toàn-cục (HOUSE_SKILL, OUTCOME_CONTRACT) → TĨNH-theo-persona (systemPrompt) → ổn-định-theo-card (skill)
+//   → ĐỘNG (digest dream đổi ~ngày, brain nghề đổi mỗi lần học). Phần đổi nằm CUỐI → chỉ tail bị tính lại, đầu vẫn cache.
+//   (Trước đây để digest+brain Ở ĐẦU → đổi xoành xoạch = cache MISS mỗi stage. Đảo lại = ROI cao, gần free.)
 export function buildSystemPrompt(card: Card, persona: Persona, extra = ''): string {
-  return readActiveDigest() + readAgentBrain(persona.id) + loadSkillBlock(card) + persona.systemPrompt + HOUSE_SKILL + OUTCOME_CONTRACT + extra
+  return HOUSE_SKILL + OUTCOME_CONTRACT + persona.systemPrompt + loadSkillBlock(card) + readActiveDigest() + readAgentBrain(persona.id) + extra
 }
 
 export class ClaudeRunner implements Runner {

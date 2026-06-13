@@ -88,6 +88,39 @@ export function readRawLessons(personaId: string): string[] {
   } catch { return [] }
 }
 
+// ── C4 (Đợt C) Curator: dọn bài thô CŨ tràn → archive (KHÔNG xoá), giữ rule đúc kết + N bài gần nhất. ──
+// Deterministic, no-LLM (rẻ). Chạy trong dream. Giữ não active gọn → prompt nhẹ + cache ổn.
+export function curateAgentBrain(personaId: string, keepRaw = MAX_LESSONS): { archived: number } | null {
+  const f = fileFor(personaId)
+  if (!f) return null
+  try {
+    const lines = fs.readFileSync(f, 'utf8').split('\n').filter((l) => l.trim().startsWith('- '))
+    const consolidated = lines.filter((l) => l.includes('🧠 đúc kết'))
+    const raw = lines.filter((l) => !l.includes('🧠 đúc kết'))
+    if (raw.length <= keepRaw) return null // chưa tràn → khỏi dọn
+    const overflow = raw.slice(0, raw.length - keepRaw) // bài CŨ nhất (append theo thời gian → đầu mảng = cũ)
+    const keep = raw.slice(raw.length - keepRaw)
+    // archive (append, không xoá) → Brain/agents/_archive/<id>.md
+    const archiveDir = path.join(path.dirname(f), '_archive')
+    fs.mkdirSync(archiveDir, { recursive: true })
+    const af = path.join(archiveDir, `${personaId}.md`)
+    let prev = ''
+    try { prev = fs.readFileSync(af, 'utf8') } catch { /* archive mới */ }
+    fs.writeFileSync(af, (prev || `# Não nghề ARCHIVE — \`${personaId}\` (bài cũ, giữ để truy vết)\n\n`) + overflow.join('\n') + '\n')
+    // ghi lại active = đúc kết + bài gần nhất
+    const header = `# Não nghề — \`${personaId}\`\n\n> Máy quản. Đã curate: archive ${overflow.length} bài cũ. Active = đúc kết + ${keep.length} bài gần.\n\n`
+    fs.writeFileSync(f, header + consolidated.concat(keep).join('\n') + '\n')
+    return { archived: overflow.length }
+  } catch { return null }
+}
+
+/** Curate MỌI persona có não. Cho dream cron. */
+export function curateAllAgentBrains(): { personaId: string; archived: number }[] {
+  const out: { personaId: string; archived: number }[] = []
+  for (const id of listAgentBrains()) { const r = curateAgentBrain(id); if (r) out.push({ personaId: id, ...r }) }
+  return out
+}
+
 /** Ghi đè não bằng các rule ĐÃ ĐÚC KẾT (class-level). Thay bài thô lẻ tẻ → giảm phình, tăng chất. */
 export function writeConsolidated(personaId: string, rules: string[], day = new Date().toISOString().slice(0, 10)): boolean {
   const f = fileFor(personaId)

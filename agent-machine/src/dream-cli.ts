@@ -3,6 +3,7 @@
 import path from 'node:path'
 import { dream } from './dream'
 import { consolidateAllAgentBrainsSafe } from './agent-brain-dream'
+import { curateAllAgentBrains } from './agent-brain'
 
 const vault = process.env.LUCY_VAULT || path.resolve(process.cwd(), '..', 'lucy-vault')
 process.env.LUCY_VAULT = vault // agent-brain-dream đọc vault qua env → đảm bảo set
@@ -25,5 +26,10 @@ if (!s.changed && !s.contradictions.length) {
 consolidateAllAgentBrainsSafe()
   .then((done) => {
     if (done.length) console.log(`🧠 đúc kết não nghề: ${done.map((d) => `${d.personaId} (${d.before}→${d.after})`).join(', ')}`)
+    // C4 curator: sau đúc kết, dọn bài thô cũ tràn → archive (deterministic, no-LLM).
+    try {
+      const curated = curateAllAgentBrains()
+      if (curated.length) console.log(`🧹 curate não nghề: ${curated.map((c) => `${c.personaId} (archive ${c.archived})`).join(', ')}`)
+    } catch { /* curate hỏng không gãy dream */ }
   })
   .catch(() => { /* nuốt — đúc kết hỏng không được làm gãy dream */ })

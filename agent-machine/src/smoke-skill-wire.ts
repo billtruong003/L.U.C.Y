@@ -61,9 +61,11 @@ try {
   assert('prompt CÓ nội dung SKILL.md (đúng skill, không header suông)', sysA.includes(SKILL_MARKER))
   assert('prompt CÓ persona marker', sysA.includes(PERSONA_MARKER))
   assert('prompt CÓ OUTCOME_CONTRACT ("QUY TẮC KẾT THÚC")', sysA.includes('QUY TẮC KẾT THÚC'))
-  // Layout: skill đứng TRƯỚC persona (digest+skill+persona+house+contract) — khoá đúng thứ tự nối.
-  assert('thứ tự: SKILL trước PERSONA', sysA.indexOf('SKILL ÁP DỤNG') < sysA.indexOf(PERSONA_MARKER),
-    `skill@${sysA.indexOf('SKILL ÁP DỤNG')} vs persona@${sysA.indexOf(PERSONA_MARKER)}`)
+  // C1 (Đợt C) cache-parity layout: house+contract+PERSONA (tĩnh) → SKILL (theo-card) → digest+brain (động).
+  // → persona đứng TRƯỚC skill (đảo so với trước) để prefix tĩnh dài, trúng prefix-cache.
+  assert('thứ tự C1: PERSONA trước SKILL (tĩnh trước theo-card)', sysA.indexOf(PERSONA_MARKER) < sysA.indexOf('SKILL ÁP DỤNG'),
+    `persona@${sysA.indexOf(PERSONA_MARKER)} vs skill@${sysA.indexOf('SKILL ÁP DỤNG')}`)
+  assert('thứ tự C1: CONTRACT (tĩnh) đứng trước SKILL', sysA.indexOf('QUY TẮC KẾT THÚC') < sysA.indexOf('SKILL ÁP DỤNG'))
 
   console.log('\n📋 Đoạn đầu prompt:')
   console.log(sysA.slice(0, 300))
