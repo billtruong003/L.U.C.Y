@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { metricsData, amState, errorStatsData, brainState, type MetricsData, type AmCard, type AmPersona, type AmMsg, type BrainSig, type ErrorStatsData, type ErrorCategory } from '../api'
+import { metricsData, amState, errorStatsData, brainState, llmGuard, type MetricsData, type AmCard, type AmPersona, type AmMsg, type BrainSig, type ErrorStatsData, type ErrorCategory, type GuardData } from '../api'
 
 // ── Overview helpers ─────────────────────────────────────────────────────────
 function fmtTokens(n: number): string {
@@ -114,6 +114,7 @@ export default function Dashboard() {
   const [data, setData] = useState<MetricsData>(EMPTY_METRICS)
   const [oLoading, setOLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState(0)
+  const [guard, setGuard] = useState<GuardData | null>(null) // D4: rate-guard + quota
 
   // Insights data
   const [cards, setCards] = useState<AmCard[]>([])
@@ -138,6 +139,7 @@ export default function Dashboard() {
       .then((d) => { setData(d); setLastRefresh(Date.now()) })
       .catch(() => {})
       .finally(() => setOLoading(false))
+    llmGuard().then(setGuard).catch(() => {}) // D4: rate-guard + quota
   }
 
   const loadInsights = async () => {
@@ -347,6 +349,26 @@ export default function Dashboard() {
                         <span className="text-[13px] flex-1 truncate">{p.label}</span>
                         <span className={'mono text-[11px] ' + (p.hasKey ? 'text-grn' : 'text-inkfaint')}>
                           {p.hasKey ? 'alive' : 'dead'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* D4: rate-guard + quota free-tier */}
+                {guard && (guard.guarded?.length > 0 || Object.keys(guard.quota || {}).length > 0) && (
+                  <div className="mt-3 pt-3 border-t border-line flex flex-col gap-1.5">
+                    {guard.guarded?.length > 0 ? guard.guarded.map((g) => (
+                      <div key={g.provider} className="flex items-center gap-2.5">
+                        <span className="h-2 w-2 rounded-full shrink-0 bg-orange-400" style={{ boxShadow: '0 0 7px rgba(255,157,92,.7)' }} />
+                        <span className="text-[12.5px] flex-1 truncate">⏸ {g.provider}</span>
+                        <span className="mono text-[11px] text-orange-300">rate-limit · còn ~{Math.ceil(g.secondsLeft / 60)}′</span>
+                      </div>
+                    )) : <div className="text-[11.5px] text-grn">✓ không provider nào bị rate-limit</div>}
+                    {Object.entries(guard.quota || {}).map(([prov, q]) => (
+                      <div key={prov} className="flex items-center gap-2.5">
+                        <span className="text-[11.5px] text-inkfaint flex-1 truncate">{prov} · quota</span>
+                        <span className="mono text-[11px] text-inkdim">
+                          {q.remainingRequests != null ? `${q.remainingRequests} req` : ''}{q.creditsRemainingUsd != null ? ` · $${q.creditsRemainingUsd.toFixed(2)}` : ''}
                         </span>
                       </div>
                     ))}

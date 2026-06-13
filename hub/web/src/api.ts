@@ -205,3 +205,34 @@ export async function brainPin(prefId: string, pinned: boolean): Promise<{ ok?: 
   const r = await fetch('/api/brain/pin', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prefId, pinned }) }); return r.json()
 }
 
+
+// ---- Phase D: model picker + rate-guard panel + chat streaming ----
+export type LlmModel = { key: string; label: string; provider: string; free: boolean; role: string; note?: string; ctx?: string }
+export async function llmModels(): Promise<{ configured: boolean; offline?: boolean; catalog: LlmModel[]; router: string; routeTable: Record<string, string[]> }> {
+  const r = await fetch('/api/llm/models'); return r.json()
+}
+export type GuardData = {
+  configured: boolean; offline?: boolean
+  guarded: { provider: string; secondsLeft: number; reason: string }[]
+  quota: Record<string, { remainingRequests?: number; remainingTokens?: number; resetAt?: number; creditsRemainingUsd?: number; updatedAt: number }>
+}
+export async function llmGuard(): Promise<GuardData> { const r = await fetch('/api/llm/guard'); return r.json() }
+
+export type StreamEv = { type: 'delta' | 'thinking' | 'route' | 'final' | 'done' | 'error'; text?: string; model?: string }
+// Phase D (D1): chat streaming — POST /api/chat/stream, đọc SSE qua fetch ReadableStream → onEvent mỗi chunk.
+export async function chatStream(prompt: string, model: string, onEvent: (e: StreamEv) => void): Promise<void> {
+  const res = await fetch('/api/chat/stream', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt, model }) })
+  if (!res.ok || !res.body) { onEvent({ type: 'error', text: 'HTTP ' + res.status }); return }
+  const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read(); if (done) break
+    buf += dec.decode(value, { stream: true })
+    let idx: number
+    while ((idx = buf.indexOf('\n\n')) >= 0) {
+      const chunk = buf.slice(0, idx); buf = buf.slice(idx + 2)
+      const line = chunk.split('\n').find((l) => l.startsWith('data:'))
+      if (!line) continue
+      try { onEvent(JSON.parse(line.slice(5).trim())) } catch { /* chunk lỗi → bỏ */ }
+    }
+  }
+}

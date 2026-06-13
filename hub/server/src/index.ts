@@ -109,6 +109,37 @@ function runClaude(prompt: string, sessionId: string | null, model: string): Pro
   })
 }
 
+// Phase D (D1+D3): claude -p stream-json → gọi onEvent({delta|thinking}) khi có chữ. Trả {sid, text, thinking}.
+function streamClaude(prompt: string, sessionId: string | null, model: string,
+                      onEvent: (e: { type: 'delta' | 'thinking'; text: string }) => void): Promise<{ sid: string | null; text: string; thinking: string }> {
+  const args = ['-p', prompt, '--output-format', 'stream-json', '--include-partial-messages', '--verbose',
+                '--permission-mode', 'bypassPermissions', '--model', model]
+  if (fs.existsSync(PERSONA)) args.push('--append-system-prompt-file', PERSONA)
+  if (fs.existsSync(VAULT)) args.push('--add-dir', VAULT)
+  if (sessionId) args.push('--resume', sessionId)
+  return new Promise((resolve) => {
+    const child = spawn(CLAUDE, args, { cwd: WORKDIR, env: { ...process.env, IS_SANDBOX: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
+    let buf = '', answer = '', thinking = '', sid: string | null = null, finalResult: string | null = null
+    const timer = setTimeout(() => child.kill(), TIMEOUT)
+    child.stdout.on('data', (d) => {
+      buf += d
+      let nl: number
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1)
+        if (!line) continue
+        let j: any; try { j = JSON.parse(line) } catch { continue }
+        if (j.type === 'stream_event' && j.event?.type === 'content_block_delta') {
+          const dl = j.event.delta || {}
+          if (dl.type === 'text_delta' && dl.text) { answer += dl.text; onEvent({ type: 'delta', text: dl.text }) }
+          else if (dl.type === 'thinking_delta' && dl.thinking) { thinking += dl.thinking; onEvent({ type: 'thinking', text: dl.thinking }) }
+        } else if (j.type === 'result') { sid = j.session_id || null; finalResult = j.result ?? null }
+      }
+    })
+    child.on('error', (e) => { clearTimeout(timer); resolve({ sid: null, text: answer || `❌ spawn lỗi: ${String(e).slice(0, 300)}`, thinking }) })
+    child.on('close', () => { clearTimeout(timer); resolve({ sid, text: finalResult ?? answer ?? '(rỗng)', thinking }) })
+  })
+}
+
 const app = express()
 app.use(express.json())
 app.use(cookieParser())
@@ -489,6 +520,71 @@ app.get('/api/am/state', async (req, res) => {
   if (!amOn()) return res.json({ configured: false, cards: [], channels: [] })
   try { const r = await amFetch('/state'); res.json({ configured: true, ...(await r.json()) }) }
   catch (e) { res.json({ configured: true, offline: true, cards: [], channels: [], error: String(e).slice(0, 120) }) }
+})
+// Phase D (D2/D4): catalog model + trạng thái rate-guard/quota → cho composer picker + Dashboard panel.
+app.get('/api/llm/models', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!amOn()) return res.json({ configured: false, catalog: [], providers: [], routeTable: {}, router: '' })
+  try { const r = await amFetch('/llm/models'); res.json({ configured: true, ...(await r.json()) }) }
+  catch (e) { res.json({ configured: true, offline: true, catalog: [], providers: [], routeTable: {}, router: '', error: String(e).slice(0, 120) }) }
+})
+app.get('/api/llm/guard', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!amOn()) return res.json({ configured: false, guarded: [], quota: {} })
+  try { const r = await amFetch('/llm/guard'); res.json({ configured: true, ...(await r.json()) }) }
+  catch (e) { res.json({ configured: true, offline: true, guarded: [], quota: {}, error: String(e).slice(0, 120) }) }
+})
+
+// Phase D (D1+D2+D3): chat STREAMING qua SSE. model = claude:sonnet|claude:opus | auto | <lane-key>.
+// claude → stream-json (chữ chạy thật). lane → coordinator /chat-lane (nhanh, trả 1 cục). auto → /route rồi dispatch.
+const LANE_KEYS = new Set<string>()
+app.post('/api/chat/stream', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  const prompt = String(req.body?.prompt || '').trim()
+  if (!prompt) return res.status(400).json({ error: 'empty' })
+  let model = String(req.body?.model || 'claude:sonnet').trim()
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' })
+  const sse = (ev: Record<string, unknown>) => { try { res.write(`data: ${JSON.stringify(ev)}\n\n`) } catch { /* client ngắt */ } }
+  let closed = false
+  req.on('close', () => { closed = true })
+  // refresh danh sách lane key (1 lần / khi rỗng) để phân biệt lane vs claude
+  if (!LANE_KEYS.size && amOn()) { try { const d = await (await amFetch('/llm/models')).json() as any; for (const m of d.catalog || []) LANE_KEYS.add(m.key) } catch { /* */ } }
+  try {
+    chat.messages.push({ role: 'me', text: prompt, t: Date.now() }); saveChat()
+    // AUTO: router quyết role/model/needsTools
+    if (model === 'auto') {
+      if (!amOn()) { model = 'claude:sonnet' }
+      else {
+        try {
+          const dec = await (await amFetch('/route', { method: 'POST', body: JSON.stringify({ brief: prompt }) })).json() as any
+          if (dec?.error || dec?.needsTools) { sse({ type: 'route', text: `🧭 auto → claude (cần tool): ${dec?.reason || ''}` }); model = 'claude:sonnet' }
+          else { sse({ type: 'route', text: `🧭 auto → ${dec.modelKey} (${dec.role}): ${dec.reason || ''}` }); model = dec.modelKey }
+        } catch { model = 'claude:sonnet' }
+      }
+    }
+    // LANE: model free/rẻ qua coordinator (chat thuần, không tool) — nhanh, trả 1 cục.
+    if (model.startsWith('claude') === false && LANE_KEYS.has(model)) {
+      if (!amOn()) { sse({ type: 'error', text: 'coordinator chưa cấu hình' }); return res.end() }
+      try {
+        const r = await (await amFetch('/chat-lane', { method: 'POST', body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }] }) })).json() as any
+        if (r?.error) { sse({ type: 'error', text: r.error }) }
+        else {
+          if (r.thinking) sse({ type: 'thinking', text: String(r.thinking).slice(0, 2000) })
+          sse({ type: 'delta', text: r.answer || '(rỗng)' })
+          chat.messages.push({ role: 'lucy', text: r.answer || '(rỗng)', t: Date.now() }); saveChat()
+        }
+      } catch (e) { sse({ type: 'error', text: 'lane lỗi: ' + String(e).slice(0, 120) }) }
+      sse({ type: 'done', model }); return res.end()
+    }
+    // CLAUDE: stream-json (chữ chạy thật) — dùng subscription, giữ session chat.
+    const cm = model === 'claude:opus' ? 'opus' : 'sonnet'
+    const out = await streamClaude(prompt, chat.sessionId, cm, (e) => { if (!closed) sse(e) })
+    chat.sessionId = out.sid || chat.sessionId
+    chat.messages.push({ role: 'lucy', text: out.text, t: Date.now() }); saveChat()
+    sse({ type: 'final', text: out.text, model: cm })
+    sse({ type: 'done', model: cm })
+  } catch (e) { sse({ type: 'error', text: String(e).slice(0, 200) }) }
+  res.end()
 })
 app.get('/api/am/config', async (req, res) => {
   if (!authed(req)) return res.status(401).json({ error: 'unauth' })
