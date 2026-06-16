@@ -4,9 +4,9 @@ import {
   CircleCheck, CircleDashed, FileText, FolderGit2, Puzzle, NotebookPen, Sparkles, GitBranch,
 } from 'lucide-react'
 import Markdown from './Markdown'
-import Galaxy from './Galaxy'
 import { brainState, brainRecall, brainFile, brainReindex, brainDream, brainEvidence, brainPin, type BrainState, type BrainHit, type BrainPref, type BrainRelated } from '../api'
 import { showToast } from '../toast'
+import { openGalaxyTab } from '../galaxyFocus'
 
 // Tab "Bộ não" (M1 + B) — trí nhớ bền của Lucy: tinh hà sống (hero) · recall (FTS5) · preference đã học (confidence)
 // · gộp "dream". Premium dark (NORTH_STAR §4). Khác tab Neural (BrainViz = graph agent live).
@@ -110,8 +110,8 @@ export default function Memory({ visible }: { visible: boolean }) {
       </div>
 
       <div className="flex-1 min-h-0 flex">
-        {/* ── LEFT: preferences (premium) + inbox + vault ── */}
-        <div className="w-[300px] shrink-0 border-r border-line overflow-y-auto p-3 hidden md:block">
+        {/* ── LEFT: preferences (premium) + inbox + vault — U4: width co theo viewport ── */}
+        <div className="w-full max-w-[300px] md:w-[clamp(240px,26vw,320px)] shrink-0 border-r border-line overflow-y-auto p-3 hidden md:block">
           <Section icon={<Brain size={12} />} title={`Đã học · ${prefs.length}`}>
             {prefs.length === 0 && <Empty text="Chưa học preference nào — chạy việc + Dream" />}
             {prefs.map((p) => <PrefCard key={p.id} p={p} active={sel === p.path}
@@ -150,11 +150,29 @@ export default function Memory({ visible }: { visible: boolean }) {
           </Section>
         </div>
 
-        {/* ── RIGHT: galaxy hero (overview) | hits | doc — Galaxy giữ MOUNTED, chỉ ẩn (không re-init 3D) ── */}
+        {/* ── RIGHT: overview landing (U2: tinh hà gom về tab Tinh hà, đây chỉ recall) | hits | doc ── */}
         <div className="flex-1 min-w-0 relative">
-          <div className={overview ? 'absolute inset-0' : 'absolute inset-0 opacity-0 pointer-events-none'}>
-            <Galaxy visible={visible && overview} />
-          </div>
+          {overview && (
+            <div className="absolute inset-0 grid place-items-center p-6">
+              <div className="glass glass-hover p-7 sm:p-9 max-w-md text-center reveal-host">
+                {/* Jarvis hero mini: arc-reactor + 2 vòng HUD */}
+                <div className="relative mx-auto mb-5 h-24 w-24">
+                  <div className="absolute inset-0 hud-ring" />
+                  <div className="absolute inset-2 hud-ring-rev hud-ring-gold" />
+                  <div className="absolute inset-[34%] arc-reactor" />
+                  <Brain size={26} className="absolute inset-0 m-auto text-cyan" />
+                </div>
+                <div className="display text-cyan tracking-wide mb-1.5">TRÍ NHỚ BỀN</div>
+                <p className="text-[13px] text-inkdim leading-relaxed mb-1">
+                  <span className="num text-ink">{st?.stats?.total ?? '–'}</span> note ·
+                  <span className="num text-ink"> {prefs.length}</span> đã học ·
+                  <span className="num text-ink"> {confirmed}</span> ✓ confirmed
+                </p>
+                <p className="text-[12px] text-inkfaint leading-relaxed mb-4">Recall ở ô tìm kiếm trên, hoặc duyệt vault bên trái.</p>
+                <button className="btn btn-primary gap-1.5" onClick={openGalaxyTab}><Sparkles size={14} /> Mở Tinh hà</button>
+              </div>
+            </div>
+          )}
 
           {hits !== null && (
             <div className="absolute inset-0 overflow-y-auto p-4 sm:p-6">

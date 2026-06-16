@@ -16,6 +16,39 @@ export type Metrics = {
   totals: { usd: number; inTok: number; outTok: number; runs: number; cards: number }
 }
 
+// ── M5 time-series: bucket ledger thành chuỗi token/cost cho sparkline (24h theo giờ, 7d/30d theo ngày).
+// Zero-fill bucket rỗng = SỐ THẬT (không có run → 0, KHÔNG bịa). t = mốc bắt đầu bucket (ms, UTC-aligned).
+export type SeriesPoint = { t: number; tokens: number; usd: number; runs: number }
+export type MetricsSeries = { '24h': SeriesPoint[]; '7d': SeriesPoint[]; '30d': SeriesPoint[] }
+
+const HOUR_MS = 3600_000
+const DAY_MS = 86_400_000
+
+export function buildSeries(store: Store, now: number): MetricsSeries {
+  const entries = store.readLedger()
+  const bucketize = (count: number, span: number): SeriesPoint[] => {
+    const align = (t: number) => Math.floor(t / span) * span
+    const end = align(now)                  // bucket hiện tại (mới nhất)
+    const points: SeriesPoint[] = []
+    const idx = new Map<number, SeriesPoint>()
+    for (let i = count - 1; i >= 0; i--) {  // cũ → mới
+      const start = end - i * span
+      const p: SeriesPoint = { t: start, tokens: 0, usd: 0, runs: 0 }
+      points.push(p); idx.set(start, p)
+    }
+    for (const e of entries) {
+      const p = idx.get(align(e.ts))
+      if (p) { p.tokens += e.inTok + e.outTok; p.usd += e.usd; p.runs++ }
+    }
+    return points
+  }
+  return {
+    '24h': bucketize(24, HOUR_MS),
+    '7d': bucketize(7, DAY_MS),
+    '30d': bucketize(30, DAY_MS),
+  }
+}
+
 /** Model thực tế 1 run, replica logic engine.ts:368. */
 function resolveModel(card: { modelOverride?: string }, personaModel: string): string {
   // 'laneModel' = dùng model mặc định của persona, giống engine (không đè)

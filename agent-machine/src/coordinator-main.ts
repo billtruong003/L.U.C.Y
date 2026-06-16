@@ -45,7 +45,7 @@ const recovered = engine.recover() // crash recovery: card 'working' mồ côi -
 // TRÍ NHỚ (M1): mở recall trên lucy-vault + warm index. Không set LUCY_VAULT → brain routes trả configured:false.
 const recall = openRecallFromEnv()
 if (recall) { const s = recall.reindex(); console.log(`🧠 recall index: ${s.total} note (+${s.indexed}/~${s.updated}/-${s.deleted})`) }
-const co = startCoordinator(engine, store, PORT, { token: TOKEN || undefined, host: process.env.AM_HOST || '127.0.0.1', autoTickMs: Number(process.env.AM_TICK_MS || 800), recall, vaultDir: VAULT })
+const co = startCoordinator(engine, store, PORT, { token: TOKEN || undefined, host: process.env.AM_HOST || '127.0.0.1', autoTickMs: Number(process.env.AM_TICK_MS || 800), recall, vaultDir: VAULT, configDir: CONFIG })
 console.log(`🧠 Lucy Agent-Machine coordinator: http://127.0.0.1:${PORT}  (personas ${loaded.personas}, pipelines ${loaded.pipelines}, data ${DATA}${recovered ? `, recovered ${recovered}` : ''}${VAULT ? ', vault ON' : ''})`)
 process.on('SIGINT', () => { co.stop(); process.exit(0) })
 process.on('SIGTERM', () => { co.stop(); process.exit(0) })

@@ -55,6 +55,7 @@ export class Store {
   }
 
   registerPersona(p: Persona) { this.personas.set(p.id, p) }
+  removePersona(id: string): boolean { return this.personas.delete(id) }
   registerPipeline(p: Pipeline) { this.pipelines.set(p.id, p) }
 
   // pipeline TỰ TẠO lúc chạy (custom flow) — lưu riêng AM_DATA/custom-pipelines.json, nạp SAU config.

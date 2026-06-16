@@ -8,7 +8,7 @@ set -a; [ -f .env ] && . ./.env; set +a
 
 # Guard: chờ claude rảnh (≤1 process) tối đa 10 phút, nếu vẫn bận thì bỏ qua
 _WAIT=0; _MAX=1800
-while [ "$(pgrep -c claude 2>/dev/null || echo 0)" -gt 1 ] && [ $_WAIT -lt $_MAX ]; do
+while [ "$(pgrep -c claude 2>/dev/null)" -gt 1 ] && [ $_WAIT -lt $_MAX ]; do
   sleep 15; _WAIT=$((_WAIT+15))
 done
 if [ $_WAIT -ge $_MAX ]; then
@@ -101,10 +101,13 @@ Vừa qua: [sự kiện] — [X ngày trước]
 - Link viết dạng markdown [Tên](URL).
 - In TOÀN BỘ digest (đầy đủ, đúng format trên) ra stdout làm CÂU TRẢ LỜI CHÍNH. KHÔNG cần tự ghi file — script sẽ tự lưu.
 - Xưng em, gọi chủ nhân. TUYỆT ĐỐI KHÔNG bịa — không tìm/không chắc thì ghi 'chưa tìm được'." \
-  --permission-mode bypassPermissions \
+  --allowedTools "Bash WebSearch WebFetch Read Glob Grep" \
   --output-format json \
   --append-system-prompt-file "${LUCY_PERSONA:-$HOME/lucy/bridge/persona.md}" \
   < /dev/null > "$RES" 2>/dev/null || true
+
+# B1: cộng token vòng claude -p vào token-guard CHUNG (fire-and-forget, không gãy cron)
+python3 "$(dirname "$0")/report_tok.py" "$RES" 2>/dev/null || true
 
 # 2. Tách full digest (ghi MD) + bản gọn Telegram — KHÔNG phụ thuộc model tự ghi file
 python3 -c "
@@ -157,11 +160,9 @@ $SUMMARY
 ⚠️ Tạo HTML thất bại — xem file: $MD_OUT"
 fi
 
-curl -s "$API/sendMessage" \
-  -d chat_id="$LUCY_ALLOWED_USER_ID" \
-  -d parse_mode="Markdown" \
-  --data-urlencode "text=$MSG" \
-  >/dev/null || true
+# gửi an toàn: parse_mode=Markdown, lỗi parse entities → tự gửi lại plain (không mất tin)
+source "$(dirname "$0")/lib/tg_send.sh"
+tg_send "$API" "$LUCY_ALLOWED_USER_ID" "$MSG" || true
 
 # 6. Discord qua Aki — chỉ post vào THREAD (không post vào channel elder lounge)
 TECH_DISCORD_THREAD="${LUCY_TECH_DISCORD_THREAD:-1513957545419608174}"     # thread archive

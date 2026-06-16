@@ -23,10 +23,19 @@ export async function send(prompt: string, opus: boolean, scope?: string) {
   return r.json() as Promise<{ job_id: string }>
 }
 
-export async function chatHistory(): Promise<{ messages: { role: 'me' | 'lucy'; text: string; t: number }[] }> {
+export async function chatHistory(): Promise<{ messages: { role: 'me' | 'lucy'; text: string; t: number }[]; id?: string; title?: string }> {
   const r = await fetch('/api/chat'); return r.json()
 }
-export async function newChat() { await fetch('/api/chat/new', { method: 'POST' }) }
+export async function newChat(): Promise<{ id?: string }> { const r = await fetch('/api/chat/new', { method: 'POST' }); return r.json().catch(() => ({})) }
+
+// Phase J — chat đa-phiên
+export type ChatConv = { id: string; title: string; updatedAt: number; count: number }
+export async function listChats(): Promise<{ chats: ChatConv[]; currentId: string }> { const r = await fetch('/api/chats'); return r.json() }
+export async function switchChat(id: string): Promise<{ messages: { role: 'me' | 'lucy'; text: string; t: number }[]; title: string }> {
+  const r = await fetch('/api/chats/switch', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) }); return r.json()
+}
+export async function renameChat(id: string, title: string) { await fetch('/api/chats/rename', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, title }) }) }
+export async function deleteChat(id: string) { await fetch('/api/chats/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) }) }
 
 export type Poll = {
   status: string
@@ -59,8 +68,53 @@ export type AmCard = {
 export type AmMsg = { ts: number; channel: string; author: string; kind: string; text: string; cardId?: string }
 export type AmStage = { id: string; name: string; personaId: string; gate?: boolean }
 export type AmPipeline = { id: string; name: string; stages: AmStage[] }
-export type AmPersona = { id: string; name: string; avatar?: string; model?: string; laneModel?: string }
-export type AmProject = { id: string; name: string; repoUrl?: string; branch?: string; description?: string; skill?: string; channels: string[]; createdAt: number; updatedAt?: number; trashed?: boolean }
+export type AmPersona = { id: string; name: string; avatar?: string; model?: 'sonnet' | 'opus'; laneModel?: string; realm?: string; kind?: 'orchestrator' | 'specialist' | 'executor'; tags?: string[]; systemPrompt?: string; allowedTools?: string[]; maxTurns?: number; timeoutSec?: number }
+// K4 persona registry CRUD (full persona gồm systemPrompt — màn quản expert)
+export async function amPersonas(): Promise<{ configured: boolean; offline?: boolean; personas: AmPersona[] }> {
+  const r = await fetch('/api/personas'); return r.json()
+}
+export async function amSavePersona(p: AmPersona): Promise<{ ok?: boolean; persona?: AmPersona; error?: string }> {
+  const r = await fetch('/api/personas', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(p) })
+  return r.json().catch(() => ({ error: 'phản hồi lỗi' }))
+}
+export async function amDeletePersona(id: string): Promise<{ ok?: boolean; error?: string }> {
+  const r = await fetch('/api/personas/' + encodeURIComponent(id), { method: 'DELETE' })
+  return r.json().catch(() => ({ error: 'phản hồi lỗi' }))
+}
+
+// M3.5 persona chat đa lượt + auto-routing
+export type PersonaChatMsg = { role: 'user' | 'assistant'; content: string }
+export type PersonaChatReply = { ok?: boolean; off?: boolean; error?: string; answer?: string; personaId?: string; personaName?: string; trace?: { name: string; input: string; result: string }[]; model?: string }
+export async function amPersonaChat(personaId: string, message: string, history: PersonaChatMsg[]): Promise<PersonaChatReply> {
+  const r = await fetch('/api/persona/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ personaId, message, history }) })
+  return r.json().catch(() => ({ error: 'phản hồi lỗi' }))
+}
+export type PersonaRouteRanked = { personaId: string; name: string; score: number; tagScore: number; vecScore: number }
+export type PersonaRouteReply = { ok?: boolean; off?: boolean; error?: string; personaId?: string | null; name?: string; confidence?: number; why?: string; mode?: string; ranked?: PersonaRouteRanked[] }
+export async function amPersonaRoute(question: string): Promise<PersonaRouteReply> {
+  const r = await fetch('/api/persona/route', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question }) })
+  return r.json().catch(() => ({ error: 'phản hồi lỗi' }))
+}
+// T5 MCP "Kết nối" — trạng thái server MCP
+export type McpUiState = 'master-off' | 'disabled' | 'needs-creds' | 'tripped' | 'live'
+export type McpServerInfo = {
+  id: string; title: string; scopes: string[]; status: 'live' | 'scaffold'
+  doc: string; scopeLabel: string
+  envKeys: string[]; credsMissing: string[]
+  masterOn: boolean; serverEnabled: boolean; tripped: boolean
+  state: McpUiState
+}
+export async function amMcp(): Promise<{ configured: boolean; offline?: boolean; masterOn: boolean; servers: McpServerInfo[]; error?: string }> {
+  const r = await fetch('/api/mcp'); return r.json().catch(() => ({ configured: false, masterOn: false, servers: [] }))
+}
+
+// T6 Skill "Kỹ năng" — active (INDEX) + proposed (_proposed, M3.3 self-improve)
+export type SkillInfo = { name: string; description: string; path: string }
+export async function amSkills(): Promise<{ configured: boolean; offline?: boolean; learnOn: boolean; activeCount?: number; proposedCount?: number; active: SkillInfo[]; proposed: SkillInfo[]; error?: string }> {
+  const r = await fetch('/api/skills'); return r.json().catch(() => ({ configured: false, learnOn: false, active: [], proposed: [] }))
+}
+
+export type AmProject ={ id: string; name: string; repoUrl?: string; branch?: string; description?: string; skill?: string; channels: string[]; createdAt: number; updatedAt?: number; trashed?: boolean }
 export async function amState(): Promise<{ configured: boolean; offline?: boolean; cards: AmCard[]; projects?: AmProject[]; channels: AmMsg[]; pipelines?: AmPipeline[]; personas?: AmPersona[] }> {
   const r = await fetch('/api/am/state'); return r.json()
 }
@@ -128,6 +182,10 @@ export type MetricsAgentEntry = { agent: string; usd: number; tokens: number }
 export type MetricsCardEntry = { cardId: string; title: string; usd: number; tokens: number }
 export type MetricsAlert = { kind: string; message: string }
 export type TokenGuardStatus = { ok: boolean; soft: boolean; hard: boolean; used: number; softLimit: number; hardLimit: number }
+// M5 time-series cho sparkline — t = mốc bắt đầu bucket (ms). Bucket rỗng = 0 thật.
+export type SeriesPoint = { t: number; tokens: number; usd: number; runs: number }
+export type SeriesRange = '24h' | '7d' | '30d'
+export type MetricsSeries = Record<SeriesRange, SeriesPoint[]>
 export type MetricsData = {
   configured: boolean; offline?: boolean
   tokenDay: number; tokenMonth: number
@@ -138,6 +196,7 @@ export type MetricsData = {
   cardsRunning: number; cardsWaiting: number; cardsTotal: number
   providers: MetricsProvider[]
   alerts: MetricsAlert[]
+  series?: MetricsSeries
   tokenGuard?: { configured: boolean; status?: TokenGuardStatus }
 }
 export async function metricsData(): Promise<MetricsData> {
@@ -217,8 +276,54 @@ export type GuardData = {
   quota: Record<string, { remainingRequests?: number; remainingTokens?: number; resetAt?: number; creditsRemainingUsd?: number; updatedAt: number }>
 }
 export async function llmGuard(): Promise<GuardData> { const r = await fetch('/api/llm/guard'); return r.json() }
+export async function llmCatalogRefresh(): Promise<{ discovered: number; total: number }> { const r = await fetch('/api/llm/catalog-refresh', { method: 'POST' }); return r.json() }
 
-export type StreamEv = { type: 'delta' | 'thinking' | 'route' | 'final' | 'done' | 'error'; text?: string; model?: string }
+// ---- PROMPT ARCHITECT (cụm B) — flag LUCY_PROMPT_ARCHITECT ở server. Tab chỉ hiện khi status.enabled ----
+export type PromptSession = {
+  id: number; ts: number; source: string; chatId: string; targetModel: string
+  contextInput: string; clarifyAsked: string; finalPrompt: string
+  userEdit: string; laneModel: string; escalated: number
+}
+export type PromptArchHistMsg = { role: 'user' | 'assistant'; content: string }
+// CỤM C/D: scorecard rubric DETERMINISTIC (intel.scorePromptDraft) — tab render điểm + chỗ yếu.
+export type PromptCriterion = { key: string; label: string; score: number; weight: number; note: string }
+export type PromptScorecard = { total: number; criteria: PromptCriterion[]; weak: string[]; summary: string }
+export type PromptArchResult = { answer: string; clarifying: boolean; finalPrompt: string; sessionId: number | null; laneModel: string; escalated: boolean; scorecard?: PromptScorecard; variants?: string[]; preferenceApplied?: boolean; error?: string }
+export async function promptArchStatus(): Promise<{ enabled: boolean }> {
+  const r = await fetch('/api/prompts/status'); return r.json().catch(() => ({ enabled: false }))
+}
+export async function promptArchHistory(limit = 20): Promise<{ enabled: boolean; sessions: PromptSession[] }> {
+  const r = await fetch('/api/prompts/history?limit=' + limit); return r.json().catch(() => ({ enabled: false, sessions: [] }))
+}
+// run = SSE (giống chatStream). FinalEv mang meta (clarifying / finalPrompt / sessionId).
+// CỤM D: final event mang thêm scorecard/variants/preferenceApplied (server đã phát) để tab render điểm + đa biến thể.
+export type PromptArchEv = { type: 'delta' | 'route' | 'final' | 'done' | 'error'; text?: string; model?: string; clarifying?: boolean; finalPrompt?: string; sessionId?: number | null; laneModel?: string; escalated?: boolean; scorecard?: PromptScorecard; variants?: string[]; preferenceApplied?: boolean }
+export async function promptArchRun(context: string, history: PromptArchHistMsg[], targetModel: string | undefined, onEvent: (e: PromptArchEv) => void, variants?: number): Promise<void> {
+  const res = await fetch('/api/prompts/run', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ context, history, targetModel, variants }) })
+  if (!res.ok || !res.body) { onEvent({ type: 'error', text: 'HTTP ' + res.status }); return }
+  const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read(); if (done) break
+    buf += dec.decode(value, { stream: true })
+    let idx: number
+    while ((idx = buf.indexOf('\n\n')) >= 0) {
+      const chunk = buf.slice(0, idx); buf = buf.slice(idx + 2)
+      const line = chunk.split('\n').find((l) => l.startsWith('data:'))
+      if (!line) continue
+      try { onEvent(JSON.parse(line.slice(5).trim())) } catch { /* chunk lỗi → bỏ */ }
+    }
+  }
+}
+export async function promptArchEscalate(context: string, history: PromptArchHistMsg[], targetModel: string | undefined, sessionId: number | null): Promise<PromptArchResult> {
+  const r = await fetch('/api/prompts/escalate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ context, history, targetModel, sessionId }) })
+  return r.json().catch(() => ({ answer: '', clarifying: false, finalPrompt: '', sessionId: null, laneModel: '', escalated: true, error: 'phản hồi lỗi' }))
+}
+export async function promptArchEdit(sessionId: number, edit: string): Promise<{ ok?: boolean; error?: string }> {
+  const r = await fetch('/api/prompts/edit', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId, edit }) })
+  return r.json().catch(() => ({ error: 'phản hồi lỗi' }))
+}
+
+export type StreamEv = { type: 'delta' | 'thinking' | 'route' | 'final' | 'done' | 'error' | 'tool_use' | 'tool_result' | 'usage'; text?: string; model?: string; name?: string; input?: string; id?: string; inTok?: number; cacheTok?: number; outTok?: number }
 // Phase D (D1): chat streaming — POST /api/chat/stream, đọc SSE qua fetch ReadableStream → onEvent mỗi chunk.
 export async function chatStream(prompt: string, model: string, onEvent: (e: StreamEv) => void): Promise<void> {
   const res = await fetch('/api/chat/stream', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt, model }) })

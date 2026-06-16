@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0b0e14">
+<title>🔬 Tech Digest — {{DATE}}</title>
+<link rel="stylesheet" href="../assets/theme.css">
+<link rel="stylesheet" href="../assets/report.css">
+</head>
+<body>
+
+<div class="progress-bar"></div>
+
+<div class="header sticky">
+  <div class="header-top">
+    <div class="brand">
+      <div class="brand-icon">📊</div>
+      <div>
+        <div class="brand-name">Lucy Tech Digest</div>
+        <div class="brand-sub">Daily Intelligence Report</div>
+      </div>
+    </div>
+    <div class="header-tools">
+      <a class="icon-btn" href="../index.html" title="Tất cả báo cáo">📚</a>
+      <button class="icon-btn" data-action="theme" title="Đổi giao diện sáng/tối">◑</button>
+      <div class="header-date">
+        <div class="date">{{DATE}}</div>
+        <div class="time">{{GENERATED_AT}}</div>
+      </div>
+    </div>
+  </div>
+  <div class="header-title">
+    <h1>Tech Digest Hàng Ngày</h1>
+    <div class="subtitle">AI · Dev · Game · Big Tech — Tổng hợp bởi Lucy AI</div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- PREV/NEXT NAV -->
+  <nav class="report-nav" data-type="tech">
+    <a class="nav-home" href="../index.html" title="Về trang chủ"><span class="nav-label">🏠</span></a>
+    <a class="nav-item" data-slot="prev"><span class="nav-dir">Mới hơn ›</span><span class="nav-label">—</span></a>
+    <a class="nav-item" data-slot="next"><span class="nav-dir">‹ Cũ hơn</span><span class="nav-label">—</span></a>
+  </nav>
+
+  <!-- SUMMARY -->
+  <div class="summary-box">
+    <div class="summary-label">⚡ Tóm tắt nhanh</div>
+    <div class="summary-text content">{{SUMMARY_HTML}}</div>
+  </div>
+
+  <!-- CHART (auto từ data/market-series.json) -->
+  {{CHART_SECTION}}
+
+  <!-- FULL REPORT -->
+  <div class="section" data-collapsible>
+    <div class="section-header">
+      <span class="section-icon">📋</span>
+      <span class="section-title">Báo cáo đầy đủ</span>
+      <span class="section-caret">▾</span>
+    </div>
+    <div class="section-body">
+      <div class="content full-report">
+{{BODY_HTML}}
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<button class="to-top" title="Lên đầu trang">↑</button>
+
+<div class="footer">
+  Báo cáo tự động bởi <span class="lucy-sig">Lucy</span> • {{DATE}} •
+  Số liệu từ nguồn thị trường thực tế — không phải lời khuyên đầu tư
+</div>
+
+<script>window.LUCY_SERIES = {{SERIES_JSON}};</script>
+<script src="../assets/charts.js"></script>
+<script src="../assets/report.js"></script>
+</body>
+</html>

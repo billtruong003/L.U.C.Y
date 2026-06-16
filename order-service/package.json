@@ -1,0 +1,11 @@
+{
+  "name": "ai-img-order-service",
+  "version": "1.0.0",
+  "description": "Order intake service for AI product-image done-for-you service. Forwards orders to owner Telegram.",
+  "private": true,
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

@@ -1,9 +1,9 @@
 // Runner — thực thi 1 stage. Interface để swap Mock (free) <-> Claude thật <-> remote worker.
-import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import { resolveClaude } from './claude-bin'
+import { query } from '@anthropic-ai/claude-agent-sdk'  // Đường B: thực thi stage in-process (thay spawn claude -p)
 import { loadSkillBlock } from './skill-loader'
+import { mcpConfigFor, mcpAllowedTools } from './mcp-registry'
 import { readAgentBrain } from './agent-brain'
 import { NoopTurnLogger, type TurnLogger } from './turn-log'
 import type { Card, Stage, Persona, RunResult, Outcome, Cost } from './types'
@@ -102,7 +102,8 @@ export class ClaudeRunner implements Runner {
     const personaFile = path.join(ws, '.persona.md')
     // TRÍ NHỚ: prepend digest preference Lucy ĐÃ HỌC (Brain/active.md do dream sinh) vào ĐẦU system prompt.
     // Strip dòng timestamp "Cập nhật:" → prefix byte-ổn định giữa các lượt (giữ prompt-cache parity).
-    fs.writeFileSync(personaFile, buildSystemPrompt(card, persona))
+    const systemPrompt = buildSystemPrompt(card, persona)
+    fs.writeFileSync(personaFile, systemPrompt)   // giữ để debug; SDK nhận chuỗi trực tiếp qua appendSystemPrompt
     // C3.1: reviewNotes slice(-3) — chỉ 3 ghi chú gần nhất vào prompt, tránh phình khi rework nhiều lần
     const recentNotes = card.reviewNotes?.slice(-3) ?? []
     const notes = recentNotes.length ? `\n\n⚠️ PHẢN HỒI cần SỬA (bị trả lại — fix kỹ những điểm này):\n- ${recentNotes.join('\n- ')}` : ''
@@ -113,22 +114,20 @@ export class ClaudeRunner implements Runner {
       ? card.brief.slice(0, 800) + `\n...[còn ${card.brief.length - 800} ký tự — workspace có context đủ, đọc file nếu cần]`
       : card.brief
     const prompt = `Card: ${card.title}\n\n${briefText}\n\nStage hiện tại: ${stage.name}.${prev}${notes}`
-    // prompt đi qua STDIN (không phải arg): né giới hạn command-line Windows + né escaping khi cần shell (shim .ps1/.cmd).
-    const baseArgs = [
-      '-p', '--output-format', 'json', '--permission-mode', 'bypassPermissions',
-      '--model', persona.model, '--append-system-prompt-file', personaFile,
-      '--max-turns', String(persona.maxTurns ?? 12), // cap turn = chặn đốt token/thời gian (40 cũ → 5 phút/task). Persona tự khai trong config.
-      '--allowedTools', (persona.allowedTools ?? ['Read', 'Write', 'Edit', 'Bash']).join(','),
-    ]
     // TRÍ NHỚ: cho agent đọc/ghi vault bền (Lucy "biết" Bill + dự án xuyên phiên). Vault ổn định mọi stage → giữ prompt-cache parity.
-    const vault = process.env.LUCY_VAULT
-    if (vault && fs.existsSync(vault)) baseArgs.push('--add-dir', vault)
+    const v = process.env.LUCY_VAULT
+    const vault = v && fs.existsSync(v) ? v : undefined
+    // M2 "TAY": mount MCP server per-persona (filesystem/web/git/memory). Master flag tắt → {} (chạy y hệt cũ).
+    const mcpServers = mcpConfigFor(persona, { workspace: ws, repoRoot: ws, vault })
+    const allowedTools = [...(persona.allowedTools ?? ['Read', 'Write', 'Edit', 'Bash']), ...mcpAllowedTools(mcpServers)]
+    const maxTurns = persona.maxTurns ?? 12   // cap turn = chặn đốt token/thời gian. Persona tự khai trong config.
     const timeoutSec = persona.timeoutSec ?? 300
-    // CACHE: cùng (card, persona, stage) chạy lại (rework) → --resume session cũ để agent NHỚ đã đọc/sửa gì, KHỎI quét lại project (đỡ token).
+    // CACHE: cùng (card, persona, stage) chạy lại (rework) → resume session cũ để agent NHỚ đã đọc/sửa gì, KHỎI quét lại project (đỡ token).
     // Key kèm stageIndex: cùng persona ở stage khác nhau KHÔNG resume nhầm session (C3.3).
     const resumeId = card.sessions?.[`${persona.id}:${card.stageIndex}`]
-    let r = await this.spawn(resumeId ? [...baseArgs, '--resume', resumeId] : baseArgs, ws, timeoutSec, prompt)
-    if (resumeId && r.code !== 0 && !r.out.trim()) r = await this.spawn(baseArgs, ws, timeoutSec, prompt) // resume hỏng (session ở máy khác / đã xoá) → chạy mới
+    const sdkOpts = { prompt, ws, timeoutSec, model: persona.model, appendSystem: systemPrompt, allowedTools, maxTurns, vault, mcpServers }
+    let r = await this.runSdk({ ...sdkOpts, resumeId })
+    if (resumeId && r.code !== 0) r = await this.runSdk(sdkOpts) // resume hỏng (session ở máy khác / đã xoá) → chạy mới
     const res = parseClaude(r.out)
     // SALVAGE: agent làm xong nhưng quên JSON → suy ra outcome thay vì bounce/loop (gặp nhiều).
     if (res.outcome.summary === NO_JSON) res.outcome = await salvageOutcome(res.report || res.raw, stage.name)
@@ -143,22 +142,39 @@ export class ClaudeRunner implements Runner {
     return res
   }
 
-  private spawn(args: string[], ws: string, timeoutSec: number, stdin: string): Promise<{ out: string; code: number | null }> {
-    return new Promise((resolve) => {
-      // Windows: resolve claude.exe THẬT (né shim .cmd ENOENT + cmd-quoting-hell lồng shell — chết im tuỳ shell cha).
-      const r = resolveClaude(this.bin)
-      const opts = { cwd: ws, env: { ...process.env, IS_SANDBOX: '1' }, stdio: ['pipe', 'pipe', 'pipe'] as ['pipe', 'pipe', 'pipe'] }
-      const ch = r.shell
-        ? spawn([r.bin, ...args].map((a) => `"${a}"`).join(' '), { ...opts, shell: true })
-        : spawn(r.bin, args, opts)
-      let out = ''
-      const timer = setTimeout(() => ch.kill(), timeoutSec * 1000) // kill runaway (600 cũ → 10 phút). Persona tự khai.
-      ch.stdout.on('data', (d) => (out += d))
-      ch.on('close', (code) => { clearTimeout(timer); resolve({ out, code }) })
-      ch.on('error', (e) => { clearTimeout(timer); resolve({ out: JSON.stringify({ result: `spawn lỗi: ${e}` }), code: 1 }) })
-      ch.stdin.on('error', () => { /* EPIPE khi claude chết sớm — đã có 'error'/'close' lo */ })
-      ch.stdin.write(stdin); ch.stdin.end()
-    })
+  // Đường B: query() in-process. Gom message → đóng gói envelope JSON y hệt CLI (result/total_cost_usd/usage/session_id)
+  // để parseClaude giữ nguyên. code=0 nếu có result, 1 nếu lỗi/rỗng (giữ logic resume-retry ở run()).
+  private async runSdk(o: { prompt: string; ws: string; timeoutSec: number; model: string; appendSystem: string; allowedTools: string[]; maxTurns: number; vault?: string; resumeId?: string; mcpServers?: Record<string, unknown> }): Promise<{ out: string; code: number }> {
+    const ac = new AbortController()
+    const timer = setTimeout(() => ac.abort(), o.timeoutSec * 1000)
+    let result = '', sid: string | undefined, usd = 0, inTok = 0, outTok = 0
+    try {
+      const q = query({
+        prompt: o.prompt,
+        options: {
+          model: o.model, permissionMode: 'bypassPermissions', cwd: o.ws,
+          appendSystemPrompt: o.appendSystem, allowedTools: o.allowedTools, maxTurns: o.maxTurns,
+          ...(o.mcpServers && Object.keys(o.mcpServers).length ? { mcpServers: o.mcpServers } : {}),
+          ...(o.vault ? { additionalDirectories: [o.vault] } : {}),
+          ...(o.resumeId ? { resume: o.resumeId } : {}),
+          env: { ...process.env, IS_SANDBOX: '1' }, abortController: ac,
+        },
+      } as any)
+      for await (const m of q as any) {
+        if (m.type === 'result') {
+          result = m.result ?? ''
+          sid = m.session_id || undefined
+          usd = m.total_cost_usd ?? 0
+          inTok = m.usage?.input_tokens ?? 0
+          outTok = m.usage?.output_tokens ?? 0
+        }
+      }
+    } catch (e) {
+      clearTimeout(timer)
+      return { out: JSON.stringify({ result: `SDK lỗi: ${String((e as any)?.message || e)}` }), code: 1 }
+    }
+    clearTimeout(timer)
+    return { out: JSON.stringify({ result, total_cost_usd: usd, usage: { input_tokens: inTok, output_tokens: outTok }, session_id: sid }), code: result ? 0 : 1 }
   }
 }
 
@@ -209,21 +225,22 @@ export function extractOutcome(text: string): Outcome {
 // Sentinel: agent QUÊN khối JSON outcome (gặp NHIỀU, nhất là model rẻ / task rộng).
 export const NO_JSON = 'Agent không trả JSON outcome đúng'
 
-// claude -p single-shot (no tool) — để SALVAGE: đọc output thô → suy ra outcome.
+// Đường B: query() single-shot (no tool) — SALVAGE: đọc output thô → suy ra outcome. Trả result text.
 function claudeClassify(prompt: string, model: string, timeoutSec = 90): Promise<string> {
-  return new Promise((resolve) => {
-    const r = resolveClaude(process.env.CLAUDE_BIN || 'claude')
-    const args = ['-p', '--output-format', 'json', '--permission-mode', 'bypassPermissions', '--model', model, '--max-turns', '1']
-    const o = { env: { ...process.env, IS_SANDBOX: '1' }, stdio: ['pipe', 'pipe', 'pipe'] as ['pipe', 'pipe', 'pipe'] }
-    const ch = r.shell ? spawn([r.bin, ...args].map((a) => `"${a}"`).join(' '), { ...o, shell: true }) : spawn(r.bin, args, o)
-    let out = ''
-    const timer = setTimeout(() => ch.kill(), timeoutSec * 1000)
-    ch.stdout.on('data', (d) => (out += d))
-    ch.on('close', () => { clearTimeout(timer); try { resolve(JSON.parse(out).result ?? out) } catch { resolve(out) } })
-    ch.on('error', () => { clearTimeout(timer); resolve('') })
-    ch.stdin.on('error', () => { /* EPIPE */ })
-    ch.stdin.write(prompt); ch.stdin.end()
-  })
+  return (async () => {
+    const ac = new AbortController()
+    const timer = setTimeout(() => ac.abort(), timeoutSec * 1000)
+    let result = ''
+    try {
+      const q = query({
+        prompt,
+        options: { model, maxTurns: 1, allowedTools: [], permissionMode: 'bypassPermissions', env: { ...process.env, IS_SANDBOX: '1' }, abortController: ac },
+      } as any)
+      for await (const m of q as any) { if (m.type === 'result') result = m.result ?? '' }
+    } catch { result = '' }
+    clearTimeout(timer)
+    return result
+  })()
 }
 
 // SALVAGE outcome: agent làm việc nhưng quên JSON → đọc report → suy ra advance/rework/needs_decision.

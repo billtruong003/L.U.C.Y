@@ -1,12 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import BrainViz from './BrainViz'
 import Galaxy from './Galaxy'
+import { onGalaxyFocus } from '../galaxyFocus'
 
 // Tab Neural có 2 chế độ:
 //  • Live    = BrainViz (graph agent đang chạy — telemetry real-time)
 //  • Galaxy  = tinh hà tri thức (trí nhớ vault: hành tinh = note, đường sao = wikilink, nở theo thời gian)
 export default function NeuralTab({ visible }: { visible: boolean }) {
   const [mode, setMode] = useState<'live' | 'galaxy'>('galaxy')
+  // U2: yêu cầu "xem trong tinh hà" → đảm bảo đang ở mode galaxy (Galaxy tự ngắm node theo path)
+  useEffect(() => onGalaxyFocus(() => setMode('galaxy')), [])
   return (
     <div className="relative h-full w-full">
       {/* mount cả 2 nhưng chỉ cái đang chọn 'visible' (giữ context, không re-init khi đổi) */}

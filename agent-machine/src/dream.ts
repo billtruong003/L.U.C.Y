@@ -13,12 +13,13 @@ export type BrainCfg = {
   unconfirmed_window_days: number
   contradiction_window_days: number
   stale_evidence_days: number
+  retire_grace_days: number   // pref retired (expired/stale/rebutted) quá hạn này → XOÁ file (node dọn khỏi galaxy)
   high_min: number
   medium_min: number
 }
 const DEFAULT_CFG: BrainCfg = {
   candidate_threshold: 2, unconfirmed_window_days: 14, contradiction_window_days: 14,
-  stale_evidence_days: 90, high_min: 0.75, medium_min: 0.4,
+  stale_evidence_days: 90, retire_grace_days: 30, high_min: 0.75, medium_min: 0.4,
 }
 
 export function loadCfg(vaultDir: string): BrainCfg {
@@ -82,6 +83,7 @@ export type DreamSummary = {
   contradictions: string[] // topic mâu thuẫn chưa đủ ngưỡng
   rebutted: string[]       // pref bị bác
   retired: string[]        // expired/stale
+  pruned: string[]         // pref retired quá hạn grace / file trùng topic → XOÁ (node dọn khỏi galaxy)
   confirmed: string[]      // unconfirmed → confirmed nhờ evidence
   expiredSignals: number   // signal quá cửa sổ không bao giờ đủ ngưỡng → dọn (chống inbox phình vô hạn)
   processedSignals: number
@@ -177,10 +179,11 @@ export function dream(vaultDir: string, opts: { now?: Date } = {}): DreamSummary
   const byTopic = new Map<string, Preference>()
   for (const p of prefs) byTopic.set(p.topic, p)
 
-  const summary: DreamSummary = { changed: false, graduated: [], redundant: 0, contradictions: [], rebutted: [], retired: [], confirmed: [], expiredSignals: 0, processedSignals: 0, activePrefs: 0 }
+  const summary: DreamSummary = { changed: false, graduated: [], redundant: 0, contradictions: [], rebutted: [], retired: [], pruned: [], confirmed: [], expiredSignals: 0, processedSignals: 0, activePrefs: 0 }
   // gom thay đổi rồi GHI 1 LẦN (no-op → không đụng đĩa)
   const toProcess: string[] = []            // signal files → inbox/processed/
   const prefWrites: Preference[] = []       // pref tạo/đổi → ghi
+  const toPrune: string[] = []              // pref file → XOÁ (retired quá grace / trùng topic)
   const logLines: string[] = []
   // A1 evidence: event applied/violated sinh trong run → (a) bump map để confidence tính NGAY run này,
   // (b) persist xuống Brain/log để bền. Signal đã move processed → run sau KHÔNG double-count.
@@ -290,8 +293,38 @@ export function dream(vaultDir: string, opts: { now?: Date } = {}): DreamSummary
     }
   }
 
+  // 2b) PRUNE: pref retired (expired/stale/rebutted) quá hạn grace → XOÁ file → galaxy hết node chết.
+  //     pinned MIỄN. Chỉ xoá khi qua grace (giữ "Gần đây gỡ bỏ" 1 thời gian). Snapshot đã backup → recover được.
+  const graceMs = cfg.retire_grace_days * 24 * 3600 * 1000
+  const effective = (p: Preference): Preference => prefWrites.find((w) => w.id === p.id) || p
+  const dropWrite = (id: string) => { const i = prefWrites.findIndex((w) => w.id === id); if (i >= 0) prefWrites.splice(i, 1) }
+  for (const p of prefs) {
+    const e = effective(p)
+    if (e.pinned) continue
+    if (e.status === 'expired' || e.status === 'stale' || e.status === 'rebutted') {
+      const age = now.getTime() - Date.parse(e.updated_at)
+      if (Number.isFinite(age) && age > graceMs) {
+        dropWrite(p.id); toPrune.push(p.file); summary.pruned.push(p.id)
+        logLines.push(`prune pref=${p.id} (${e.status} quá ${cfg.retire_grace_days} ngày) → xoá`)
+      }
+    }
+  }
+  // 2c) DEDUP: nhiều file pref CÙNG topic (do ghi lỗi/đổi slug) → giữ bản tốt nhất, xoá phần còn lại.
+  const byTopicFiles = new Map<string, Preference[]>()
+  for (const p of prefs) { const a = byTopicFiles.get(p.topic) || []; a.push(p); byTopicFiles.set(p.topic, a) }
+  const rank = (s: PrefStatus) => (s === 'confirmed' ? 2 : s === 'unconfirmed' ? 1 : 0)
+  for (const [topic, group] of byTopicFiles) {
+    if (group.length < 2) continue
+    const keep = [...group].sort((a, b) => rank(b.status) - rank(a.status) || b.confidence - a.confidence || Date.parse(b.updated_at) - Date.parse(a.updated_at))[0]
+    for (const p of group) {
+      if (p.file === keep.file || p.pinned || toPrune.includes(p.file)) continue
+      dropWrite(p.id); toPrune.push(p.file); summary.pruned.push(p.id)
+      logLines.push(`dedup pref=${p.id} topic="${topic}" (trùng, giữ ${keep.id}) → xoá`)
+    }
+  }
+
   // KHÔNG có thay đổi nào → no-op tuyệt đối (không snapshot, không ghi log, không đụng active.md)
-  if (!toProcess.length && !prefWrites.length && !summary.contradictions.length) {
+  if (!toProcess.length && !prefWrites.length && !toPrune.length && !summary.contradictions.length) {
     summary.activePrefs = countActive(prefs)
     return summary
   }
@@ -300,6 +333,7 @@ export function dream(vaultDir: string, opts: { now?: Date } = {}): DreamSummary
   snapshot(vaultDir, now)
   for (const e of evPersist) recordEvidence(vaultDir, e.prefId, e.kind, e.ts) // A1: bền hoá evidence → run sau vẫn đếm
   for (const p of prefWrites) writeAtomic(p.file, renderPreference(p))
+  for (const f of toPrune) { try { fs.unlinkSync(f) } catch { /* mất file rồi → bỏ qua */ } }
   for (const f of toProcess) moveToProcessed(vaultDir, f)
   summary.processedSignals = toProcess.length
 
@@ -380,7 +414,23 @@ function snapshot(vaultDir: string, now: Date) {
   try {
     const dest = path.join(vaultDir, '.snapshots', `dream-${now.toISOString().replace(/[:.]/g, '-')}`)
     fs.cpSync(path.join(vaultDir, 'Brain'), path.join(dest, 'Brain'), { recursive: true })
+    pruneSnapshots(vaultDir)
   } catch { /* snapshot lỗi không chặn dream (chỉ là an toàn thêm) */ }
+}
+// Giữ ~SNAP_KEEP bản gần nhất trong .snapshots/ (rollback-only, không index) — chống phình
+// (15k+ file). Xếp theo tên (ISO ts trong tên → sort chuỗi = sort thời gian), xoá phần dư cũ.
+const SNAP_KEEP = 30
+function pruneSnapshots(vaultDir: string) {
+  try {
+    const dir = path.join(vaultDir, '.snapshots')
+    const entries = fs.readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => ({ name: e.name, t: fs.statSync(path.join(dir, e.name)).mtimeMs }))
+      .sort((a, b) => a.t - b.t) // cũ → mới (mtime, đúng cho cả dream- lẫn consolidate-)
+    for (const { name } of entries.slice(0, Math.max(0, entries.length - SNAP_KEEP))) {
+      fs.rmSync(path.join(dir, name), { recursive: true, force: true })
+    }
+  } catch { /* prune lỗi không chặn dream */ }
 }
 function appendLog(vaultDir: string, now: Date, lines: string[]) {
   if (!lines.length) return

@@ -5,8 +5,7 @@
 // An toàn: fire-and-forget, env-guard LUCY_VAULT, mọi lỗi nuốt im (VPS không có claude = no-op).
 // LLM rẻ (haiku), 1-shot, không tool — chỉ TRẢ JSON mảng rule. KHÔNG bao giờ làm gãy gì.
 import fs from 'node:fs'
-import { spawn } from 'node:child_process'
-import { resolveClaude } from './claude-bin'
+import { query } from '@anthropic-ai/claude-agent-sdk'  // Đường B: 1-shot consolidate in-process
 import { readRawLessons, writeConsolidated, lessonCount, listAgentBrains, CONSOLIDATE_THRESHOLD, MAX_CONSOLIDATED } from './agent-brain'
 
 const TIMEOUT_SEC = 90
@@ -49,21 +48,21 @@ export function parseRules(raw: string): string[] {
   return arr.filter((x): x is string => typeof x === 'string' && x.trim().length >= 8).map((x) => x.trim()).slice(0, MAX_CONSOLIDATED)
 }
 
-function spawnClaude(prompt: string, model: string, bin: string): Promise<string> {
-  return new Promise((resolve) => {
-    const safeModel = /^[A-Za-z0-9._-]+$/.test(model) ? model : 'haiku'
-    const r = resolveClaude(bin)
-    const args = ['-p', '--output-format', 'json', '--model', safeModel, '--max-turns', '1']
-    const opts = { stdio: ['pipe', 'pipe', 'ignore'] as ['pipe', 'pipe', 'ignore'], env: { ...process.env, IS_SANDBOX: '1' } }
-    const ch = r.shell ? spawn(`"${r.bin}" ${args.join(' ')}`, { ...opts, shell: true }) : spawn(r.bin, args, opts)
-    let out = ''
-    const timer = setTimeout(() => ch.kill(), TIMEOUT_SEC * 1000)
-    ch.stdout.on('data', (d) => (out += d))
-    ch.on('close', () => { clearTimeout(timer); resolve(out) })
-    ch.on('error', () => { clearTimeout(timer); resolve('') }) // không có claude (VPS) → no-op
-    ch.stdin.on('error', () => { /* EPIPE */ })
-    ch.stdin.write(prompt); ch.stdin.end()
-  })
+// Đường B: query() 1-shot, KHÔNG tool, model rẻ. Trả result text (parseRules tự bóc envelope/raw). Lỗi → '' (no-op).
+async function sdkConsolidate(prompt: string, model: string): Promise<string> {
+  const safeModel = /^[A-Za-z0-9._-]+$/.test(model) ? model : 'haiku'
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), TIMEOUT_SEC * 1000)
+  let result = ''
+  try {
+    const q = query({
+      prompt,
+      options: { model: safeModel, maxTurns: 1, allowedTools: [], permissionMode: 'bypassPermissions', env: { ...process.env, IS_SANDBOX: '1' }, abortController: ac },
+    } as any)
+    for await (const m of q as any) { if (m.type === 'result') result = m.result ?? '' }
+  } catch { result = '' }
+  clearTimeout(timer)
+  return result
 }
 
 // runner injectable → test không cần claude thật.
@@ -77,7 +76,7 @@ export async function consolidateAgentBrain(personaId: string, opts: { run?: Rul
     const raw = readRawLessons(personaId)
     if (!raw.length) return null
     const prompt = buildConsolidatePrompt(personaId, raw)
-    const run: RuleRunner = opts.run ?? ((p) => spawnClaude(p, process.env.LUCY_DISTILL_MODEL || 'haiku', process.env.CLAUDE_BIN || 'claude'))
+    const run: RuleRunner = opts.run ?? ((p) => sdkConsolidate(p, process.env.LUCY_DISTILL_MODEL || 'haiku'))
     let out = await run(prompt)
     if (!out.trim()) { await new Promise((r) => setTimeout(r, 1500)); out = await run(prompt) } // 1 lần retry hiccup
     const rules = parseRules(out)

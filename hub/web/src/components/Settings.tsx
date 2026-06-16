@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { getReduceFx, setReduceFx } from '../fx'
 
 type Provider = { provider: string; label: string; hasKey: boolean }
 type Model = { key: string; label: string; provider: string; model: string; role: string; free: boolean; ctx?: string; note?: string }
@@ -20,6 +21,18 @@ export default function Settings() {
   const [secret, setSecret] = useState('')
   const [code, setCode] = useState('')
   const [msg, setMsg] = useState('')
+
+  const [reduceFx, setReduceFxState] = useState<boolean>(() => getReduceFx())
+  const toggleFx = () => { const v = !reduceFx; setReduceFxState(v); setReduceFx(v) }
+
+  // S4/E2: bật/tắt trang chủ Reactor (thử nghiệm). App đọc flag lúc mount → reload để áp dụng.
+  const [reactorHome, setReactorHome] = useState<boolean>(() => localStorage.getItem('lucy.reactorHome') === '1')
+  const toggleReactor = () => {
+    const v = !reactorHome
+    setReactorHome(v)
+    localStorage.setItem('lucy.reactorHome', v ? '1' : '0')
+    setTimeout(() => location.reload(), 250)
+  }
 
   const [llm, setLlm] = useState<LlmData | null>(null)
   const [llmLoading, setLlmLoading] = useState(false)
@@ -68,6 +81,45 @@ export default function Settings() {
   return (
     <div className="h-full overflow-auto px-6 py-5">
       <div className="max-w-2xl mx-auto flex flex-col gap-4">
+
+        {/* ── S1/U0: Hiệu ứng & a11y ── */}
+        <div className="card p-5">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-lg">✨</span>
+            <h3 className="display text-sm tracking-wide">HIỆU ỨNG & TRỢ NĂNG</h3>
+            <span className={'chip ml-auto ' + (reduceFx ? 'text-grn border-grn/40' : 'text-inkfaint')}>
+              {reduceFx ? 'GỌN NHẸ' : 'ĐẦY ĐỦ'}
+            </span>
+          </div>
+          <p className="text-[12px] text-inkdim mb-4">
+            Bật "giảm hiệu ứng" để tắt animation, chuyển glass sang nền đặc và gỡ backdrop-blur —
+            đỡ chóng mặt + nhẹ GPU trên máy yếu. Cài đặt hệ thống (reduced-motion / transparency / contrast) luôn được tôn trọng riêng.
+          </p>
+          <button
+            onClick={toggleFx}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border border-line hover:border-cyan/30 hover:bg-white/[0.02] transition-colors text-left"
+            aria-pressed={reduceFx}
+          >
+            <span className="switch" data-on={reduceFx} />
+            <span className="flex-1 min-w-0">
+              <span className="block text-[13px] text-ink">Giảm hiệu ứng (reduce effects)</span>
+              <span className="block text-[11px] text-inkfaint">Tắt motion · glass→đặc · không blur</span>
+            </span>
+          </button>
+
+          {/* S4/E2: trang chủ Reactor (thử nghiệm, flag-gated) */}
+          <button
+            onClick={toggleReactor}
+            className="w-full flex items-center gap-3 px-3 py-2.5 mt-2 rounded-lg border border-line hover:border-gold/30 hover:bg-white/[0.02] transition-colors text-left"
+            aria-pressed={reactorHome}
+          >
+            <span className="switch" data-on={reactorHome} />
+            <span className="flex-1 min-w-0">
+              <span className="block text-[13px] text-ink">Trang chủ Reactor ⚛️ (thử nghiệm)</span>
+              <span className="block text-[11px] text-inkfaint">Hero arc-reactor + vòng đo metric thật · tải lại trang khi đổi</span>
+            </span>
+          </button>
+        </div>
 
         {/* ── 2FA ── */}
         <div className="card p-5">

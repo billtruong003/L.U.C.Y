@@ -46,6 +46,8 @@ export const MODEL_CATALOG: ModelEntry[] = [
   { key: 'devstral-med',     label: 'Devstral Medium',          provider: 'mistral',      model: 'devstral-medium-latest',     role: 'executor', free: true, note: 'agentic coding của Mistral' },
   { key: 'codestral',        label: 'Codestral 2508',           provider: 'mistral',      model: 'codestral-2508',             role: 'executor', free: true, note: 'code-specialized' },
   { key: 'ds-v4-flash',      label: 'DeepSeek V4 Flash',        provider: 'openrouter',   model: 'deepseek/deepseek-v4-flash', role: 'executor', free: false, ctx: '1M' },
+  // ds-chat — DeepSeek Chat (non-reasoning, RẺ ~90x frontier). Prompt-Architect dùng: cấu-trúc-hoá + clarify, không cần reasoning sâu. OpenRouter tự bật prompt caching cho DeepSeek.
+  { key: 'ds-chat',          label: 'DeepSeek Chat',            provider: 'openrouter',   model: 'deepseek/deepseek-chat',     role: 'fast', free: false, ctx: '64k', note: 'non-reasoning rẻ — structural/refine (Prompt Architect)' },
   { key: 'or-nemotron-super', label: 'Nemotron 3 Super 120B',   provider: 'openrouter',   model: 'nvidia/nemotron-3-super-120b-a12b:free', role: 'executor', free: true, ctx: '1M', note: 'free + tool-calling, nhanh (verify 2026-06-12)' },
   { key: 'or-gptoss-120b',   label: 'GPT-OSS 120B (OpenRouter free)', provider: 'openrouter', model: 'openai/gpt-oss-120b:free', role: 'executor', free: true, ctx: '131k', note: 'free + tool-calling' },
   // reasoning
@@ -313,4 +315,44 @@ export function laneAvailable(modelKeyOrRole: string): boolean {
   if ((['executor', 'reasoning', 'fast', 'content'] as string[]).includes(modelKeyOrRole)) chain = FALLBACKS[modelKeyOrRole as Role]
   else { const e = entryByKey(modelKeyOrRole); if (!e) return false; chain = [e.key, ...FALLBACKS[e.role]] }
   return chain.some((k) => { const e = entryByKey(k); return e && !!keyFor(e.provider) })
+}
+
+// -- L4: OpenRouter catalog scrape -- phat hien model free moi, merge vao catalog dong --
+let _orExtra: ModelEntry[] = []
+export function getDynamicCatalog(): ModelEntry[] {
+  return _orExtra.length ? [...MODEL_CATALOG, ..._orExtra] : MODEL_CATALOG
+}
+export async function refreshOpenRouterCatalog(): Promise<{ discovered: number; total: number }> {
+  loadEnvFile()
+  const key = keyFor('openrouter')
+  if (!key) return { discovered: 0, total: MODEL_CATALOG.length }
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 12000)
+  try {
+    const res = await fetch('https://openrouter.ai/api/v1/models', {
+      headers: { 'Authorization': `Bearer ${key}`, 'X-Title': 'Lucy' },
+      signal: ctrl.signal,
+    })
+    if (!res.ok) return { discovered: 0, total: MODEL_CATALOG.length }
+    const data = await res.json() as { data?: { id: string; name?: string; context_length?: number; pricing?: { prompt?: string; completion?: string }; supported_parameters?: string[] }[] }
+    const knownModelIds = new Set(MODEL_CATALOG.map((m) => m.model))
+    const extras: ModelEntry[] = []
+    for (const m of data.data || []) {
+      if (!m.id) continue
+      const isFreePrice = m.pricing?.prompt === '0' && m.pricing?.completion === '0'
+      const isFreeSuffix = m.id.endsWith(':free')
+      if (!isFreePrice && !isFreeSuffix) continue
+      if (knownModelIds.has(m.id)) continue
+      if (m.id.startsWith('anthropic/')) continue
+      const slug = ('or-disc-' + m.id.replace(/[^a-z0-9]/gi, '-').toLowerCase().replace(/-+/g, '-').replace(/^-|-$/g, '')).slice(0, 40)
+      const hasTools = Array.isArray(m.supported_parameters) && m.supported_parameters.includes('tools')
+      const ctx = m.context_length
+        ? m.context_length >= 1_000_000 ? '1M' : m.context_length >= 100_000 ? Math.round(m.context_length / 1000) + 'k' : String(m.context_length)
+        : undefined
+      extras.push({ key: slug, label: (m.name || m.id) + ' (OR)', provider: 'openrouter', model: m.id, role: hasTools ? 'executor' : 'content', free: true, ctx, note: 'auto-discovered' })
+    }
+    _orExtra = extras
+    return { discovered: extras.length, total: MODEL_CATALOG.length + extras.length }
+  } catch { return { discovered: 0, total: MODEL_CATALOG.length } }
+  finally { clearTimeout(timer) }
 }

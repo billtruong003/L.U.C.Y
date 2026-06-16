@@ -1,18 +1,28 @@
 // Coordinator — chạy trên VPS (nhẹ): giữ board/queue/channels, KHÔNG chạy claude -p.
 // Worker (máy local) quay ra qua HTTP: claim job -> chạy -> submit result.
 import http from 'node:http'
+import path from 'node:path'
+import os from 'node:os'
+import { chatLaneAgentic, consultExpert } from './lane-chat'   // Phase M: lane chat có tool (web/file/bash)
 import type { Engine, JobSpec } from './engine'
 import type { Store } from './store'
 import type { Recall } from './recall'
+import { episodicFlagOn } from './recall'
 import { browseVault, readVaultFile, listPreferences, listInbox, readActive, buildGraph, setPinned } from './brain'
 import { dream } from './dream'
 import { recordEvidence, hasManualEvidenceToday } from './evidence'
-import { buildMetrics } from './metrics'
+import { buildMetrics, buildSeries } from './metrics'
 import { buildErrorStats } from './error-stats'
-import { MODEL_CATALOG, providerStatus } from './llm-lane'
+import { getDynamicCatalog, providerStatus, refreshOpenRouterCatalog } from './llm-lane'
 import { chatLane, routeTask, routerModel, ROUTE_TABLE } from './chat-lane'
+import { appendOutcome, readOutcomes, groupByModel, type RoutingOutcome } from './routing-outcome'
 import { guardSnapshot } from './rate-guard'
 import { quotaSnapshot } from './quota'
+import { sanitizePersona, writePersonaFile, deletePersonaFile } from './persona-config'
+import { personaChat, personaRoute, personaChatFlagOn, sanitizeHistory } from './persona-chat'
+import { mcpRegistryOverview } from './mcp-registry'
+import { skillsOverview } from './skill-loader'
+import { runPromptArchitect, promptArchitectFlagOn } from './prompt-architect'
 
 function serializeJob(j: JobSpec) {
   // worker không cần workspace của coordinator — nó tự tạo workspace local.
@@ -28,10 +38,11 @@ async function readBody(req: http.IncomingMessage): Promise<any> {
   })
 }
 
-export function startCoordinator(engine: Engine, store: Store, port: number, opts: { autoTickMs?: number; token?: string; host?: string; recall?: Recall | null; vaultDir?: string } = {}) {
+export function startCoordinator(engine: Engine, store: Store, port: number, opts: { autoTickMs?: number; token?: string; host?: string; recall?: Recall | null; vaultDir?: string; configDir?: string } = {}) {
   let timer: ReturnType<typeof setInterval> | null = null
   if (opts.autoTickMs) timer = setInterval(() => { try { engine.tick() } catch { /* */ } }, opts.autoTickMs)
   const vaultDir = opts.vaultDir
+  const configDir = opts.configDir
   const recall = opts.recall ?? null
   const brainOn = !!(recall && vaultDir)
   // auto-reindex debounce: agent ghi note vào vault GIỮA phiên → search vẫn thấy mà không reindex mỗi request
@@ -42,6 +53,16 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
     lastReindex = Date.now()
     try { recall.reindex() } catch { /* index hỏng không được chặn route đọc */ }
   }
+  // PHASE 2 episodic: flag bật ghi/đọc turn hội thoại; retention dọn turn cũ (debounce 1h, mặc định 90 ngày).
+  const episodicOn = episodicFlagOn()
+  const retentionDays = Number(process.env.LUCY_EPISODIC_RETENTION_DAYS) || 90
+  let lastPrune = 0
+  const maybePrune = () => {
+    if (!recall || !episodicOn || Date.now() - lastPrune < 3600_000) return
+    lastPrune = Date.now()
+    try { recall.pruneTurns(retentionDays) } catch { /* retention không được chặn ghi turn */ }
+  }
+  if (recall && episodicOn) maybePrune() // dọn 1 lần lúc start
 
   const server = http.createServer(async (req, res) => {
     const send = (code: number, obj: unknown) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)) }
@@ -106,8 +127,12 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       }
       if (url === '/token-guard') { return send(200, engine.tokenGuardStatus()) }
       // ── LÁT API (lane model-rẻ): catalog cho dropdown + trạng thái key (KHÔNG lộ key) ──
-      if (req.method === 'GET' && url === '/llm/models') return send(200, { catalog: MODEL_CATALOG, providers: providerStatus(), routeTable: ROUTE_TABLE, router: routerModel() })
+      if (req.method === 'GET' && url === '/llm/models') return send(200, { catalog: getDynamicCatalog(), providers: providerStatus(), routeTable: ROUTE_TABLE, router: routerModel() })
       // B1/B3: trạng thái rate-guard (provider đang bị limit) + quota free-tier còn lại
+      if (req.method === 'POST' && url === '/llm/catalog-refresh') {
+        try { return send(200, await refreshOpenRouterCatalog()) }
+        catch (e) { return send(502, { error: String(e) }) }
+      }
       if (req.method === 'GET' && url === '/llm/guard') return send(200, { guarded: guardSnapshot(), quota: quotaSnapshot() })
       // ── Đợt A: chat qua lane model FREE (claude-path do bridge tự lo, KHÔNG qua đây) ──
       if (req.method === 'POST' && url === '/chat-lane') {
@@ -116,12 +141,86 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
         try { return send(200, await chatLane(b.model, b.messages, { maxTokens: b.maxTokens })) }
         catch (e) { return send(502, { error: String(e instanceof Error ? e.message : e) }) }
       }
+      // ── Phase M: lane chat AGENTIC — model rẻ có tool (web_search/web_fetch/read/bash…). Trả {answer, trace, usage}. ──
+      if (req.method === 'POST' && url === '/chat-lane-agentic') {
+        const b = await readBody(req)
+        if (!b.model || !Array.isArray(b.messages)) return send(400, { error: 'cần {model, messages[]}' })
+        const raw = String(process.env.LUCY_WORKDIR || path.join(os.homedir(), 'lucy-workspace'))
+        const ws = raw.startsWith('~') ? path.join(os.homedir(), raw.slice(1)) : path.resolve(raw)
+        try { return send(200, await chatLaneAgentic(String(b.model), b.messages, ws, { maxTurns: Number(b.maxTurns) || 12 })) }
+        catch (e) { return send(502, { error: String(e instanceof Error ? e.message : e) }) }
+      }
+      // ── K2 consult_expert cho claude-path: hub gọi khi Claude dùng SDK MCP tool ──
+      if (req.method === 'POST' && url === '/consult-expert') {
+        const b = await readBody(req)
+        if (!b.persona || !b.question) return send(400, { error: 'cần {persona, question}' })
+        const raw = String(process.env.LUCY_WORKDIR || path.join(os.homedir(), 'lucy-workspace'))
+        const ws = raw.startsWith('~') ? path.join(os.homedir(), raw.slice(1)) : path.resolve(raw)
+        try { return send(200, { answer: await consultExpert(String(b.persona), String(b.question), ws) }) }
+        catch (e) { return send(502, { error: String(e instanceof Error ? e.message : e) }) }
+      }
+      // ── M3.5 persona chat ĐA LƯỢT: mang đầy đủ danh tính persona + history. Flag LUCY_PERSONA_CHAT. ──
+      if (req.method === 'POST' && url === '/persona-chat') {
+        if (!personaChatFlagOn()) return send(200, { ok: false, off: true, error: 'LUCY_PERSONA_CHAT chưa bật' })
+        const b = await readBody(req)
+        const persona = store.personas.get(String(b.personaId || ''))
+        if (!persona) return send(404, { error: `persona '${b.personaId}' không tồn tại` })
+        if (!b.message || !String(b.message).trim()) return send(400, { error: 'cần {personaId, message}' })
+        const raw = String(process.env.LUCY_WORKDIR || path.join(os.homedir(), 'lucy-workspace'))
+        const ws = raw.startsWith('~') ? path.join(os.homedir(), raw.slice(1)) : path.resolve(raw)
+        try { return send(200, { ok: true, ...(await personaChat(persona, String(b.message), sanitizeHistory(b.history), ws)) }) }
+        catch (e) { return send(502, { error: String(e instanceof Error ? e.message : e) }) }
+      }
+      // ── M3.5 auto-routing: chọn chuyên gia hợp nhất (tag + embedding). Flag LUCY_PERSONA_CHAT. ──
+      if (req.method === 'POST' && url === '/persona-route') {
+        if (!personaChatFlagOn()) return send(200, { ok: false, off: true, error: 'LUCY_PERSONA_CHAT chưa bật' })
+        const b = await readBody(req)
+        if (!b.question || !String(b.question).trim()) return send(400, { error: 'cần {question}' })
+        try { return send(200, { ok: true, ...(await personaRoute(String(b.question), [...store.personas.values()])) }) }
+        catch (e) { return send(502, { error: String(e instanceof Error ? e.message : e) }) }
+      }
+      // ── T5 MCP "Kết nối": liệt kê server + trạng thái (master/flag/creds/circuit-breaker) cho UI ──
+      if (req.method === 'GET' && url === '/mcp') return send(200, mcpRegistryOverview())
+      // ── T6 Skill "Kỹ năng": liệt kê skill active (INDEX) + proposed (_proposed, M3.3) cho UI ──
+      if (req.method === 'GET' && url === '/skills') return send(200, skillsOverview())
+      // ── B3 Prompt Architect (cho bridge /prompt): JSON 1-shot (KHÔNG SSE). Model rẻ ds-chat, no-tool. Flag LUCY_PROMPT_ARCHITECT. ──
+      if (req.method === 'POST' && url === '/prompt-architect') {
+        if (!promptArchitectFlagOn()) return send(200, { ok: false, off: true, error: 'LUCY_PROMPT_ARCHITECT chưa bật' })
+        const b = await readBody(req)
+        const context = String(b.context || '').trim()
+        if (!context) return send(400, { error: 'cần {context}' })
+        const targetModel = b.targetModel ? String(b.targetModel).trim() : undefined
+        try {
+          const r = await runPromptArchitect(context, { targetModel, source: 'bridge', chatId: String(b.chatId || 'bridge-prompt'), vaultDir })
+          if (r.usage) engine.tokenGuard?.addTokens(r.usage.inTok, r.usage.outTok)   // B1: token thật → token-guard CHUNG
+          return send(200, { ok: true, answer: r.answer, clarifying: r.clarifying, finalPrompt: r.finalPrompt, laneModel: r.laneModel, scorecard: r.scorecard })
+        } catch (e) { return send(502, { error: String(e instanceof Error ? e.message : e) }) }
+      }
       // ── Đợt A: smart-routing — router model đọc brief → quyết role+model+needsTools ──
+      // BH-D: nạp outcome đã học (vault) → routeTask tự chọn model thắng thay con đầu bảng hardcode.
       if (req.method === 'POST' && url === '/route') {
         const b = await readBody(req)
         if (!b.brief) return send(400, { error: 'cần {brief}' })
-        try { return send(200, await routeTask(String(b.brief), { router: b.router })) }
+        const outcomes = vaultDir ? groupByModel(readOutcomes(vaultDir)) : []
+        try { return send(200, await routeTask(String(b.brief), { router: b.router, outcomes })) }
         catch (e) { return send(502, { error: String(e instanceof Error ? e.message : e) }) }
+      }
+      // ── BH-D meta-learning: ghi feedback outcome (👍/👎) cho model → routing tự học. ──
+      if (req.method === 'POST' && url === '/llm/feedback') {
+        const b = await readBody(req)
+        if (!vaultDir) return send(200, { ok: false, error: 'vault chưa cấu hình (LUCY_VAULT)' })
+        const model = String(b.model || '').trim()
+        const rating = b.rating === 'good' ? 'good' : b.rating === 'bad' ? 'bad' : null
+        if (!model || !rating) return send(400, { error: 'cần {model, rating: good|bad}' })
+        const outcome: RoutingOutcome = { ts: Date.now(), model, rating, taskType: b.taskType ? String(b.taskType) : undefined, comment: b.comment ? String(b.comment).slice(0, 500) : undefined, convId: b.convId ? String(b.convId) : undefined }
+        appendOutcome(vaultDir, outcome)
+        return send(200, { ok: true, stats: groupByModel(readOutcomes(vaultDir)) })
+      }
+      // ── BH-D + BH-G explainability: bảng outcome đã học (Lucy giỏi việc gì với model nào). ──
+      if (req.method === 'GET' && url === '/llm/outcomes') {
+        if (!vaultDir) return send(200, { configured: false, stats: [], total: 0 })
+        const all = readOutcomes(vaultDir)
+        return send(200, { configured: true, total: all.length, stats: groupByModel(all) })
       }
       // ── METRICS: frontend-compatible shape ──
       if (req.method === 'GET' && url === '/metrics') {
@@ -162,20 +261,71 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
         const alerts: { kind: string; message: string }[] = []
         if (costMonth > 10) alerts.push({ kind: 'cost', message: `Chi phí tháng này $${costMonth.toFixed(2)} — vượt ngưỡng $10` })
         else if (costDay > 2) alerts.push({ kind: 'cost', message: `Chi phí hôm nay $${costDay.toFixed(2)} — vượt ngưỡng $2` })
-        return send(200, { tokenDay, tokenMonth, costDay, costMonth, costByModel, costByAgent, costByCard, cardsRunning, cardsWaiting, cardsTotal, providers, alerts, tokenGuard: engine.tokenGuardStatus() })
+        const series = buildSeries(store, Date.now()) // M5: time-series cho sparkline (24h/7d/30d)
+        return send(200, { tokenDay, tokenMonth, costDay, costMonth, costByModel, costByAgent, costByCard, cardsRunning, cardsWaiting, cardsTotal, providers, alerts, series, tokenGuard: engine.tokenGuardStatus() })
       }
       // ── ERROR-STATS: phân loại lỗi agent từ turn-log.jsonl (đọc env AM_TURNS_LOG cục bộ) ──
       if (req.method === 'GET' && url === '/error-stats') return send(200, buildErrorStats(store))
       // ── BỘ NÃO (M1: recall + vault browse + dream). brainOn=false nếu chưa set LUCY_VAULT. ──
-      if (url.startsWith('/recall') || url.startsWith('/brain')) {
+      if (url.startsWith('/recall') || url.startsWith('/brain') || url.startsWith('/episodic')) {
         if (!brainOn || !recall || !vaultDir) return send(200, { configured: false })
+        // PHASE 2: ghi 1 turn hội thoại (bridge/hub gọi async non-blocking). Flag off → no-op nhẹ.
+        // Bọc try/catch riêng: ghi turn hỏng KHÔNG được chặn chat (caller fire-and-forget bỏ qua lỗi).
+        if (req.method === 'POST' && url === '/episodic') {
+          if (!episodicOn) return send(200, { configured: true, ok: false, off: true })
+          try {
+            const b = await readBody(req)
+            const id = recall.recordTurn({ source: b.source, chatId: b.chat_id, role: b.role, content: b.content, sessionId: b.session_id })
+            maybePrune()
+            return send(200, { configured: true, ok: id != null, id })
+          } catch (e) { return send(200, { configured: true, ok: false, error: String(e) }) }
+        }
+        if (req.method === 'GET' && url === '/episodic') {
+          const q = qs.get('q') || ''
+          const hits = episodicOn && q ? recall.searchTurns(q, { limit: Number(qs.get('limit')) || 5, sinceDays: Number(qs.get('days')) || undefined }) : []
+          return send(200, { configured: true, episodicOn, retentionDays, stats: recall.episodicStats(), hits })
+        }
         if (req.method === 'GET' && url === '/recall') {
           freshIndex()
           const q = qs.get('q') || ''
           const after = qs.get('after') ? Number(qs.get('after')) : undefined
-          const hits = q ? recall.search(q, { type: qs.get('type') || undefined, after, limit: Number(qs.get('limit')) || 10 }) : []
+          // PHASE 4: mặc định LỌC fact hết hiệu lực (valid_to set); ?includeInvalid=1 để truy lịch sử.
+          const includeInvalid = ['1', 'true', 'on'].includes((qs.get('includeInvalid') || '').toLowerCase())
+          const opt = { type: qs.get('type') || undefined, after, limit: Number(qs.get('limit')) || 10, includeInvalid }
+          // PHASE 1: hybrid FTS5+vector nếu LUCY_VECTOR bật (embed incremental cap nhỏ trước khi search). Off → FTS5 thuần.
+          const hits = !q ? [] : recall.vectorReady()
+            ? (await recall.embedIndex({ max: 24 }), await recall.hybridSearch(q, opt))
+            : recall.search(q, opt)
           // A7 graph-walk: kéo theo note nối hit 1 bước wikilink (2 chiều)
           return send(200, { configured: true, hits, related: hits.length ? recall.related(hits.map((h) => h.file_path)) : [] })
+        }
+        // PHASE 0: prefetch recall cho đường hội thoại (Telegram bridge + Hub). POST {q, limit?}
+        // → reindex incremental (rẻ) rồi search, cap limit ≤ 8, trả gọn [{title,snippet,file_path,rank,type}].
+        // Bọc try/catch riêng: tra memory hỏng KHÔNG được chặn chat (caller bỏ qua nếu lỗi).
+        if (req.method === 'POST' && url === '/recall') {
+          try {
+            const b = await readBody(req)
+            const q = String(b.q || '').trim()
+            const limit = Math.max(1, Math.min(8, Number(b.limit) || 5))
+            if (!q) return send(200, { configured: true, hits: [] })
+            freshIndex()
+            // PHASE 1: hybrid khi vector bật (embed incremental cap nhỏ giữ vector tươi). Lỗi vector → tự về FTS5.
+            const raw = recall.vectorReady()
+              ? (await recall.embedIndex({ max: 24 }), await recall.hybridSearch(q, { type: b.type || undefined, limit }))
+              : recall.search(q, { type: b.type || undefined, limit })
+            const hits = raw.map((h) => ({ title: h.title, snippet: h.snippet, file_path: h.file_path, rank: h.rank, type: h.type }))
+            // PHASE 2: gộp episodic (turn hội thoại cũ) vào kết quả recall, đánh dấu type='episodic' ("hôm trước mình bàn gì").
+            if (episodicOn) {
+              try {
+                for (const t of recall.searchTurns(q, { limit: 3 })) {
+                  const who = t.role === 'assistant' || t.role === 'lucy' ? 'Lucy' : 'Chủ nhân'
+                  const day = new Date(t.ts).toISOString().slice(0, 10)
+                  hits.push({ title: `💬 ${who} (${day})`, snippet: t.snippet || t.content.slice(0, 200), file_path: `episodic:${t.id}`, rank: t.rank, type: 'episodic' })
+                }
+              } catch { /* episodic hỏng không chặn recall */ }
+            }
+            return send(200, { configured: true, hits })
+          } catch (e) { return send(200, { configured: true, hits: [], error: String(e) }) }
         }
         if (req.method === 'GET' && url === '/brain/recent') {
           freshIndex()
@@ -209,6 +359,31 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
         }
         return send(404, { error: 'not found' })
       }
+      // ── K4 persona registry CRUD: quản expert qua Hub (config-là-DATA, ghi file config/personas) ──
+      if (url === '/personas') {
+        if (req.method === 'GET') {
+          // full persona (gồm systemPrompt) cho màn quản — khác /state (rút gọn cho board)
+          return send(200, { personas: [...store.personas.values()] })
+        }
+        if (req.method === 'POST') {
+          if (!configDir) return send(400, { error: 'configDir chưa cấu hình — không ghi được persona' })
+          const b = await readBody(req)
+          const p = sanitizePersona(b)
+          if (!p) return send(400, { error: 'persona không hợp lệ — cần {id(a-z0-9-_), name, systemPrompt}' })
+          if (!writePersonaFile(configDir, p)) return send(400, { error: 'id không an toàn để ghi file' })
+          store.registerPersona(p)
+          return send(200, { ok: true, persona: p })
+        }
+        if (req.method === 'DELETE') {
+          if (!configDir) return send(400, { error: 'configDir chưa cấu hình' })
+          const id = qs.get('id') || ''
+          const fileGone = deletePersonaFile(configDir, id)
+          const memGone = store.removePersona(id)
+          if (!fileGone && !memGone) return send(404, { error: 'persona không tồn tại' })
+          return send(200, { ok: true, id })
+        }
+        return send(405, { error: 'method not allowed' })
+      }
       if (req.method === 'GET' && url === '/state') return send(200, {
         cards: store.listCards(),
         projects: store.listProjects(),
@@ -222,6 +397,8 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       send(404, { error: 'not found' })
     } catch (e) { send(500, { error: String(e) }) }
   })
+  // L4: background fetch OpenRouter model catalog (non-blocking — không delay startup)
+  refreshOpenRouterCatalog().catch(() => {})
   server.listen(port, opts.host || '127.0.0.1') // mặc định CHỈ localhost — nginx/overlay mới là mặt tiền public
   return { server, stop: () => { if (timer) clearInterval(timer); server.close() } }
 }

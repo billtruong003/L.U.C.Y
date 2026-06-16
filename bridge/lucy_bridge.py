@@ -13,14 +13,38 @@ import json
 import time
 import threading
 import subprocess
+import asyncio
 import concurrent.futures
 import requests
+
+# Đường B: Claude Agent SDK in-process (thay spawn claude -p). Guarded → lỗi import thì auto-fallback spawn.
+try:
+    from claude_agent_sdk import query as _sdk_query, ClaudeAgentOptions as _SdkOpts
+    _HAS_SDK = True
+except Exception:
+    _HAS_SDK = False
 
 try:
     import telegramify_markdown        # convert markdown -> Telegram MarkdownV2 (pip install telegramify-markdown)
     _HAS_TGMD = True
 except Exception:
     _HAS_TGMD = False
+
+
+def _load_env_file():
+    """Tự nạp bridge/.env vào os.environ (pm2 start cmd KHÔNG source .env → env bền vững,
+    không phụ thuộc snapshot pm2 hay --update-env hay bị mất khi stop/start)."""
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    try:
+        for line in open(p):
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+    except Exception:
+        pass
+_load_env_file()
 
 TOKEN   = os.environ["TELEGRAM_BOT_TOKEN"]
 ALLOWED = str(os.environ.get("LUCY_ALLOWED_USER_ID", "")).strip()   # khóa chỉ chủ nhân
@@ -32,12 +56,29 @@ VAULT   = os.environ.get("LUCY_VAULT", os.path.expanduser("~/lucy/lucy-vault"))
 PERSONA = os.path.expanduser(os.environ.get("LUCY_PERSONA", "~/lucy/bridge/persona.md"))
 TIMEOUT = int(os.environ.get("LUCY_CLAUDE_TIMEOUT", "900"))          # claude có thể chạy lâu
 SESS    = os.path.expanduser("~/.lucy-bridge-sessions.json")
-PREFS   = os.path.expanduser("~/.lucy-bridge-prefs.json")   # Đợt A: model/persona/think theo chat_id
+PREFS     = os.path.expanduser("~/.lucy-bridge-prefs.json")   # Đợt A: model/persona/think theo chat_id
+LANE_HIST = os.path.expanduser("~/.lucy-lane-history.json")   # history lane per (chat_id, model_key)
+LANE_HIST_MAX = 20  # số messages giữ lại (10 turns)
 API     = f"https://api.telegram.org/bot{TOKEN}"
+OFFSET_FILE = os.path.expanduser("~/.lucy-bridge-offset.json")  # lưu getUpdates offset → /restart không tự nuốt loop
+# Bypass chặn ISP (VN chặn dải Bot API): nếu set, MỌI call Telegram đi qua proxy này (vd Cloudflare WARP socks5h://127.0.0.1:40000).
+# KHÔNG áp cho coordinator (localhost) hay claude (spawn riêng) → an toàn, surgical.
+TG_PROXY = os.environ.get("LUCY_TG_PROXY", "").strip()
+_TG_PROXIES = {"https": TG_PROXY, "http": TG_PROXY} if TG_PROXY else None
 # Đợt A: coordinator (agent-machine) = nơi chạy llm-lane cho chat đa-model. Bridge gọi qua HTTP.
 COORD_URL   = os.environ.get("AM_COORD_URL", "http://127.0.0.1:8780")
 COORD_TOK   = os.environ.get("AM_TOKEN", "")
 PERSONA_DIR = os.path.expanduser(os.environ.get("LUCY_PERSONA_DIR", "~/lucy/agent-machine/config/personas"))
+# F4: catalog model 1 NGUỒN — TS sinh file JSON (npm run gen:catalog); bridge đọc khi coordinator offline.
+CATALOG_FILE = os.path.expanduser(os.environ.get("LUCY_CATALOG_FILE", "~/lucy/agent-machine/config/model-catalog.json"))
+# PHASE 0: prefetch recall — tra memory vault trước mỗi turn rồi chèn khối gợi nhớ vào prompt. Tắt = đặt 0.
+RECALL_PREFETCH = str(os.environ.get("LUCY_RECALL_PREFETCH", "1")).strip() not in ("0", "false", "off", "")
+# PHASE 2: episodic — ghi turn hội thoại vào memory.db (cross-session recall). Tắt = đặt 0.
+EPISODIC = str(os.environ.get("LUCY_EPISODIC", "1")).strip() not in ("0", "false", "off", "")
+# PT (parity Telegram↔Hub): cộng token tiêu từ claude-path Telegram vào token-guard CHUNG
+# (coordinator NGUỒN DUY NHẤT, hết double-count) + đếm cục bộ theo ngày để xem qua /token. Tắt = đặt 0.
+TOKEN_REPORT = str(os.environ.get("LUCY_TOKEN_REPORT", "1")).strip() not in ("0", "false", "off", "")
+TG_TOKENS = os.path.expanduser(os.environ.get("LUCY_TG_TOKENS_FILE", "~/.lucy-bridge-tokens.json"))   # đếm token Telegram theo ngày (UTC)
 
 os.makedirs(WORKDIR, exist_ok=True)
 
@@ -63,6 +104,20 @@ def _save(s):
         pass
 
 
+def _load_offset():
+    try:
+        return json.load(open(OFFSET_FILE)).get("offset")
+    except Exception:
+        return None
+
+
+def _save_offset(off):
+    try:
+        json.dump({"offset": off}, open(OFFSET_FILE, "w"))
+    except Exception:
+        pass
+
+
 # ── Đợt A: prefs (model/persona/think) theo chat_id ──
 def _load_prefs():
     try:
@@ -76,6 +131,33 @@ def _save_prefs(p):
         json.dump(p, open(PREFS, "w"))
     except Exception:
         pass
+
+# ── Lane history: per-(chat_id, model_key) — giữ context khi chat lane giữa lượt ──
+def _load_lane_hist():
+    try:
+        return json.load(open(LANE_HIST))
+    except Exception:
+        return {}
+
+
+def _save_lane_hist(h):
+    try:
+        json.dump(h, open(LANE_HIST, "w"))
+    except Exception:
+        pass
+
+
+def _clear_lane_hist(chat_id):
+    """Xoá history lane cho mọi model của 1 chat (/new)."""
+    h = _load_lane_hist()
+    prefix = f"{chat_id}:"
+    keys = [k for k in list(h.keys()) if k.startswith(prefix)]
+    for k in keys:
+        del h[k]
+    if keys:
+        _save_lane_hist(h)
+
+
 
 
 def _coord(path, body=None):
@@ -91,10 +173,165 @@ def _coord(path, body=None):
         return {"error": str(e)}
 
 
+# BẢO MẬT: scrub secret khỏi text trước khi ghi episodic turn (mirror redact.ts/scrubSecrets hub).
+_SECRET_RULES = [
+    (re.compile(r'\bBearer\s+[A-Za-z0-9._\-]{8,}', re.I), 'Bearer [REDACTED]'),
+    (re.compile(r'\b(?:sk|rk|pk)-[A-Za-z0-9_\-]{16,}'), '[REDACTED]'),
+    (re.compile(r'\bjina_[A-Za-z0-9]{16,}'), '[REDACTED]'),
+    (re.compile(r'\b(?:ghp|gho|ghs|ghr|github_pat)_[A-Za-z0-9_]{16,}'), '[REDACTED]'),
+    (re.compile(r'\bxox[baprs]-[A-Za-z0-9-]{10,}'), '[REDACTED]'),
+    (re.compile(r'\bAKIA[0-9A-Z]{16}\b'), '[REDACTED]'),
+    (re.compile(r'\b([A-Za-z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PASSWD|ACCESS[_-]?KEY))\s*[=:]\s*\S+', re.I), r'\1=[REDACTED]'),
+]
+_LONG_RE = re.compile(r'[A-Za-z0-9+/_\-]{40,}={0,2}')
+
+
+def _looks_secret(t):
+    has_b64 = any(c in t for c in '+/=')
+    has_upper = any(c.isupper() for c in t)
+    has_lower = any(c.islower() for c in t)
+    has_digit = any(c.isdigit() for c in t)
+    return has_b64 or (has_upper and has_lower and has_digit)
+
+
+def scrub_secrets(text):
+    if not text:
+        return text
+    s = str(text)
+    for pat, repl in _SECRET_RULES:
+        s = pat.sub(repl, s)
+    s = _LONG_RE.sub(lambda m: '[REDACTED]' if _looks_secret(m.group(0)) else m.group(0), s)
+    return s
+
+
+def recall_prefetch(text):
+    """PHASE 0: tra memory vault (coordinator POST /recall) → khối '🧠 Trí nhớ liên quan' chèn đầu prompt.
+    Cap ~5 hit / ~800 ký tự snippet. Lỗi/timeout/tắt flag → trả '' (chat vẫn chạy bình thường)."""
+    if not RECALL_PREFETCH or not text or not text.strip():
+        return ""
+    try:
+        headers = {"x-worker-token": COORD_TOK} if COORD_TOK else {}
+        r = requests.post(f"{COORD_URL}/recall", json={"q": text[:500], "limit": 5},
+                          headers=headers, timeout=4)
+        hits = (r.json() or {}).get("hits") or []
+    except Exception:
+        return ""
+    lines, budget = [], 800
+    for h in hits[:5]:
+        title = (h.get("title") or h.get("file_path") or "").strip()
+        snip = " ".join((h.get("snippet") or "").split())[:200]
+        item = f"- {title}: {snip}" if snip else f"- {title}"
+        if budget - len(item) < 0:
+            break
+        budget -= len(item)
+        lines.append(item)
+    if not lines:
+        return ""
+    return ("🧠 Trí nhớ liên quan (tra tự động từ vault — dùng nếu hữu ích, bỏ qua nếu lạc đề):\n"
+            + "\n".join(lines) + "\n\n")
+
+
+def episodic_log(role, content, chat_id, session_id=""):
+    """PHASE 2: ghi 1 turn hội thoại vào memory.db (coordinator POST /episodic) — non-blocking, fire-and-forget.
+    Lỗi/timeout/tắt flag → bỏ qua (không bao giờ chặn chat)."""
+    if not EPISODIC or not content or not str(content).strip():
+        return
+    safe = scrub_secrets(str(content))   # BẢO MẬT: giấu key/token trước khi lưu turn
+
+    def _send():
+        try:
+            headers = {"x-worker-token": COORD_TOK} if COORD_TOK else {}
+            requests.post(f"{COORD_URL}/episodic",
+                          json={"source": "tg", "chat_id": str(chat_id), "role": role,
+                                "content": safe[:8000], "session_id": session_id or ""},
+                          headers=headers, timeout=4)
+        except Exception:
+            pass
+    threading.Thread(target=_send, daemon=True).start()
+
+
+# ── PT: token-guard parity (Telegram tính chung với hub) ──
+_TG_TOK_LOCK = threading.Lock()
+
+
+def _today_utc():
+    return time.strftime("%Y-%m-%d", time.gmtime())
+
+
+def _load_tg_tokens():
+    """Counter token Telegram theo ngày (UTC). Sang ngày mới → reset (mirror TokenGuard)."""
+    try:
+        d = json.load(open(TG_TOKENS))
+    except Exception:
+        d = {}
+    if d.get("date") != _today_utc():
+        d = {"date": _today_utc(), "inTok": 0, "outTok": 0, "costUsd": 0.0, "turns": 0}
+    return d
+
+
+def _sdk_usage(m):
+    """Rút dict usage thô (kiểu Anthropic) từ SDK ResultMessage. None nếu không có."""
+    u = getattr(m, "usage", None)
+    return u if isinstance(u, dict) else None
+
+
+def _report_tok(in_tok, out_tok, cost_usd=0.0):
+    """Lõi: cộng (in_tok,out_tok) đã chuẩn hoá vào token-guard CHUNG + counter cục bộ. Fire-and-forget."""
+    if not TOKEN_REPORT:
+        return
+    in_tok = max(0, int(in_tok or 0))
+    out_tok = max(0, int(out_tok or 0))
+    if in_tok <= 0 and out_tok <= 0:
+        return
+    # đếm cục bộ theo ngày (xem riêng phần Telegram qua /token)
+    try:
+        with _TG_TOK_LOCK:
+            d = _load_tg_tokens()
+            d["inTok"] += in_tok
+            d["outTok"] += out_tok
+            d["costUsd"] = round(d.get("costUsd", 0.0) + float(cost_usd or 0.0), 6)
+            d["turns"] += 1
+            json.dump(d, open(TG_TOKENS, "w"))
+    except Exception:
+        pass
+
+    # token-guard CHUNG (NGUỒN DUY NHẤT) — fire-and-forget
+    def _send():
+        try:
+            headers = {"x-worker-token": COORD_TOK} if COORD_TOK else {}
+            requests.post(f"{COORD_URL}/token-guard/add",
+                          json={"inTok": in_tok, "outTok": out_tok},
+                          headers=headers, timeout=4)
+        except Exception:
+            pass
+    threading.Thread(target=_send, daemon=True).start()
+
+
+def report_tokens(usage, cost_usd=0.0):
+    """PT: report token 1 lượt claude-path. usage = dict kiểu Anthropic (input_tokens/output_tokens/cache_*).
+    Parity hub: inTok gồm cả cache_read+cache_creation. Tắt flag/None → bỏ qua."""
+    if not usage:
+        return
+    u = usage or {}
+    in_tok = (int(u.get("input_tokens", 0) or 0)
+              + int(u.get("cache_read_input_tokens", 0) or 0)
+              + int(u.get("cache_creation_input_tokens", 0) or 0))
+    _report_tok(in_tok, int(u.get("output_tokens", 0) or 0), cost_usd)
+
+
 def _catalog_keys():
-    """Key model lane hợp lệ (cache nhẹ mỗi gọi — catalog nhỏ)."""
+    """Key model lane hợp lệ. Ưu tiên coordinator (live, có discovered); offline → đọc file JSON gen từ TS (F4: 1 nguồn)."""
     d = _coord("/llm/models")
-    return [m.get("key") for m in (d.get("catalog") or []) if m.get("key")]
+    keys = [m.get("key") for m in (d.get("catalog") or []) if m.get("key")]
+    if keys:
+        return keys
+    # coordinator offline → fallback file JSON (cùng nguồn TS MODEL_CATALOG)
+    try:
+        with open(CATALOG_FILE, encoding="utf-8") as f:
+            cat = json.load(f)
+        return [m.get("key") for m in (cat.get("models") or []) if m.get("key")]
+    except Exception:
+        return []
 
 
 def resolve_persona_text(pid):
@@ -114,17 +351,51 @@ def list_personas():
         return []
 
 
-def run_lane(prompt, model_key, persona_id=None):
-    """Chat qua lane model FREE (KHÔNG tool/vault). Trả (model_thật, answer, thinking)."""
-    msgs = []
+def run_lane(prompt, model_key, chat_id=None, persona_id=None):
+    """Chat qua lane model FREE với HISTORY + TOOL agentic. Trả (model_thật, answer, thinking)."""
+    # System message: persona hoặc Lucy base (chatLaneAgentic nối CHAT_LANE_NOTE vào đây)
     ptext = resolve_persona_text(persona_id)
-    if ptext:
-        msgs.append({"role": "system", "content": ptext})
+    if not ptext:
+        try:
+            ptext = open(PERSONA).read() if os.path.exists(PERSONA) else "Bạn là Lucy, trợ lý AI."
+        except Exception:
+            ptext = "Bạn là Lucy, trợ lý AI."
+    # History per (chat_id, model_key)
+    hist_data, hkey, history = {}, None, []
+    if chat_id:
+        hist_data = _load_lane_hist()
+        hkey = f"{chat_id}:{model_key}"
+        history = hist_data.get(hkey, [])
+    # Xây message list: [system, ...history, user_now]
+    msgs = [{"role": "system", "content": ptext}]
+    msgs.extend(history)
     msgs.append({"role": "user", "content": prompt})
-    data = _coord("/chat-lane", {"model": model_key, "messages": msgs})
+    # Gọi endpoint agentic (tool: web_search/web_fetch/read_file/bash…)
+    data = _coord("/chat-lane-agentic", {"model": model_key, "messages": msgs, "maxTurns": 8})
     if data.get("error"):
         return None, f"❌ lane lỗi: {data['error']}", None
-    return data.get("model"), (data.get("answer") or "(rỗng)"), data.get("thinking")
+    answer = data.get("answer") or "(rỗng)"
+    lu = data.get("usage") or {}   # PT: lane trả {inTok,outTok} đã gộp (coordinator KHÔNG tự cộng token-guard → an toàn)
+    _report_tok(lu.get("inTok"), lu.get("outTok"))
+    # Lưu history (chỉ user+assistant text, không tool_calls)
+    if hkey is not None:
+        history = history + [
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": answer},
+        ]
+        if len(history) > LANE_HIST_MAX:
+            history = history[-LANE_HIST_MAX:]
+        hist_data[hkey] = history
+        _save_lane_hist(hist_data)
+    # "Thinking" = tóm tắt trace tool (hiện khi pthink bật)
+    trace = data.get("trace") or []
+    thinking_str = None
+    if trace:
+        thinking_str = "\n".join(
+            f"[{t['name']}({t['input'][:120]})]\n→ {t['result'][:200]}"
+            for t in trace[:5]
+        )
+    return data.get("model"), answer, thinking_str
 
 
 def send(chat_id, text):
@@ -142,10 +413,10 @@ def send(chat_id, text):
         if parse:
             payload["parse_mode"] = parse
         try:
-            r = requests.post(f"{API}/sendMessage", json=payload, timeout=30)
+            r = requests.post(f"{API}/sendMessage", json=payload, timeout=30, proxies=_TG_PROXIES)
             if parse and r.status_code != 200:          # parse lỗi → gửi lại plain
                 requests.post(f"{API}/sendMessage",
-                              json={"chat_id": chat_id, "text": text[i:i + 3800]}, timeout=30)
+                              json={"chat_id": chat_id, "text": text[i:i + 3800]}, timeout=30, proxies=_TG_PROXIES)
         except Exception as e:
             print("send err:", e)
 
@@ -153,7 +424,7 @@ def send(chat_id, text):
 def send_id(chat_id, text):
     """Gửi message, trả message_id (để edit làm progress)."""
     try:
-        r = requests.post(f"{API}/sendMessage", json={"chat_id": chat_id, "text": text}, timeout=30)
+        r = requests.post(f"{API}/sendMessage", json={"chat_id": chat_id, "text": text}, timeout=30, proxies=_TG_PROXIES)
         return r.json().get("result", {}).get("message_id")
     except Exception:
         return None
@@ -164,7 +435,7 @@ def edit(chat_id, mid, text):
         return
     try:
         requests.post(f"{API}/editMessageText",
-                      json={"chat_id": chat_id, "message_id": mid, "text": text}, timeout=30)
+                      json={"chat_id": chat_id, "message_id": mid, "text": text}, timeout=30, proxies=_TG_PROXIES)
     except Exception:
         pass
 
@@ -183,9 +454,44 @@ def send_document(chat_id, path, caption=""):
         with open(path, "rb") as f:
             requests.post(f"{API}/sendDocument",
                           data={"chat_id": chat_id, "caption": caption[:1000]},
-                          files={"document": f}, timeout=90)
+                          files={"document": f}, timeout=90, proxies=_TG_PROXIES)
     except Exception as e:
         print("doc err:", e)
+
+
+# ── B4: bridge nhận ẢNH — tải file Telegram về WORKDIR để claude Read (vision native) ──
+FILE_API = f"https://api.telegram.org/file/bot{TOKEN}"
+
+def tg_download(file_id, prefix="img"):
+    """Tải file Telegram (photo/document) về WORKDIR → trả path local (claude Read xem được). None nếu lỗi.
+    WORKDIR = cwd của claude → Read mở ảnh trực tiếp (Claude đọc ảnh native)."""
+    try:
+        r = requests.get(f"{API}/getFile", params={"file_id": file_id}, timeout=30, proxies=_TG_PROXIES)
+        fp = r.json().get("result", {}).get("file_path")
+        if not fp:
+            return None
+        ext = os.path.splitext(fp)[1] or ".jpg"
+        local = os.path.join(WORKDIR, f"{prefix}-{int(time.time())}-{str(file_id)[-6:]}{ext}")
+        dl = requests.get(f"{FILE_API}/{fp}", timeout=120, proxies=_TG_PROXIES)
+        if dl.status_code != 200 or not dl.content:
+            return None
+        with open(local, "wb") as f:
+            f.write(dl.content)
+        return local
+    except Exception as e:
+        print("tg_download err:", e)
+        return None
+
+
+def extract_image(msg):
+    """Lấy ảnh từ message Telegram → path local. Hỗ trợ photo (PhotoSize lớn nhất) + document image/*."""
+    photos = msg.get("photo")
+    if photos:
+        return tg_download(photos[-1]["file_id"], "img")
+    doc = msg.get("document")
+    if doc and str(doc.get("mime_type", "")).startswith("image/"):
+        return tg_download(doc["file_id"], "img")
+    return None
 
 
 def _is_richdoc(t):
@@ -212,8 +518,8 @@ def reply(chat_id, text):
     send_document(chat_id, path, caption="Lucy")
 
 
-def run_claude(prompt, session_id, model="sonnet", persona_text=None, thinking_sink=None):
-    """Chạy claude -p, trả (session_id_mới, text). model: sonnet (nhanh, mặc định) | opus (sâu, chậm).
+def _run_claude_spawn(prompt, session_id, model="sonnet", persona_text=None, thinking_sink=None):
+    """[FALLBACK spawn] Chạy claude -p, trả (session_id_mới, text). model: sonnet (nhanh, mặc định) | opus (sâu, chậm).
     persona_text: nếu set → overlay persona (Lucy base + role) qua file tạm (Đợt A /persona).
     thinking_sink: list (optional) — nếu truyền → dùng stream-json, gom block 'thinking' vào đây (A4)."""
     want_thinking = thinking_sink is not None
@@ -270,12 +576,14 @@ def run_claude(prompt, session_id, model="sonnet", persona_text=None, thinking_s
                 sid = d.get("session_id")
                 result = d.get("result")
                 LAST_MODEL = next(iter(d.get("modelUsage") or {}), None) or LAST_MODEL
+                report_tokens(d.get("usage"), d.get("total_cost_usd"))   # PT
         if result is not None:
             return sid, (result or "(rỗng)")
         return None, (r.stdout or "(không parse được stream)")[:3500]
     try:
         data = json.loads(r.stdout)
         LAST_MODEL = next(iter(data.get("modelUsage") or {}), None) or LAST_MODEL
+        report_tokens(data.get("usage"), data.get("total_cost_usd"))   # PT
         return data.get("session_id"), (data.get("result") or "(rỗng)")
     except Exception:
         return None, (r.stdout or "(không parse được output)")[:3500]
@@ -299,8 +607,8 @@ def _persona_file(persona_text):
         return PERSONA
 
 
-def run_claude_stream(prompt, session_id, model, persona_text, on_delta):
-    """Đường A: claude -p stream-json partial → gọi on_delta(answer_tích_luỹ) khi có chữ mới (streaming UX).
+def _run_claude_stream_spawn(prompt, session_id, model, persona_text, on_delta):
+    """[FALLBACK spawn] claude -p stream-json partial → gọi on_delta(answer_tích_luỹ) khi có chữ mới.
     Dùng subscription (claude CLI auth OAuth). Trả (session_id_mới, answer, thinking_list)."""
     cmd = [CLAUDE, "-p", prompt, "--output-format", "stream-json",
            "--include-partial-messages", "--verbose",
@@ -348,6 +656,7 @@ def run_claude_stream(prompt, session_id, model, persona_text, on_delta):
                 sid = d.get("session_id")
                 final_result = d.get("result")
                 LAST_MODEL = next(iter(d.get("modelUsage") or {}), None) or LAST_MODEL
+                report_tokens(d.get("usage"), d.get("total_cost_usd"))   # PT
         proc.wait(timeout=TIMEOUT)
     except subprocess.TimeoutExpired:
         proc.kill()
@@ -355,6 +664,101 @@ def run_claude_stream(prompt, session_id, model, persona_text, on_delta):
     except Exception as e:
         return sid, ("".join(answer) or f"❌ Lỗi stream: {e}"), thinking
     return sid, (final_result or "".join(answer) or "(rỗng)"), thinking
+
+
+# ── Đường B (Claude Agent SDK in-process) ──────────────────────────────────────────
+def _persona_append(persona_text):
+    """Chuỗi append vào system prompt claude_code preset = đúng hành vi --append-system-prompt-file cũ."""
+    base = ""
+    try:
+        base = open(PERSONA).read() if os.path.exists(PERSONA) else ""
+    except Exception:
+        base = ""
+    if persona_text:
+        return base + "\n\n--- VAI HIỆN TẠI (persona overlay) ---\n" + persona_text
+    return base
+
+def _sdk_opts(model, session_id, persona_text, partial):
+    return _SdkOpts(
+        model=model, permission_mode="bypassPermissions", cwd=WORKDIR,
+        system_prompt={"type": "preset", "preset": "claude_code", "append": _persona_append(persona_text)},
+        add_dirs=[VAULT] if os.path.isdir(VAULT) else [],
+        env={**os.environ, "IS_SANDBOX": "1"},
+        resume=session_id or None,
+        include_partial_messages=partial,
+    )
+
+def _run_claude_sdk(prompt, session_id, model="sonnet", persona_text=None, thinking_sink=None):
+    """SDK: trả (sid, text). thinking_sink (list) → gom ThinkingBlock từ AssistantMessage (A4)."""
+    global LAST_MODEL
+    async def go():
+        sid = None; result = None
+        async for m in _sdk_query(prompt=prompt, options=_sdk_opts(model, session_id, persona_text, False)):
+            cn = type(m).__name__
+            if cn == "AssistantMessage" and thinking_sink is not None:
+                for b in (m.content or []):
+                    if type(b).__name__ == "ThinkingBlock" and getattr(b, "thinking", None):
+                        thinking_sink.append(b.thinking)
+            elif cn == "ResultMessage":
+                sid = m.session_id; result = m.result
+                mu = getattr(m, "model_usage", None)
+                if mu:
+                    try: globals().__setitem__("LAST_MODEL", next(iter(mu), None) or LAST_MODEL)
+                    except Exception: pass
+                report_tokens(_sdk_usage(m), getattr(m, "total_cost_usd", 0) or 0)   # PT
+        return sid, (result or "(rỗng)")
+    try:
+        return asyncio.run(asyncio.wait_for(go(), TIMEOUT))
+    except asyncio.TimeoutError:
+        return None, "⏱️ Claude chạy quá lâu (timeout). Thử chia nhỏ task ạ."
+    except Exception as e:
+        return None, f"❌ Claude lỗi (SDK): {str(e)[:600]}"
+
+def _run_claude_stream_sdk(prompt, session_id, model, persona_text, on_delta):
+    """SDK Đường A: stream text delta qua on_delta(answer_tích_luỹ). Trả (sid, answer, thinking_list)."""
+    global LAST_MODEL
+    async def go():
+        answer = []; thinking = []; sid = None; final_result = None
+        async for m in _sdk_query(prompt=prompt, options=_sdk_opts(model, session_id, persona_text, True)):
+            cn = type(m).__name__
+            if cn == "StreamEvent":
+                ev = m.event or {}
+                if ev.get("type") == "content_block_delta":
+                    d = ev.get("delta", {})
+                    if d.get("type") == "text_delta":
+                        answer.append(d.get("text", ""))
+                        try: on_delta("".join(answer))
+                        except Exception: pass
+                    elif d.get("type") == "thinking_delta":
+                        thinking.append(d.get("thinking", ""))
+            elif cn == "ResultMessage":
+                sid = m.session_id; final_result = m.result
+                mu = getattr(m, "model_usage", None)
+                if mu:
+                    try: globals().__setitem__("LAST_MODEL", next(iter(mu), None) or LAST_MODEL)
+                    except Exception: pass
+                report_tokens(_sdk_usage(m), getattr(m, "total_cost_usd", 0) or 0)   # PT
+        return sid, (final_result or "".join(answer) or "(rỗng)"), thinking
+    try:
+        return asyncio.run(asyncio.wait_for(go(), TIMEOUT))
+    except asyncio.TimeoutError:
+        return None, "⏱️ Claude chạy quá lâu (timeout).", []
+    except Exception as e:
+        return None, ("❌ Lỗi stream (SDK): " + str(e)[:300]), []
+
+# ── Dispatcher: chọn engine. Mặc định SDK; LUCY_BRIDGE_ENGINE=spawn → fallback claude -p (rollback tức thì). ──
+_ENGINE = os.environ.get("LUCY_BRIDGE_ENGINE", "sdk").lower()
+_USE_SDK = _HAS_SDK and _ENGINE != "spawn"
+
+def run_claude(prompt, session_id, model="sonnet", persona_text=None, thinking_sink=None):
+    if _USE_SDK:
+        return _run_claude_sdk(prompt, session_id, model, persona_text, thinking_sink)
+    return _run_claude_spawn(prompt, session_id, model, persona_text, thinking_sink)
+
+def run_claude_stream(prompt, session_id, model, persona_text, on_delta):
+    if _USE_SDK:
+        return _run_claude_stream_sdk(prompt, session_id, model, persona_text, on_delta)
+    return _run_claude_stream_spawn(prompt, session_id, model, persona_text, on_delta)
 
 
 def _fan_lane(task, model):
@@ -458,10 +862,24 @@ def handle(msg, sessions):
     if ALLOWED and uid != ALLOWED:
         send(chat_id, "⛔ Không có quyền.")
         return
+    # ── B4: ẢNH → tải về WORKDIR, ép claude-path (vision), bake hướng dẫn Read vào prompt ──
+    image_path = None
+    if msg.get("photo") or msg.get("document"):
+        if msg.get("photo") or str(msg.get("document", {}).get("mime_type", "")).startswith("image/"):
+            mid_dl = send_id(chat_id, "🖼️ Em đang tải ảnh xuống ạ…")
+            image_path = extract_image(msg)
+            if not image_path:
+                edit(chat_id, mid_dl, "❌ Không tải được ảnh (Telegram getFile lỗi). Thử gửi lại giúp em ạ.")
+                return
+            edit(chat_id, mid_dl, "🖼️ Có ảnh rồi — em xem nhé…")
+            cap = (msg.get("caption") or "").strip()
+            text = ((cap + "\n\n") if cap else "") + \
+                f"[Chủ nhân vừa gửi 1 ẢNH. Dùng Read tool mở file ảnh này để xem rồi trả lời: {image_path}]"
     if not text:
         return
     if text == "/new":
         sessions.pop(str(chat_id), None); _save(sessions)
+        _clear_lane_hist(chat_id)
         send(chat_id, "✨ Phiên mới — em quên ngữ cảnh cũ ạ.")
         return
     if text == "/id":
@@ -482,6 +900,60 @@ def handle(msg, sessions):
              f"• Persona: {'có' if os.path.exists(PERSONA) else 'KHÔNG'} ({PERSONA})\n"
              f"• Timeout: {TIMEOUT}s\n"
              f"• Phiên hiện tại: {sid or 'mới (chưa có)'}")
+        return
+    if text in ("/token", "/tokens"):
+        d = _load_tg_tokens()
+        lines = [f"📊 Token hôm nay ({d['date']} UTC):",
+                 f"• Telegram (claude-path): vào {d['inTok']:,} · ra {d['outTok']:,} · "
+                 f"~${d['costUsd']:.4f} · {d['turns']} lượt"]
+        g = _coord("/token-guard")
+        if not g.get("error") and g.get("configured") and g.get("status"):
+            s = g["status"]
+            lines.append(f"• Token-guard CHUNG (hub+telegram+autopilot): dùng {s.get('used', 0):,}"
+                         f"/{s.get('hardLimit', 0):,} (soft {s.get('softLimit', 0):,})"
+                         + (" ⚠️HARD" if s.get('hard') else " ⚠️soft" if s.get('soft') else ""))
+        elif g.get("error"):
+            lines.append("• Token-guard chung: coordinator chưa sẵn")
+        else:
+            lines.append("• Token-guard chung: chưa cấu hình (đặt AM_DAY_TOKEN_SOFT/HARD)")
+        send(chat_id, "\n".join(lines))
+        return
+    # ── B3: /prompt <ngữ cảnh> — Prompt Architect (coordinator) tinh prompt tối ưu, trả về để copy ──
+    if text.startswith("/prompt"):
+        ctx = text[len("/prompt"):].strip()
+        # Cú pháp tùy chọn: "/prompt for=claude <ngữ cảnh>" → chỉ định model đích.
+        target = None
+        if ctx.startswith("for=") or ctx.startswith("target="):
+            head, _, rest = ctx.partition(" ")
+            target = head.split("=", 1)[1].strip() or None
+            ctx = rest.strip()
+        if not ctx:
+            send(chat_id, "🧱 Cú pháp: `/prompt <việc bạn muốn làm>` — em tinh thành prompt tối ưu.\n"
+                          "Vd: `/prompt viết email xin nghỉ phép lịch sự`\n"
+                          "Chỉ định model đích: `/prompt for=claude <ngữ cảnh>`")
+            return
+        mid = send_id(chat_id, "🧱 Em đang tinh prompt ạ…")
+        body = {"context": ctx, "chatId": str(chat_id)}
+        if target:
+            body["targetModel"] = target
+        d = _coord("/prompt-architect", body)
+        if d.get("off"):
+            edit(chat_id, mid, "⚠️ Prompt Architect đang TẮT (cần đặt LUCY_PROMPT_ARCHITECT=1 ở coordinator).")
+            return
+        if d.get("error"):
+            edit(chat_id, mid, f"❌ Lỗi: {d['error']}")
+            return
+        fp = (d.get("finalPrompt") or "").strip()
+        ans = (d.get("answer") or "").strip()
+        if d.get("clarifying") or not fp:
+            # Đang hỏi làm-rõ (ngữ cảnh mơ hồ) → trả nguyên câu hỏi của architect.
+            edit(chat_id, mid, "🧱 Cần làm rõ:")
+            reply(chat_id, ans or "(architect không trả lời)")
+            return
+        sc = d.get("scorecard") or {}
+        score = f" · điểm {sc.get('total')}/100" if sc.get("total") is not None else ""
+        edit(chat_id, mid, f"🧱 Prompt tối ưu ({d.get('laneModel','?')}{score}) — copy ở dưới ạ:")
+        reply(chat_id, fp)
         return
     if text.startswith("/fan"):
         tasks = [l.strip() for l in text[4:].splitlines() if l.strip()]
@@ -519,7 +991,7 @@ def handle(msg, sessions):
                  f"🧬 Model hiện tại: *{now}*\n\nĐổi: `/model <key>`\n"
                  "• `claude:sonnet` / `claude:opus` — não thật (tool+vault), mặc định\n"
                  "• `auto` — smart-router tự chọn model theo task\n"
-                 "• lane (chat thuần, KHÔNG tool): " + (", ".join(keys) if keys else "(coordinator chưa sẵn)"))
+                 "• lane (có tool web+file+bash + history, đổi model = reset context): " + (", ".join(keys) if keys else "(coordinator chưa sẵn)"))
             return
         if arg not in (["auto", "claude:sonnet", "claude:opus", "sonnet", "opus"] + _catalog_keys()):
             send(chat_id, f"❌ Key lạ: `{arg}`. Gõ `/model` để xem danh sách.")
@@ -572,6 +1044,14 @@ def handle(msg, sessions):
         text = text.split(" ", 1)[1].strip() if " " in text else ""
     if not text:
         return
+    # ── B4: ảnh cần não thật (Read vision) — lane free không xem được ảnh → ép claude ──
+    if image_path and not pmodel.startswith("claude"):
+        pmodel = "claude:sonnet"
+
+    # PHASE 0: tra memory liên quan 1 lần → chèn vào prompt của đường được chọn (lane hoặc claude).
+    mem = recall_prefetch(text)
+    # PHASE 2: ghi turn người dùng (async, không chặn).
+    episodic_log("user", text, chat_id, sessions.get(str(chat_id), ""))
 
     # ── Đợt A A3: auto = smart-router quyết claude(tool) vs lane(free) ──
     if pmodel == "auto" and not force_opus:
@@ -585,18 +1065,19 @@ def handle(msg, sessions):
             send(chat_id, f"🧭 auto → lane *{mk}* ({dec.get('role')}): {dec.get('reason','')}")
             pmodel = mk
 
-    # ── LANE-PATH: model free, chat thuần (không tool) ──
+    # ── LANE-PATH: model free, có history + tool agentic (web/file/bash) ──
     if not pmodel.startswith("claude") and not force_opus:
         mid = send_id(chat_id, f"🤔 Em xử lý ạ… (lane {pmodel})")
         stop = threading.Event()
         threading.Thread(target=_heartbeat, args=(chat_id, mid, stop, pmodel), daemon=True).start()
         try:
-            real, answer, thinking = run_lane(text, pmodel, ppersona)
+            real, answer, thinking = run_lane(mem + text, pmodel, chat_id=chat_id, persona_id=ppersona)
         finally:
             stop.set()
         edit(chat_id, mid, f"✅ Xong (lane {real or pmodel}).")
         if pthink and thinking:
             send(chat_id, "💭 (suy nghĩ)\n" + thinking[:1500])
+        episodic_log("assistant", answer, chat_id)   # PHASE 2: ghi trả lời lane
         reply(chat_id, answer)
         return
 
@@ -611,31 +1092,93 @@ def handle(msg, sessions):
             st["last"] = now; st["shown"] = preview
             edit(chat_id, mid, preview)
     new_sid, result, thinking = run_claude_stream(
-        text, sessions.get(str(chat_id)), model, resolve_persona_text(ppersona), _on_delta)
+        mem + text, sessions.get(str(chat_id)), model, resolve_persona_text(ppersona), _on_delta)
     if new_sid:
         sessions[str(chat_id)] = new_sid; _save(sessions)
     if pthink and thinking:
         send(chat_id, "💭 (suy nghĩ)\n" + ("".join(thinking))[:1500])
-    # Chốt: ngắn → edit thẳng message đang stream (1 tin gọn); dài/bảng → notice + gửi file đẹp.
-    if not _is_richdoc(result):
-        edit(chat_id, mid, result[:3900] or "(rỗng)")
+    # Chốt: bảng / CỰC dài (>7600) → file đẹp. Còn lại (kể cả vừa-dài) → hiện THẲNG trong chat, chia nhiều tin,
+    # KHÔNG cắt cụt (trước đây >1600 đã quăng file + teaser 600 → người dùng tưởng "cụt").
+    res = result or "(rỗng)"
+    episodic_log("assistant", res, chat_id, sessions.get(str(chat_id), ""))   # PHASE 2: ghi trả lời claude
+    if res.count("|") >= 6 or res.count("\n#") >= 2 or len(res) > 7600:
+        edit(chat_id, mid, f"✅ Xong ({model}) — nội dung dài/bảng, em gửi file ạ.")
+        reply(chat_id, res)
     else:
-        edit(chat_id, mid, f"✅ Xong ({model}) — nội dung dài, em gửi file ạ.")
-        reply(chat_id, result)
+        edit(chat_id, mid, res[:3900])
+        if len(res) > 3900:
+            send(chat_id, res[3900:])   # phần dư → send() tự chunk 3800/tin, đọc đủ trong chat
 
+
+import queue as _queue
+# ── STOP + chống spam-queue (2026-06-16): poll KHÔNG block (worker/chat) → /stop nghe tức thì + xoá hàng đợi ──
+CHAT_Q = {}   # chat_id -> queue.Queue các tin chờ xử lý (FIFO, không mất tin)
+STOP_WORDS = {"/stop", "stop", "/dung", "/dừng", "dừng", "dung",
+              "/huy", "/huỷ", "huỷ", "huy", "/cancel", "/ngung", "/ngừng"}
+RESTART_WORDS = {"/restart", "restart", "/reload", "/khoidong", "khởi động lại"}
+
+def _worker(chat_id, sessions):
+    q = CHAT_Q[chat_id]
+    while True:
+        msg = q.get()
+        try:
+            if msg is not None:
+                handle(msg, sessions)
+        except Exception as e:
+            print("handle err:", e)
+        finally:
+            q.task_done()
+
+def _clear_queue(chat_id):
+    q = CHAT_Q.get(chat_id)
+    n = 0
+    if q:
+        try:
+            while True:
+                q.get_nowait(); q.task_done(); n += 1
+        except _queue.Empty:
+            pass
+    return n
 
 def main():
     sessions = _load()
-    offset = None
-    print("Lucy bridge online (Telegram <-> claude -p).")
+    offset = _load_offset()   # khôi phục offset → KHÔNG xử lại backlog cũ sau restart (tránh loop /restart)
+    print("Lucy bridge online (Telegram <-> claude · poll non-block + /stop).")
     while True:
         try:
             r = requests.get(f"{API}/getUpdates",
-                             params={"timeout": 50, "offset": offset}, timeout=60)
+                             params={"timeout": 50, "offset": offset}, timeout=60, proxies=_TG_PROXIES)
             for upd in r.json().get("result", []):
                 offset = upd["update_id"] + 1
-                if "message" in upd:
-                    handle(upd["message"], sessions)
+                _save_offset(offset)   # xác nhận đã nuốt update này → restart KHÔNG xử lại (chống loop /restart)
+                if "message" not in upd:
+                    continue
+                m = upd["message"]
+                cid = m["chat"]["id"]
+                uid = str(m.get("from", {}).get("id", ""))
+                txt = (m.get("text") or "").strip().lower()
+                # /stop: bắt NGAY trong poll (không qua queue) → xoá việc đang chờ
+                if txt in STOP_WORDS and (not ALLOWED or uid == ALLOWED):
+                    n = _clear_queue(cid)
+                    send(cid, f"🛑 Đã dừng — xoá {n} việc đang chờ."
+                              + ("" if n else " (không có việc nào trong hàng đợi.)")
+                              + " Việc đang chạy dở sẽ tự xong.")
+                    continue
+                # /restart: tự restart bridge qua pm2 (chỉ chủ nhân) → khỏi SSH lên VPS
+                if txt in RESTART_WORDS and (not ALLOWED or uid == ALLOWED):
+                    _clear_queue(cid)
+                    send(cid, "♻️ Em restart lại đây… vài giây nữa quay lại ạ.")
+                    try:
+                        subprocess.Popen(["/usr/bin/pm2", "restart", "lucy-bridge"],
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    except Exception as e:
+                        send(cid, f"❌ Restart lỗi: {e}")
+                    continue
+                # còn lại → đẩy vào worker theo chat (poll không bị block)
+                if cid not in CHAT_Q:
+                    CHAT_Q[cid] = _queue.Queue()
+                    threading.Thread(target=_worker, args=(cid, sessions), daemon=True).start()
+                CHAT_Q[cid].put(m)
         except Exception as e:
             print("loop err:", e)
             time.sleep(3)

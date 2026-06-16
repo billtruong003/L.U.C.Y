@@ -1,0 +1,155 @@
+/* Lucy Reports — THEME (tokens + base + header/footer dùng chung). */
+:root {
+  --bg: #0b0e14;
+  --surface: #131822;
+  --surface-2: #1a2030;
+  --border: #262d3d;
+  --border-soft: #1e2533;
+  --text: #e9eef5;
+  --text-strong: #ffffff;
+  --muted: #93a1b5;
+  --muted-2: #6b7689;
+  --accent: #5aa9ff;
+  --accent-soft: #93c5ff;
+  --gold: #ecc14a;
+  --purple: #c08cff;
+  --up: #2ecc71;
+  --up-bg: rgba(46,204,113,0.12);
+  --down: #ff5a5a;
+  --down-bg: rgba(255,90,90,0.12);
+  --flat: #93a1b5;
+  --radius: 14px;
+  --shadow: 0 6px 20px rgba(0,0,0,0.35);
+}
+/* light mode (toggle thêm class .light lên <html>) */
+html.light {
+  --bg: #f4f6fb; --surface: #ffffff; --surface-2: #eef2f8;
+  --border: #d9e0ec; --border-soft: #e6ebf3;
+  --text: #1a2433; --text-strong: #0b0e14; --muted: #5a6b82; --muted-2: #8493a8;
+  --shadow: 0 6px 20px rgba(20,40,80,0.10);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', 'Inter', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.72;
+  font-size: 16px;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.25s, color 0.25s;
+}
+
+/* ===== reading progress bar (report) ===== */
+.progress-bar {
+  position: fixed; top: 0; left: 0; height: 3px; width: 0;
+  background: linear-gradient(90deg, var(--accent), var(--up));
+  z-index: 200; transition: width 0.1s linear;
+  box-shadow: 0 0 8px rgba(90,169,255,0.6);
+}
+
+/* ===== HEADER (chung) ===== */
+.header {
+  background: linear-gradient(135deg, #0b0e14 0%, #141a26 50%, #0b0e14 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 30px 40px 24px;
+  position: relative;
+  overflow: hidden;
+}
+html.light .header { background: linear-gradient(135deg,#e9eff8,#ffffff,#e9eff8); }
+.header::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 18% 40%, rgba(90,169,255,0.10) 0%, transparent 60%),
+              radial-gradient(ellipse at 82% 30%, rgba(46,204,113,0.07) 0%, transparent 55%);
+  pointer-events: none;
+}
+.header.sticky {
+  position: sticky; top: 0; z-index: 100;
+  transition: padding 0.2s, box-shadow 0.2s;
+}
+.header.sticky.shrink { padding-top: 14px; padding-bottom: 12px; box-shadow: var(--shadow); }
+.header.sticky.shrink .header-title { display: none; }
+
+.header-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; position: relative; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-icon {
+  width: 40px; height: 40px;
+  background: linear-gradient(135deg, var(--accent), var(--up));
+  border-radius: 10px; display: flex; align-items: center; justify-content: center;
+  font-size: 20px; box-shadow: 0 4px 14px rgba(90,169,255,0.25); flex-shrink: 0;
+}
+.brand-name { font-size: 1.15rem; font-weight: 800; color: var(--text-strong); letter-spacing: 0.3px; }
+.brand-sub { font-size: 0.78rem; color: var(--muted); }
+.header-date { text-align: right; }
+.header-date .date { font-size: 1.35rem; font-weight: 800; color: var(--text-strong); }
+.header-date .time { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+.header-title { margin-top: 20px; position: relative; }
+.header-title h1 {
+  font-size: 1.7rem; font-weight: 800; line-height: 1.25;
+  background: linear-gradient(90deg, var(--accent-soft), var(--up));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
+.header-title .subtitle { font-size: 0.88rem; color: var(--muted); margin-top: 6px; }
+
+/* nút tiện ích góc header */
+.header-tools { display: flex; gap: 8px; align-items: center; }
+.icon-btn {
+  width: 34px; height: 34px; border-radius: 9px; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  display: inline-flex; align-items: center; justify-content: center; font-size: 1rem;
+  text-decoration: none; transition: all 0.18s;
+}
+.icon-btn:hover { border-color: var(--accent); color: var(--accent-soft); transform: translateY(-1px); }
+
+/* ===== FOOTER (chung) ===== */
+.footer {
+  text-align: center; padding: 26px;
+  border-top: 1px solid var(--border);
+  font-size: 0.78rem; color: var(--muted); margin-top: 44px;
+}
+.footer .lucy-sig, .footer .sig { color: var(--accent); font-weight: 700; }
+
+/* ===== scroll-to-top (chung) ===== */
+.to-top {
+  position: fixed; right: 20px; bottom: 20px; z-index: 150;
+  width: 44px; height: 44px; border-radius: 50%; cursor: pointer;
+  background: linear-gradient(135deg, var(--accent), var(--up)); color: #fff;
+  border: none; font-size: 1.2rem; box-shadow: var(--shadow);
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none; transform: translateY(10px);
+  transition: opacity 0.25s, transform 0.25s;
+}
+.to-top.show { opacity: 1; pointer-events: auto; transform: translateY(0); }
+
+/* ===== charts (chung) ===== */
+.chart-empty { color: var(--muted-2); font-size: 0.8rem; text-align: center; padding: 18px 0; }
+.spark-svg { display: block; overflow: visible; }
+.lucy-spark { position: relative; }
+.chart-tip {
+  position: absolute; top: -6px; transform: translateY(-100%);
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+  padding: 4px 8px; border-radius: 7px; font-size: 0.74rem; pointer-events: none;
+  white-space: nowrap; box-shadow: var(--shadow); z-index: 5; line-height: 1.3;
+}
+.chart-tip b { color: var(--text-strong); display: block; }
+.chart-tip span { color: var(--muted); font-size: 0.66rem; }
+
+/* fade-in on scroll */
+.reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.5s ease, transform 0.5s ease; }
+.reveal.in { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
+
+/* pill % change */
+.pill { font-size: 0.74rem; font-weight: 800; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.pill.up { color: var(--up); background: var(--up-bg); }
+.pill.down { color: var(--down); background: var(--down-bg); }
+.pill.flat { color: var(--flat); background: rgba(147,161,181,0.12); }
+
+@media (max-width: 600px) {
+  body { font-size: 15px; }
+  .header { padding: 22px 16px 18px; }
+  .header-title h1 { font-size: 1.4rem; }
+  .header-date .date { font-size: 1.1rem; }
+}

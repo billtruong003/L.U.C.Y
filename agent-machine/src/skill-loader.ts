@@ -85,7 +85,7 @@ export function score(cardTokens: string[], entry: IndexEntry): number {
  * resolveSkillsDir: env LUCY_SKILLS → fallback path.resolve(__dirname,'..','..','skills')
  * Đây là module ESM — dùng import.meta.url để tính __dirname.
  */
-function resolveSkillsDir(): string {
+export function resolveSkillsDir(): string {
   if (process.env.LUCY_SKILLS) return process.env.LUCY_SKILLS
   // __dirname polyfill cho ESM
   const dir = path.dirname(new URL(import.meta.url).pathname)
@@ -153,5 +153,69 @@ export function loadSkillBlock(card: Card): string {
     return combined + '---\n'
   } catch {
     return ''
+  }
+}
+
+// ─────────────────────────── M3.6 — overview cho UI "Kỹ năng" ───────────────────────────
+// active = skill trong INDEX.md (loader nạp được). proposed = skills/_proposed/ (M3.3 đề xuất, CHƯA active).
+export interface SkillInfo { name: string; description: string; path: string }
+export interface SkillsOverview {
+  configured: boolean
+  learnOn: boolean
+  skillsDir: string
+  activeCount: number
+  proposedCount: number
+  active: SkillInfo[]
+  proposed: SkillInfo[]
+}
+
+// Đọc 1 field frontmatter YAML đơn giản (name/description) — không kéo lib YAML cho 2 dòng.
+function frontmatterField(text: string, key: string): string {
+  const re = new RegExp(`^${key}:\\s*(.+)$`, 'm')
+  const m = text.match(re)
+  if (!m) return ''
+  return m[1].trim().replace(/^["']|["']$/g, '')
+}
+
+function scanProposed(skillsDir: string): SkillInfo[] {
+  const root = path.join(skillsDir, '_proposed')
+  if (!fs.existsSync(root)) return []
+  const out: SkillInfo[] = []
+  let dirs: string[]
+  try { dirs = fs.readdirSync(root) } catch { return [] }
+  for (const slug of dirs.sort()) {
+    const file = path.join(root, slug, 'SKILL.md')
+    if (!fs.existsSync(file)) continue
+    let raw: string
+    try { raw = fs.readFileSync(file, 'utf8') } catch { continue }
+    out.push({
+      name: frontmatterField(raw, 'name') || slug,
+      description: frontmatterField(raw, 'description') || '(chưa có mô tả)',
+      path: `skills/_proposed/${slug}/SKILL.md`,
+    })
+  }
+  return out
+}
+
+export function skillsOverview(): SkillsOverview {
+  const skillsDir = resolveSkillsDir()
+  const indexPath = path.join(skillsDir, 'INDEX.md')
+  let active: SkillInfo[] = []
+  let configured = false
+  try {
+    if (fs.existsSync(indexPath)) {
+      configured = true
+      active = parseIndex(fs.readFileSync(indexPath, 'utf8')).map((e) => ({ name: e.name, description: e.desc, path: e.path }))
+    }
+  } catch { /* graceful */ }
+  const proposed = scanProposed(skillsDir)
+  return {
+    configured,
+    learnOn: process.env.LUCY_SKILL_LEARN === '1',
+    skillsDir,
+    activeCount: active.length,
+    proposedCount: proposed.length,
+    active,
+    proposed,
   }
 }

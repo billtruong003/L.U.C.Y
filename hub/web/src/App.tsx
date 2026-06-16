@@ -12,28 +12,62 @@ import Logs from './components/Logs'
 import Settings from './components/Settings'
 import Draw from './components/Draw'
 import Dashboard from './components/Dashboard'
-import { me, amState, amTrashProject, amCreateProject, type AmProject } from './api'
+import Personas from './components/Personas'
+import Connect from './components/Connect'
+import Skills from './components/Skills'
+import Prompts from './components/Prompts'
+import ReactorHome from './components/ReactorHome'
+import HudRail from './components/HudRail'
+import CommandPalette, { type PaletteItem } from './components/CommandPalette'
+import { me, amState, amTrashProject, amCreateProject, promptArchStatus, type AmProject } from './api'
 import { showToast } from './toast'
+import { onGalaxyFocus } from './galaxyFocus'
 
-const TABS = [
-  { id: 'dashboard', label: 'Dashboard', icon: '📊', sub: 'Cost · Providers · Agent Insights' },
-  { id: 'chat', label: 'Chat', icon: '💬', sub: 'Trò chuyện & ra lệnh' },
-  { id: 'workspace', label: 'Dự án', icon: '🗂️', sub: 'Kanban · Lucy · Channels' },
-  { id: 'memory', label: 'Bộ não', icon: '🧠', sub: 'Trí nhớ · recall · dream' },
-  { id: 'tasks', label: 'Tasks', icon: '⚙️', sub: 'Việc đang chạy' },
-  { id: 'schedule', label: 'Schedule', icon: '🗓️', sub: 'Đặt lịch tự chạy' },
-  { id: 'projects', label: 'Mã nguồn', icon: '📁', sub: 'Cây mã nguồn' },
-  { id: 'brain', label: 'Neural', icon: '🕸️', sub: 'Tinh hà tri thức · Live' },
-  { id: 'draw', label: 'Draw', icon: '✏️', sub: 'Canvas vẽ tay' },
-  { id: 'aki', label: 'Aki', icon: '📣', sub: 'Đẩy báo cáo Discord' },
-  { id: 'logs', label: 'Logs', icon: '📜', sub: 'Nhật ký hệ thống' },
-  { id: 'settings', label: 'Settings', icon: '🔐', sub: 'Bảo mật 2FA' },
+// T2/U3: gom 13 tab → 4 nhóm. `group` quyết định nhóm hiển thị ở sidebar + palette.
+// `kw` = từ khoá phụ cho Cmd+K (không dấu cũng search được nhờ normalize trong palette).
+// S4/E2: trang chủ Reactor — FLAG-GATED (localStorage lucy.reactorHome, mặc định TẮT để chủ nhân duyệt vibe)
+const REACTOR_TAB = { id: 'reactor', label: 'Reactor', icon: '⚛️', sub: 'Trang chủ · metric thật', group: 'Tổng quan', kw: 'home reactor trang chu hero arc' }
+// CỤM B: tab Prompt Architect — chỉ chèn khi server bật flag LUCY_PROMPT_ARCHITECT (status enabled).
+const PROMPTS_TAB = { id: 'prompts', label: 'Prompt Architect', icon: '🛠️', sub: 'Dựng prompt chuẩn', group: 'Trí tuệ', kw: 'prompt architect dung prompt refine meta' }
+
+const BASE_TABS = [
+  { id: 'dashboard', label: 'Dashboard', icon: '📊', sub: 'Cost · Providers · Agent Insights', group: 'Tổng quan', kw: 'home cost provider chi phi' },
+  { id: 'chat', label: 'Chat', icon: '💬', sub: 'Trò chuyện & ra lệnh', group: 'Trí tuệ', kw: 'lucy hoi tro chuyen' },
+  { id: 'memory', label: 'Bộ não', icon: '🧠', sub: 'Trí nhớ · recall · dream', group: 'Trí tuệ', kw: 'memory recall dream tri nho' },
+  { id: 'brain', label: 'Tinh hà', icon: '🌌', sub: 'Tinh hà tri thức · Live', group: 'Trí tuệ', kw: 'galaxy neural tri thuc' },
+  { id: 'personas', label: 'Experts', icon: '🧩', sub: 'Quản persona chuyên gia', group: 'Trí tuệ', kw: 'persona chuyen gia roster' },
+  { id: 'workspace', label: 'Dự án', icon: '🗂️', sub: 'Kanban · Lucy · Channels', group: 'Việc', kw: 'kanban channel note' },
+  { id: 'projects', label: 'Mã nguồn', icon: '📁', sub: 'Cây mã nguồn', group: 'Việc', kw: 'code repo source ma nguon' },
+  { id: 'tasks', label: 'Tasks', icon: '⚙️', sub: 'Việc đang chạy', group: 'Việc', kw: 'task job running' },
+  { id: 'schedule', label: 'Schedule', icon: '🗓️', sub: 'Đặt lịch tự chạy', group: 'Việc', kw: 'cron lich schedule' },
+  { id: 'connect', label: 'Kết nối', icon: '🔌', sub: 'MCP — tay của Lucy', group: 'Hệ thống', kw: 'mcp tool tay connect ket noi github notion' },
+  { id: 'skills', label: 'Kỹ năng', icon: '🎯', sub: 'Thư viện skill · tự học', group: 'Hệ thống', kw: 'skill ky nang loader tu hoc proposed' },
+  { id: 'draw', label: 'Draw', icon: '✏️', sub: 'Canvas vẽ tay', group: 'Hệ thống', kw: 'canvas ve draw' },
+  { id: 'aki', label: 'Aki', icon: '📣', sub: 'Đẩy báo cáo Discord', group: 'Hệ thống', kw: 'discord report bao cao' },
+  { id: 'logs', label: 'Logs', icon: '📜', sub: 'Nhật ký hệ thống', group: 'Hệ thống', kw: 'log nhat ky' },
+  { id: 'settings', label: 'Settings', icon: '🔐', sub: 'Bảo mật 2FA', group: 'Hệ thống', kw: 'setting 2fa bao mat' },
 ]
 
+const reactorOn = () => localStorage.getItem('lucy.reactorHome') === '1'
+
+// thứ tự nhóm hiển thị ở sidebar
+const GROUP_ORDER = ['Tổng quan', 'Trí tuệ', 'Việc', 'Hệ thống']
+
+// S2/E1.5: bottom bar mobile — 4 Space chính + nút Menu (mở sidebar đầy đủ)
+const MOBILE_TABS = ['dashboard', 'chat', 'memory', 'workspace']
+
 export default function App() {
+  // CỤM B: hỏi server flag LUCY_PROMPT_ARCHITECT → chèn tab Prompt Architect khi ON.
+  const [promptsOn, setPromptsOn] = useState(false)
+  // S4/E2: chèn tab Reactor lên đầu nhóm Tổng quan khi flag bật → cũng là tab mặc định
+  const baseTabs = promptsOn ? [...BASE_TABS, PROMPTS_TAB] : BASE_TABS
+  const TABS = reactorOn() ? [REACTOR_TAB, ...baseTabs] : baseTabs
+
   const [authed, setAuthed] = useState<boolean | null>(null)
-  const [tab, setTab] = useState('dashboard')
+  const [tab, setTab] = useState(reactorOn() ? 'reactor' : 'dashboard')
   const [open, setOpen] = useState(false)   // sidebar drawer (mobile)
+  const [hudOpen, setHudOpen] = useState(false)   // S2/E1.5: HUD sheet (mobile/tablet)
+  const [paletteOpen, setPaletteOpen] = useState(false)  // T2/U3 Cmd+K
 
   // project list for sidebar "note list"
   const [projects, setProjects] = useState<AmProject[]>([])
@@ -43,6 +77,24 @@ export default function App() {
   const newProjRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { me().then((d) => setAuthed(d.authed)).catch(() => setAuthed(false)) }, [])
+
+  // CỤM B: chỉ hiện tab Prompt Architect khi server bật flag (sau khi đã đăng nhập).
+  useEffect(() => { if (authed) promptArchStatus().then((d) => setPromptsOn(!!d.enabled)).catch(() => { }) }, [authed])
+
+  // U2: "xem trong tinh hà" từ tab Bộ não → nhảy sang tab Neural (Galaxy tự ngắm node)
+  useEffect(() => onGalaxyFocus(() => { setTab('brain'); setOpen(false) }), [])
+
+  // T2/U3: Cmd+K (mac) / Ctrl+K (win) mở command palette
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        setPaletteOpen((v) => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   useEffect(() => {
     const fetchProjects = () =>
@@ -61,6 +113,12 @@ export default function App() {
 
   const cur = TABS.find((t) => t.id === tab)!
   const pick = (id: string) => { setTab(id); setOpen(false) }
+
+  // T2/U3: nguồn cho Cmd+K — mọi tab + jump nhanh tới từng dự án
+  const paletteItems: PaletteItem[] = [
+    ...TABS.map((t) => ({ id: t.id, label: t.label, icon: t.icon, sub: t.sub, group: t.group, keywords: t.kw, onPick: () => pick(t.id) })),
+    ...projects.map((p) => ({ id: 'proj:' + p.id, label: p.name, icon: '📁', sub: 'Mở dự án', group: 'Dự án', keywords: 'project note ' + p.name, onPick: () => pickProject(p.id) })),
+  ]
 
   const pickProject = (id: string) => {
     setOpenProjectId(id)
@@ -116,21 +174,40 @@ export default function App() {
           <button onClick={() => setOpen(false)} className="md:hidden text-inkfaint hover:text-ink transition text-lg !w-11 !h-11 flex items-center justify-center rounded" aria-label="Đóng sidebar">✕</button>
         </div>
 
-        {/* nav items */}
-        <div className="p-3 flex flex-col gap-0.5">
-          {TABS.map((t) => {
-            const on = tab === t.id
+        {/* Cmd+K trigger */}
+        <div className="px-3 pt-3">
+          <button onClick={() => setPaletteOpen(true)}
+            className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-inkfaint border border-line hover:border-cyan/30 hover:text-inkdim transition-colors bg-white/[0.02]">
+            <span className="text-cyan">⌘</span>
+            <span className="flex-1 text-left">Đi tới…</span>
+            <kbd className="text-[10px] border border-line rounded px-1.5 py-0.5 mono">⌘K</kbd>
+          </button>
+        </div>
+
+        {/* nav items — gom theo nhóm (T2/U3) */}
+        <div className="p-3 pt-2 flex flex-col gap-2.5">
+          {GROUP_ORDER.map((grp) => {
+            const items = TABS.filter((t) => t.group === grp)
+            if (items.length === 0) return null
             return (
-              <button key={t.id} onClick={() => pick(t.id)}
-                className={'group relative flex items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors duration-100 ' +
-                  (on ? 'bg-cyan/10 text-ink' : 'text-inkdim hover:text-ink hover:bg-white/[0.05]')}>
-                {on && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r bg-cyan" style={{ boxShadow: '0 0 10px rgba(63,211,255,.8)' }} />}
-                <span className={'text-base transition-transform ' + (on ? 'scale-110' : 'opacity-70 group-hover:opacity-100')}>{t.icon}</span>
-                <span className="flex-1 min-w-0">
-                  <span className={'block text-[13px] font-semibold truncate ' + (on ? 'text-cyan' : '')}>{t.label}</span>
-                  <span className="block text-[10px] text-inkfaint truncate">{t.sub}</span>
-                </span>
-              </button>
+              <div key={grp} className="flex flex-col gap-0.5">
+                <div className="px-3 pb-0.5 text-[9px] text-inkfaint uppercase tracking-widest">{grp}</div>
+                {items.map((t) => {
+                  const on = tab === t.id
+                  return (
+                    <button key={t.id} onClick={() => pick(t.id)}
+                      className={'group relative flex items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors duration-100 ' +
+                        (on ? 'bg-cyan/10 text-ink' : 'text-inkdim hover:text-ink hover:bg-white/[0.05]')}>
+                      {on && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r bg-cyan" style={{ boxShadow: '0 0 10px rgba(63,211,255,.8)' }} />}
+                      <span className={'text-base transition-transform ' + (on ? 'scale-110' : 'opacity-70 group-hover:opacity-100')}>{t.icon}</span>
+                      <span className="flex-1 min-w-0">
+                        <span className={'block text-[13px] font-semibold truncate ' + (on ? 'text-cyan' : '')}>{t.label}</span>
+                        <span className="block text-[10px] text-inkfaint truncate">{t.sub}</span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
             )
           })}
         </div>
@@ -142,7 +219,7 @@ export default function App() {
             <button
               onClick={() => setShowNewProj((v) => !v)}
               className="text-inkfaint hover:text-cyan transition text-base leading-none w-5 h-5 flex items-center justify-center"
-              title="Tạo dự án mới">+</button>
+              title="Tạo dự án mới" aria-label="Tạo dự án mới">+</button>
           </div>
 
           {/* create new project inline */}
@@ -194,7 +271,7 @@ export default function App() {
                     {p.repoUrl && <span className="chip !py-0 !px-1 !text-[9px] text-cyan shrink-0 opacity-70 group-hover:opacity-100">repo</span>}
                     <button
                       className="shrink-0 text-inkfaint hover:text-pink opacity-0 group-hover:opacity-100 transition text-[12px] w-5 h-5 flex items-center justify-center rounded"
-                      title="Xoá dự án"
+                      title="Xoá dự án" aria-label={'Xoá dự án ' + p.name}
                       onClick={(e) => { e.stopPropagation(); trashProject(p.id) }}>
                       🗑
                     </button>
@@ -216,17 +293,24 @@ export default function App() {
       <main className="flex-1 min-w-0 flex flex-col">
         <header className="h-14 shrink-0 flex items-center justify-between px-4 sm:px-6 border-b border-line bg-panel/30">
           <div className="flex items-center gap-3 min-w-0">
-            <button onClick={() => setOpen(true)} className="btn btn-icon md:hidden !w-11 !h-11 shrink-0">☰</button>
+            <button onClick={() => setOpen(true)} className="btn btn-icon md:hidden !w-11 !h-11 shrink-0" aria-label="Mở menu điều hướng">☰</button>
             <span className="text-lg shrink-0">{cur.icon}</span>
             <div className="min-w-0">
               <div className="display text-sm tracking-[0.18em] text-ink leading-none truncate">{cur.label.toUpperCase()}</div>
               <div className="text-[11px] text-inkfaint mt-0.5 truncate">{cur.sub}</div>
             </div>
           </div>
-          <span className="chip shrink-0"><span className="h-1.5 w-1.5 rounded-full bg-cyan" /> Lucy</span>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="chip"><span className="h-1.5 w-1.5 rounded-full bg-cyan" /> Lucy</span>
+            {/* S2/E1.5: mở HUD (mobile/tablet — desktop HUD luôn ở cột phải) */}
+            <button onClick={() => setHudOpen(true)} className="btn btn-icon lg:hidden !w-9 !h-9" aria-label="Mở bảng HUD hoạt động" title="HUD · hoạt động">📡</button>
+          </div>
         </header>
 
         <section className="flex-1 min-h-0 relative">
+          {reactorOn() && (
+            <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'reactor' ? '' : 'opacity-0 pointer-events-none')}><ReactorHome visible={tab === 'reactor'} onNavigate={pick} /></div>
+          )}
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'dashboard' ? '' : 'opacity-0 pointer-events-none')}><Dashboard /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'chat' ? '' : 'opacity-0 pointer-events-none')}><Chat /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'workspace' ? '' : 'opacity-0 pointer-events-none')}>
@@ -237,12 +321,42 @@ export default function App() {
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'schedule' ? '' : 'opacity-0 pointer-events-none')}><Schedule /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'projects' ? '' : 'opacity-0 pointer-events-none')}><Projects /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'brain' ? '' : 'opacity-0 pointer-events-none')}><NeuralTab visible={tab === 'brain'} /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'personas' ? '' : 'opacity-0 pointer-events-none')}><Personas /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'connect' ? '' : 'opacity-0 pointer-events-none')}><Connect /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'skills' ? '' : 'opacity-0 pointer-events-none')}><Skills /></div>
+          {promptsOn && <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'prompts' ? '' : 'opacity-0 pointer-events-none')}><Prompts /></div>}
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'draw' ? '' : 'opacity-0 pointer-events-none')}><Draw /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'aki' ? '' : 'opacity-0 pointer-events-none')}><Aki /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'logs' ? '' : 'opacity-0 pointer-events-none')}><Logs /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'settings' ? '' : 'opacity-0 pointer-events-none')}><Settings /></div>
         </section>
+
+        {/* S2/E1.5: bottom bar — chỉ mobile (md:hidden), 4 Space chính + Menu */}
+        <nav className="md:hidden shrink-0 flex items-stretch border-t border-line bg-panel/80 backdrop-blur" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+          {MOBILE_TABS.map((id) => {
+            const t = TABS.find((x) => x.id === id)!
+            const on = tab === id
+            return (
+              <button key={id} onClick={() => pick(id)}
+                className={'flex-1 flex flex-col items-center justify-center gap-0.5 py-2 min-h-[52px] transition-colors ' + (on ? 'text-cyan' : 'text-inkfaint')}>
+                <span className={'text-lg leading-none ' + (on ? 'scale-110' : '')}>{t.icon}</span>
+                <span className="text-[9px] font-medium">{t.label}</span>
+              </button>
+            )
+          })}
+          <button onClick={() => setOpen(true)}
+            className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2 min-h-[52px] text-inkfaint transition-colors">
+            <span className="text-lg leading-none">☰</span>
+            <span className="text-[9px] font-medium">Menu</span>
+          </button>
+        </nav>
       </main>
+
+      {/* S2/E1.4 — HUD panel phải (context-aware) */}
+      <HudRail tabId={cur.id} label={cur.label} sub={cur.sub} icon={cur.icon} mobileOpen={hudOpen} onMobileClose={() => setHudOpen(false)} />
+
+      {/* T2/U3 — command palette */}
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} items={paletteItems} />
     </div>
   )
 }

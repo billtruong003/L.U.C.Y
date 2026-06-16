@@ -11,7 +11,7 @@ export IS_SANDBOX=1
 
 # Guard: chờ claude rảnh (≤1 process) tối đa 10 phút, nếu vẫn bận thì bỏ qua (chống fail khi sprint chạy nặng)
 _WAIT=0; _MAX=1800
-while [ "$(pgrep -c claude 2>/dev/null || echo 0)" -gt 1 ] && [ $_WAIT -lt $_MAX ]; do
+while [ "$(pgrep -c claude 2>/dev/null)" -gt 1 ] && [ $_WAIT -lt $_MAX ]; do
   sleep 15; _WAIT=$((_WAIT+15))
 done
 if [ $_WAIT -ge $_MAX ]; then
@@ -42,6 +42,7 @@ MD_OUT="$WORKDIR/brief-$DATE_STR-$SLUG.md"
 HTML_OUT="$WORKDIR/brief-$DATE_STR-$SLUG.html"
 RES="$(mktemp)"
 SUMM_FILE="$(mktemp)"
+DATA_LINE="$(mktemp)"
 
 # 1. Gọi Claude sinh báo cáo — chi tiết, nguồn là LINK click được
 "${CLAUDE_BIN:-claude}" -p --model claude-opus-4-8 \
@@ -80,14 +81,26 @@ Chứng khoán Mỹ: [Investing.com](https://www.investing.com), [Yahoo Finance]
 - Mục cuối '### 🎯 Góc nhìn Lucy': nhận định tổng + 1-2 kèo + cảnh báo rủi ro. \
 - Ghi FULL ra file $MD_OUT. \
 \
+=== DÒNG DỮ LIỆU CHO BIỂU ĐỒ (BẮT BUỘC — DÒNG CUỐI CÙNG, IN SAU TẤT CẢ) === \
+Kết thúc, in ĐÚNG 1 dòng bắt đầu bằng '@@DATA ' rồi các cặp KEY=VALUE cách nhau bởi khoảng trắng. \
+VALUE là SỐ THUẦN: không đơn vị, không ký hiệu \$/%, không dấu phẩy ngăn nghìn (vd 66200 chứ không phải 66,200). \
+CHỈ ghi key có SỐ THẬT vừa lấy được trong báo cáo; key nào không có thì BỎ HẲN (không ghi 0, không bịa). \
+Key chuẩn: BTC ETH SOL BNB XRP = giá USD; BTCDOM = % thống trị BTC; TOTALMC = tổng mcap (nghìn tỷ USD); \
+XAU = vàng USD/oz; SJC = vàng SJC (triệu/lượng); VNINDEX SP500 NASDAQ = điểm; DXY; OIL = dầu WTI USD. \
+Ví dụ: @@DATA BTC=66200 ETH=3520 XAU=2318 VNINDEX=1281 SP500=5395 BTCDOM=54.1 \
+Dòng này để hệ thống tự vẽ chart — số phải KHỚP với báo cáo phía trên. \
+\
 === OUTPUT === \
 In TOÀN BỘ báo cáo (đầy đủ, đúng format file ở trên, có dùng bảng markdown cho số liệu) ra stdout làm CÂU TRẢ LỜI CHÍNH. \
 KHÔNG cần tự ghi file — script sẽ tự lưu và tự rút gọn bản Telegram. \
 Xưng em, gọi chủ nhân. TUYỆT ĐỐI KHÔNG bịa số — không lấy được thì ghi 'chưa lấy được'." \
-  --permission-mode bypassPermissions \
+  --allowedTools "Bash WebSearch WebFetch Read Glob Grep" \
   --output-format json \
   --append-system-prompt-file "${LUCY_PERSONA:-$HOME/lucy/bridge/persona.md}" \
   < /dev/null > "$RES" 2>/dev/null || true
+
+# B1: cộng token vòng claude -p vào token-guard CHUNG (fire-and-forget, không gãy cron)
+python3 "$(dirname "$0")/report_tok.py" "$RES" 2>/dev/null || true
 
 # 2. Tách full report (ghi MD) + bản gọn Telegram (bỏ bảng) — KHÔNG phụ thuộc model tự ghi file
 python3 -c "
@@ -96,6 +109,11 @@ d = json.load(open('$RES'))
 full = (d.get('result') or '').strip()
 if not full:
     full = '(brief lỗi — không lấy được nội dung)'
+# tách dòng @@DATA (số liệu cho chart) ra file riêng, lấy dòng cuối nếu lỡ có nhiều
+data = [l.strip() for l in full.split('\n') if l.strip().startswith('@@DATA')]
+open('$DATA_LINE','w',encoding='utf-8').write(data[-1] if data else '')
+# bỏ @@DATA khỏi report hiển thị
+full = '\n'.join(l for l in full.split('\n') if not l.strip().startswith('@@DATA')).strip()
 open('$MD_OUT','w', encoding='utf-8').write(full)
 # bản Telegram: bỏ dòng bảng markdown (| ... |) cho khỏi vỡ layout
 tg = '\n'.join(l for l in full.split('\n') if not re.match(r'^\s*\|', l))
@@ -103,6 +121,16 @@ print(tg[:3000])
 " 2>/dev/null > "$SUMM_FILE" || { echo "(brief lỗi)" > "$SUMM_FILE"; echo "(brief lỗi)" > "$MD_OUT"; }
 
 SUMMARY="$(cat "$SUMM_FILE")"
+
+# 2b. Ghi số liệu cho chart (deterministic — chỉ ghi nếu Claude in @@DATA, KHÔNG bịa)
+if [ -s "$DATA_LINE" ]; then
+  SET_ARGS="$(sed 's/^@@DATA[[:space:]]*//' "$DATA_LINE")"
+  if [ -n "$SET_ARGS" ]; then
+    LUCY_WEB_ROOT="$WEB_ROOT" node "$(dirname "$0")/lucy_data.mjs" record \
+      --date "$DATE_STR" --session "$SLUG" --set $SET_ARGS 2>/dev/null \
+      && echo "$(date '+%H:%M') DATA recorded: $SET_ARGS" || true
+  fi
+fi
 
 # 3. Convert MD → HTML (Node + marked)
 if [ -s "$MD_OUT" ]; then
@@ -136,11 +164,9 @@ $SUMMARY
 ⚠️ Tạo HTML thất bại — xem file: $MD_OUT"
 fi
 
-TG_RES=$(curl -s "$API/sendMessage" \
-  -d chat_id="$LUCY_ALLOWED_USER_ID" \
-  -d parse_mode="Markdown" \
-  --data-urlencode "text=$MSG")
-echo "$TG_RES" | python3 -c "import sys,json; d=json.load(sys.stdin); print('TELEGRAM', 'OK' if d.get('ok') else 'FAIL: '+d.get('description','?'))" 2>/dev/null || echo "TELEGRAM CURL_FAIL"
+# gửi an toàn: parse_mode=Markdown, lỗi parse entities → tự gửi lại plain (không mất tin)
+source "$(dirname "$0")/lib/tg_send.sh"
+tg_send "$API" "$LUCY_ALLOWED_USER_ID" "$MSG"
 
 # 6. Post sang Discord qua Aki (radiant-bot) — summary + link cho anh em xem
 if [ -n "$RADIANT_BOT_AGENT_SECRET" ] && [ -n "$LUCY_BRIEF_DISCORD_CHANNEL" ]; then
@@ -171,4 +197,4 @@ print(json.dumps({'channel': os.environ['CH'], 'text': os.environ['TXT']}, ensur
 fi
 
 # Cleanup tmp files
-rm -f "$RES" "$SUMM_FILE"
+rm -f "$RES" "$SUMM_FILE" "$DATA_LINE"

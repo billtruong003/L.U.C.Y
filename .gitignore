@@ -35,6 +35,12 @@ voice/samples/
 # claude code local settings (per-subproject)
 **/.claude/
 
+# python bytecode + backup files (junk)
+__pycache__/
+*.pyc
+*.bak
+*.bak-*
+
 # os / editor
 .DS_Store
 Thumbs.db
@@ -42,3 +48,4 @@ Thumbs.db
 lucy.config.cjs
 ecosystem.local.cjs
 open-hub-lan.bat
+.gcp-oauth.json

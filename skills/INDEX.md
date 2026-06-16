@@ -248,3 +248,12 @@
 
 ### 🎯 web-development (1)
 - **page-agent** — Embed alibaba/page-agent into your own web application — a pure-JavaScript in-page GUI agent that ships as a single <script> tag or npm package and lets end-users of your site drive the UI with natural language ("click login, fill username as John"). No Python, no headless browser, no extension required. Use this skill when the user is a web developer who wants to add an AI copilot to their SaaS / admin panel / B2B tool, make a legacy web app accessible via natural language, or evaluate page-agent against a local (Ollama) or cloud (Qwen / OpenAI / OpenRouter) LLM. NOT for server-side browser automation — point those users to Hermes' built-in browser tool instead. · [`skills/optional/web-development/page-agent/SKILL.md`](skills/optional/web-development/page-agent/SKILL.md)
+
+## LUCY — skill nội bộ (seed từ pattern THẬT của repo) (4)
+
+> 🎯 Lucy tự viết, ưu tiên cao — đóng gói quy trình lặp lại trong chính dự án này (M3.4).
+
+- **lucy-deploy-no-bridge** — Deploy/restart dịch vụ Lucy an toàn — KHÔNG đụng lucy-bridge, giữ env qua /proc. · [`skills/lucy/deploy-no-bridge/SKILL.md`](skills/lucy/deploy-no-bridge/SKILL.md)
+- **lucy-add-coordinator-endpoint** — Thêm endpoint coordinator + proxy hub + api.ts client + UI, đúng convention 1-Lucy. · [`skills/lucy/add-coordinator-endpoint/SKILL.md`](skills/lucy/add-coordinator-endpoint/SKILL.md)
+- **lucy-autobuild-phase** — Chạy 1 nhóm task auto-build theo MASTER doc — đọc spec, implement, tsc+smoke, cập nhật doc. · [`skills/lucy/autobuild-phase/SKILL.md`](skills/lucy/autobuild-phase/SKILL.md)
+- **lucy-rehost** — Rehost sạch toàn bộ Lucy sau auto-build — tsc-gate, build web, restart hết rồi báo Telegram. · [`skills/lucy/rehost/SKILL.md`](skills/lucy/rehost/SKILL.md)

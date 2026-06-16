@@ -10,14 +10,16 @@ import { writeSignalSafe } from './signal'
 import { appendAgentLesson } from './agent-brain'
 import { distillCardSafe } from './distill'
 import { writeSessionNoteSafe } from './session-note'
+import { proposeSkillFrom, skillLearnFlagOn } from './skill-learn'
 import { slug } from './vault'
 import type { Runner } from './runner'
 import type { Card, Stage, Persona, Project, Pipeline, RunResult } from './types'
 import { TokenGuard, type TokenGuardStatus } from './token-guard'
-import { laneAvailable, cheapestAvailableLaneKey } from './llm-lane'
 import { notifyRateLimitParked } from './notify'
 import { triageCard } from './triage'
 import type { TriageDecision } from './triage'
+import { resolveExecutionPersona } from './engine-dispatch'
+import { detectStuck, applyTriageDecision } from './engine-triage'
 
 let _n = 0
 const uid = (p: string) => `${p}_${Date.now().toString(36)}${(_n++).toString(36)}`
@@ -286,6 +288,7 @@ export class Engine {
       c.status = 'queued'
       c.history.push({ ts: Date.now(), stage: pipe.stages[c.stageIndex].id, event: 'enter-stage' })
     }
+    c.waitKind = undefined
     this.store.putCard(c)
   }
 
@@ -388,7 +391,7 @@ export class Engine {
         if (!this.stuckHandled.has(c.id) && !this.stuckPending.has(c.id)) {
           const lastBug = c.reviewNotes?.slice(-1)[0] || c.lastSummary || '—'
           c.pendingQuestion = `Stage "${stage.name}" rework ${this.maxStageVisits} lần vẫn chưa đạt — bug còn: ${String(lastBug).slice(0, 200)}. Lucy đang phân tích...`
-          c.status = 'waiting_human'; c.waitKind = 'stuck'
+          c.status = 'waiting_human'; c.waitKind = 'loop'
           this.store.putCard(c)
           this.triggerStuckTriage(c, stage, persona!)
         } else {
@@ -448,28 +451,8 @@ export class Engine {
       }
     }
     const proj = this.store.getProject(c.projectId)
-    // model: override per-card NHƯNG không HẠ CẤP stage mạnh — reviewer/architect default opus thì GIỮ opus
-    // (chống "coder sonnet review chính mình"). Override chỉ nâng sonnet->opus, không hạ opus->sonnet.
-    // 'laneModel' = dùng model rẻ của persona (laneModel field) — KHÔNG đè persona.model
-    const model = c.modelOverride && c.modelOverride !== 'laneModel' ? (base.model === 'opus' ? 'opus' : c.modelOverride) : base.model
-    let persona = model !== base.model ? { ...base, model } : base
-    // explicit claude model (opus/sonnet) → bỏ lane để ClaudeRunner chạy đúng model, không ngầm rơi xuống lane rẻ
-    if (c.modelOverride === 'opus' || c.modelOverride === 'sonnet') persona = { ...persona, laneModel: undefined }
-    if (proj?.skill) persona = { ...persona, systemPrompt: persona.systemPrompt + `\n\n--- SKILL DỰ ÁN "${proj.name}" ---\n${proj.skill}` }
-    // TokenGuard: soft limit → ép EXECUTOR xuống lane rẻ nhất để tiết kiệm.
-    // GAP#3: CHỈ hạ executor (kind='executor' hoặc persona có laneModel) — KHÔNG hạ reviewer/architect (opus)
-    // để giữ chất lượng gate ("coder rẻ không tự review chính mình").
-    const isExecutor = base.kind === 'executor' || !!persona.laneModel
-    if (this.tokenGuard && isExecutor) {
-      const ts = this.tokenGuard.check()
-      if (ts.soft) {
-        const cheapKey = cheapestAvailableLaneKey()
-        if (cheapKey) {
-          persona = { ...persona, laneModel: cheapKey }
-          console.log(`[engine] token-guard SOFT — hạ executor "${persona.name}" xuống lane ${cheapKey} (used=${ts.used}/${ts.softLimit})`)
-        }
-      }
-    }
+    // dispatch: chọn model+persona THỰC (override / skill / token-guard soft / thorough) — tách ở engine-dispatch.ts
+    let persona = resolveExecutionPersona(base, c, proj, this.tokenGuard, this.thorough(c))
     // C3: defense-in-depth — size-gate (trường hợp tick() bỏ sót)
     if (persona.kind === 'executor' && !c.parentId && !c.sizeGateBypassed) {
       const totalChars = c.title.length + c.brief.length
@@ -483,8 +466,6 @@ export class Engine {
         return null
       }
     }
-    // B4 quality-first: card 'thorough' → cho agent nhiều turn hơn (cày sâu, chấp nhận đốt token).
-    if (this.thorough(c)) persona = { ...persona, maxTurns: (persona.maxTurns ?? 12) * 2 }
     // repo: nếu project có repoUrl -> worker clone & làm việc trong repo thật (R2)
     const repo = proj?.repoUrl ? { url: proj.repoUrl, branch: proj.branch, projectId: proj.id } : undefined
     return { jobId: j.id, cardId: c.id, card: c, stage, persona, repo }
@@ -644,6 +625,15 @@ export class Engine {
         if (wins.length) for (const pid of this.executorPersonasOf(c)) for (const w of wins) appendAgentLesson(pid, w.principle, 'win')
       })
       .catch(() => { /* nuốt — học hỏng không được làm gãy gì */ })
+    // M3.3 skill self-learn: card DONE → ĐỀ XUẤT skill tái dùng vào skills/_proposed/ (KHÔNG vào INDEX = không auto-active).
+    // CHỈ chạy khi LUCY_SKILL_LEARN=1 (drafter tốn token) — proposeSkillFrom tự gate ghi đĩa nữa. Fire-and-forget.
+    if (c.status === 'done' && skillLearnFlagOn()) {
+      proposeSkillFrom(c)
+        .then((r) => {
+          if (r.wrote) post(this.store, threadOf(c.id), 'engine', 'system', `🧩 đề xuất skill mới: ${r.slug} (chờ duyệt, chưa active)`, c.id)
+        })
+        .catch(() => { /* nuốt — đề xuất skill hỏng không được làm gãy gì */ })
+    }
   }
 
   // persona kind='executor' đã chạy ≥1 stage của card (từ pipeline) → đối tượng nhận win-lesson kỹ thuật.
@@ -657,19 +647,9 @@ export class Engine {
 
   // ── C2 Stuck-detector ──
 
-  /** Kiểm tra card có bị kẹt (stuck) không: rework >= ngưỡng HOẶC visit >= cap mà vẫn rework. */
+  /** Kiểm tra card có bị kẹt (stuck) không — logic ở engine-triage.detectStuck. */
   private isStuck(c: Card, stage: Stage): boolean {
-    if (this.stuckHandled.has(c.id)) return false // đã triage rồi
-    const visits = c.stageVisits?.[stage.id] ?? 0
-    // (1) rework >= stuckThreshold trên stage này
-    if (visits >= this.stuckThreshold) return true
-    // (2) loop-breaker sắp chạm → vẫn rework
-    if (visits >= this.maxStageVisits - 1) {
-      // kiểm tra lần chạy gần nhất có phải rework không
-      const last = [...c.history].reverse().find((h) => h.stage === stage.id)
-      if (last && (last.event === 'rework' || last.event === 'verify-fail')) return true
-    }
-    return false
+    return detectStuck(c, stage, { handled: this.stuckHandled.has(c.id), stuckThreshold: this.stuckThreshold, maxStageVisits: this.maxStageVisits })
   }
 
   /** Launch triage async — fire-and-forget, không block engine. */
@@ -683,7 +663,7 @@ export class Engine {
 
     // PARK ngay: chặn card bị dispatch/rework tiếp (leo loop-cap) trong lúc triage async chạy.
     // Triage .then sẽ ghi đè trạng thái (upgrade→queued / split→blocked / escalate→giữ).
-    c.status = 'waiting_human'; c.waitKind = 'stuck'
+    c.status = 'waiting_human'; c.waitKind = 'loop'
     c.pendingQuestion = `⏳ Lucy đang phân tích card kẹt ở "${stageName}"…`
     this.store.putCard(c)
 
@@ -693,70 +673,12 @@ export class Engine {
         if (!card || card.status === 'done' || card.status === 'failed') return
         this.stuckPending.delete(cardId)
         post(this.store, threadOf(card.id), 'engine', 'system', `🧩 triage: ${decision.action} — ${decision.reason}`, card.id)
-        switch (decision.action) {
-          case 'split': {
-            // (a) Tạo N subtask → card chính blocked chờ chúng
-            const subs = (decision.subtasks || []).slice(0, 3)
-            if (!subs.length) {
-              // fallback: không có subtask → escalate
-              card.status = 'waiting_human'; card.waitKind = 'stuck'
-              card.pendingQuestion = `🧩 Triage chọn split nhưng không có subtask cụ thể: ${decision.reason}. Bill xem hướng giải quyết?`
-              this.store.putCard(card)
-              return
-            }
-            // depth-breaker: đã quá sâu → KHÔNG đẻ con nữa, escalate Bill.
-            if (card.depth >= this.maxDepth) {
-              card.status = 'waiting_human'; card.waitKind = 'stuck'
-              card.pendingQuestion = `🧩 Triage muốn split nhưng đã quá sâu (depth ${card.depth} ≥ ${this.maxDepth}): ${decision.reason}. Bill xem hướng?`
-              this.store.putCard(card)
-              post(this.store, threadOf(card.id), 'engine', 'system', `⛔ depth-breaker: split quá sâu (depth ${card.depth} ≥ ${this.maxDepth}) → escalate`, card.id)
-              return
-            }
-            const childIds: string[] = []
-            for (const sub of subs) {
-              const child = this.createCard(
-                sub.title, sub.brief,
-                card.pipelineId, card.id, card.depth + 1, card.projectId,
-                false, undefined, [] // con ĐỘC LẬP (blockedBy=[]) → queued chạy ngay, KHÔNG bị cha chặn (tránh deadlock)
-              )
-              childIds.push(child.id)
-            }
-            // card chính blocked chờ con xong → blockKind='delegate' để khi con xong thì ADVANCE sang stage kế (không re-run stage kẹt)
-            card.status = 'blocked'
-            card.blockedBy = childIds
-            card.blockKind = 'delegate'
-            card.history.push({ ts: Date.now(), stage: stageName, event: 'stuck-split', detail: `→ ${subs.length} subtask: ${subs.map((s) => s.title).join(', ')}` })
-            post(this.store, threadOf(card.id), 'engine', 'handoff', `🧩 STUCK → split ${subs.length} subtask: ${subs.map((s) => `"${s.title}"`).join(', ')}`, card.id)
-            this.store.putCard(card)
-            // resolveUnblocks có thể chạy subtask ngay
-            break
-          }
-          case 'upgrade': {
-            // (b) Nâng model lên opus (chỉ nếu đang sonnet)
-            if (card.modelOverride !== 'opus') {
-              card.modelOverride = 'opus'
-              card.status = 'queued'
-              card.stageVisits = {} // reset đếm loop → opus có lượt mới, không bị loop-cap re-stuck ngay
-              card.history.push({ ts: Date.now(), stage: stageName, event: 'stuck-upgrade', detail: decision.reason })
-              post(this.store, threadOf(card.id), 'engine', 'system', `⬆ STUCK → nâng lên opus: ${decision.reason}`, card.id)
-              this.store.putCard(card)
-            } else {
-              // đã opus rồi mà vẫn stuck → escalate
-              card.status = 'waiting_human'; card.waitKind = 'stuck'
-              card.pendingQuestion = `⬆ Đã opus nhưng vẫn stuck: ${decision.reason}. Bill hướng dẫn?`
-              this.store.putCard(card)
-            }
-            break
-          }
-          case 'escalate': {
-            // (c) Escalate Bill
-            card.status = 'waiting_human'; card.waitKind = 'stuck'
-            card.pendingQuestion = `🧩 STUCK — ${decision.reason}`
-            post(this.store, threadOf(card.id), 'engine', 'decision', `📢 ESCALATE: ${decision.reason}`, card.id)
-            this.store.putCard(card)
-            break
-          }
-        }
+        // áp quyết định (split/upgrade/escalate) — logic ở engine-triage.applyTriageDecision
+        applyTriageDecision(this.store, card, stageName, decision, {
+          maxDepth: this.maxDepth,
+          createSubcard: (title, brief, pipelineId, parentId, depth, projectId) =>
+            this.createCard(title, brief, pipelineId, parentId, depth, projectId, false, undefined, []),
+        })
       })
       .catch((err) => {
         this.stuckPending.delete(cardId)
@@ -777,7 +699,7 @@ export class Engine {
       // Nếu card còn 'queued' mà đang chờ triage → tạm dừng (không cho dispatch)
       if (card.status === 'queued') {
         card.status = 'waiting_human'
-        card.waitKind = 'stuck'
+        card.waitKind = 'loop'
         card.pendingQuestion = `⏳ Lucy đang phân tích card kẹt ở "${stageName}"...`
         this.store.putCard(card)
       }

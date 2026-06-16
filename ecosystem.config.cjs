@@ -25,7 +25,7 @@ const LIM = {
 module.exports = {
   apps: [
     { ...base, name: 'lucy-coordinator', cwd: AM, script: 'src/coordinator-main.ts',
-      env: { AM_TOKEN: TOK, AM_PORT: '8780', AM_HOST: '127.0.0.1', LUCY_VAULT: path.join(ROOT, 'lucy-vault'), AM_TURNS_LOG: TURNS, ...LIM } },
+      env: { AM_TOKEN: TOK, AM_PORT: '8780', AM_HOST: '127.0.0.1', LUCY_VAULT: path.join(ROOT, 'lucy-vault'), AM_TURNS_LOG: TURNS, LUCY_PERSONA_CHAT: process.env.LUCY_PERSONA_CHAT || '1', LUCY_PROMPT_ARCHITECT: process.env.LUCY_PROMPT_ARCHITECT || '1', LUCY_SKILL_LEARN: process.env.LUCY_SKILL_LEARN || '1', ...LIM } },
     { ...base, name: 'lucy-hub', cwd: HUB, script: 'src/index.ts',
       env: { AM_COORD_URL: COORD, AM_TOKEN: TOK, LUCY_HUB_PASSWORD: PWD, LUCY_HUB_PORT: '8800', LUCY_HUB_HOST: '0.0.0.0' } },
     { ...base, name: 'lucy-worker', cwd: AM, script: 'src/worker-main.ts',

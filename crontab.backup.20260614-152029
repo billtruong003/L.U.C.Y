@@ -1,0 +1,24 @@
+# lucy-auto-build — chạy 05:25 hằng ngày (OPUS, pm2-managed)
+25 5 * * * /usr/bin/pm2 start /root/lucy/autobuild-wrapper.sh --name lucy-autobuild --interpreter none --no-autorestart >> /root/lucy/auto-build-cron.log 2>&1
+
+# lucy-dream — gộp trí nhớ 2h sáng
+0 2 * * * cd /root/lucy/bridge && bash cron_dream.sh >> /root/lucy/cron-dream.log 2>&1
+
+# lucy-market-brief — sáng 7h
+0 7 * * * cd /root/lucy/bridge && bash cron_brief.sh morning >> /root/lucy/cron-brief.log 2>&1
+
+# lucy-tech-digest — 8h sáng
+0 8 * * * cd /root/lucy/bridge && python3 tech_harness.py >> /root/lucy/cron-tech.log 2>&1
+
+# lucy-vn-brief — sáng 9h (chứng khoán VN + tin tức VN)
+0 9 * * * cd /root/lucy/bridge && bash cron_vn.sh morning >> /root/lucy/cron-vn.log 2>&1
+
+# lucy-market-brief — chiều 17h
+0 17 * * * cd /root/lucy/bridge && bash cron_brief.sh afternoon >> /root/lucy/cron-brief.log 2>&1
+
+# lucy-vn-brief — chiều 18h
+0 18 * * * cd /root/lucy/bridge && bash cron_vn.sh afternoon >> /root/lucy/cron-vn.log 2>&1
+
+# lucy-portfolio — mỗi 3h (quant crypto)
+0 */3 * * * cd /root/lucy-workspace/portfolio && bash run_daily.sh silent 2>&1 | tee -a /root/lucy/cron-portfolio.log
+30 8 * * * cd /root/lucy/bridge && python3 vn_trending.py >> /root/lucy/cron-trending.log 2>&1

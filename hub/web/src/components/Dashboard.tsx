@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { metricsData, amState, errorStatsData, brainState, llmGuard, type MetricsData, type AmCard, type AmPersona, type AmMsg, type BrainSig, type ErrorStatsData, type ErrorCategory, type GuardData } from '../api'
+import { metricsData, amState, errorStatsData, brainState, llmGuard, type MetricsData, type AmCard, type AmPersona, type AmMsg, type BrainSig, type ErrorStatsData, type ErrorCategory, type GuardData, type SeriesPoint, type SeriesRange } from '../api'
 
 // ── Overview helpers ─────────────────────────────────────────────────────────
 function fmtTokens(n: number): string {
@@ -14,6 +14,37 @@ function fmtUsd(n: number): string {
 }
 function pct(v: number, total: number): number {
   return !total ? 0 : Math.min(100, Math.round((v / total) * 100))
+}
+
+// ── M5 sparkline (SVG thuần, không cần lib charting) ──────────────────────────
+const RANGE_LABEL: Record<SeriesRange, string> = { '24h': '24h', '7d': '7 ngày', '30d': '30 ngày' }
+function fmtBucketTime(t: number, range: SeriesRange): string {
+  const d = new Date(t)
+  if (range === '24h') return String(d.getHours()).padStart(2, '0') + 'h'
+  return (d.getMonth() + 1) + '/' + d.getDate()
+}
+function Sparkline({ points, color, accessor }: { points: SeriesPoint[]; color: string; accessor: (p: SeriesPoint) => number }) {
+  const W = 240, H = 44, PAD = 3
+  const vals = points.map(accessor)
+  const max = Math.max(1, ...vals)
+  const n = points.length
+  const x = (i: number) => n <= 1 ? PAD : PAD + (i / (n - 1)) * (W - 2 * PAD)
+  const y = (v: number) => H - PAD - (v / max) * (H - 2 * PAD)
+  const line = vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
+  const area = `${line} L${x(n - 1).toFixed(1)},${H - PAD} L${x(0).toFixed(1)},${H - PAD} Z`
+  const gid = 'sp' + color.replace(/[^a-z0-9]/gi, '')
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }} preserveAspectRatio="none">
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.30" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={area} fill={`url(#${gid})`} />
+      <path d={line} fill="none" stroke={color} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  )
 }
 
 const EMPTY_METRICS: MetricsData = {
@@ -115,6 +146,7 @@ export default function Dashboard() {
   const [oLoading, setOLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState(0)
   const [guard, setGuard] = useState<GuardData | null>(null) // D4: rate-guard + quota
+  const [seriesRange, setSeriesRange] = useState<SeriesRange>('7d') // M5: range sparkline
 
   // Insights data
   const [cards, setCards] = useState<AmCard[]>([])
@@ -332,6 +364,56 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
+
+            {/* M5: time-series sparkline token/cost — data thật từ ledger (bucket rỗng = 0) */}
+            {(() => {
+              const series = data.series
+              const pts = series?.[seriesRange] ?? []
+              const hasData = pts.some((p) => p.tokens > 0 || p.usd > 0)
+              const sumTok = pts.reduce((a, p) => a + p.tokens, 0)
+              const sumUsd = pts.reduce((a, p) => a + p.usd, 0)
+              return (
+                <div className="card px-4 py-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-[10px] text-inkfaint uppercase tracking-widest">Diễn biến token · chi phí</div>
+                    <div className="flex gap-1">
+                      {(['24h', '7d', '30d'] as SeriesRange[]).map((r) => (
+                        <button key={r} onClick={() => setSeriesRange(r)}
+                          className={'text-[11px] px-2 py-0.5 rounded-md transition ' + (seriesRange === r ? 'bg-cyan/20 text-cyan' : 'text-inkfaint hover:text-ink')}>
+                          {RANGE_LABEL[r]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {!series ? (
+                    <div className="text-[12px] text-inkfaint py-3">Agent-Machine chưa gửi chuỗi thời gian.</div>
+                  ) : !hasData ? (
+                    <div className="text-[12px] text-inkfaint py-3">Chưa có dữ liệu trong {RANGE_LABEL[seriesRange]} gần đây.</div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <div className="flex items-baseline justify-between mb-1">
+                          <span className="text-[11px] text-inkdim">Token</span>
+                          <span className="mono text-[11px] text-cyan">{fmtTokens(sumTok)}</span>
+                        </div>
+                        <Sparkline points={pts} color="#3fd3ff" accessor={(p) => p.tokens} />
+                      </div>
+                      <div>
+                        <div className="flex items-baseline justify-between mb-1">
+                          <span className="text-[11px] text-inkdim">Chi phí</span>
+                          <span className="mono text-[11px] text-pink">{fmtUsd(sumUsd)}</span>
+                        </div>
+                        <Sparkline points={pts} color="#ff5d9e" accessor={(p) => p.usd} />
+                      </div>
+                      <div className="sm:col-span-2 flex justify-between text-[10px] text-inkfaint -mt-1">
+                        <span>{fmtBucketTime(pts[0].t, seriesRange)}</span>
+                        <span>{fmtBucketTime(pts[pts.length - 1].t, seriesRange)}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
               <div className="card px-4 py-4">

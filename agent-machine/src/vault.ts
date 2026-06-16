@@ -35,6 +35,23 @@ export function parseFrontmatter(raw: string): { data: Record<string, unknown>; 
   return { data, body }
 }
 
+// upsertFrontmatterKey — chèn/sửa 1 key scalar top-level trong frontmatter (giữ nguyên body + key khác).
+// Dùng cho PHASE 4 (đánh dấu valid_to=now mà KHÔNG đụng nội dung fact). File chưa có frontmatter → tạo block mới.
+// Khớp shape parseFrontmatter đọc lại (top-level `key: value`). value bọc "" nếu có ký tự đặc biệt.
+export function upsertFrontmatterKey(raw: string, key: string, value: string): string {
+  const safe = /[:#\[\]{}",]|^\s|\s$/.test(value) ? `"${value.replace(/"/g, '\\"')}"` : value
+  const line = `${key}: ${safe}`
+  if (!raw.startsWith('---')) return `---\n${line}\n---\n\n${raw}`
+  const end = raw.indexOf('\n---', 3)
+  if (end === -1) return `---\n${line}\n---\n\n${raw}`
+  const head = raw.slice(0, raw.indexOf('\n') + 1) // "---\n"
+  const fmBlock = raw.slice(raw.indexOf('\n') + 1, end)
+  const tail = raw.slice(end + 1) // "---\n<body>"
+  const keyRe = new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:\\s.*$`, 'm')
+  const newFm = keyRe.test(fmBlock) ? fmBlock.replace(keyRe, line) : fmBlock.replace(/\n*$/, '') + `\n${line}`
+  return head + newFm + '\n' + tail
+}
+
 function parseScalar(v: string): unknown {
   if (!v) return ''
   if (v.startsWith('[') && v.endsWith(']')) {

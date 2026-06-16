@@ -138,8 +138,9 @@ const GRAPH_DIRS: { dir: string; zone: string }[] = [
   { dir: 'Daily', zone: 'timeline' }, { dir: 'Brain/entities', zone: 'entities' },
   { dir: 'Brain/decisions', zone: 'decisions' }, { dir: 'Brain/preferences', zone: 'learned' },
   { dir: 'Brain/claude-memory', zone: 'memory' }, // auto-memory harness (redirect vào vault) — ký ức đã chốt
+  { dir: 'Brain/agents', zone: 'agents' },        // K3: NÃO NGHỀ riêng từng agent (builder/eng/reviewer…) — multi-agent visible
 ]
-const MASS_BASE: Record<string, number> = { person: 26, identity: 18, project: 16, note: 13, skill: 12, entity: 12, decision: 10, memory: 9, preference: 8, daily: 6, ghost: 4 }
+const MASS_BASE: Record<string, number> = { person: 26, identity: 18, project: 16, agent: 15, note: 13, skill: 12, entity: 12, decision: 10, memory: 9, preference: 8, daily: 6, ghost: 4 }
 const DAY = 86400e3
 
 export function buildGraph(vaultDir: string, opts: { bornWithinMs?: number; now?: number } = {}): BrainGraph {
@@ -162,8 +163,11 @@ export function buildGraph(vaultDir: string, opts: { bornWithinMs?: number; now?
       const ageDays = (now - mtime) / DAY
       const isPref = kind === 'preference'
       const conf = isPref ? Number(n.frontmatter.confidence) || 0 : undefined
+      // K3: agent brain file thường KHÔNG có frontmatter permalink → id/label ổn định từ tên file (persona id)
+      const isAgent = zone === 'agents'
+      const agentId = isAgent ? path.basename(rel).replace(/\.md$/i, '') : ''
       const node: GraphNode = {
-        id: n.permalink, label: n.title, kind, zone,
+        id: isAgent ? 'agent-' + agentId : n.permalink, label: isAgent ? agentId : n.title, kind, zone,
         mass: (MASS_BASE[kind] ?? 10) + n.observations.length * 1.5,
         brightness: isPref ? Math.max(0.2, conf ?? 0) : clamp(1 - ageDays / 90, 0.15, 1),
         mtime, obs: n.observations.length, path: rel,
@@ -192,6 +196,7 @@ export function buildGraph(vaultDir: string, opts: { bornWithinMs?: number; now?
 
 function nodeKind(zone: string, type: string, permalink: string, tags: string[]): string {
   if (zone === 'memory') return 'memory'
+  if (zone === 'agents') return 'agent'
   if (zone === 'learned') return 'preference'
   if (zone === 'entities') return 'entity'
   if (zone === 'decisions') return 'decision'

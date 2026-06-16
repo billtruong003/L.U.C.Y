@@ -88,7 +88,7 @@ export default function Planner({ project, pipes, onDone, onClose }: { project: 
         <button className="btn btn-icon !w-7 !h-7 ml-auto" onClick={onClose}>✕</button>
       </div>
 
-      {phase !== 'review' && (
+      {(phase === 'idle' || phase === 'thinking') && (
         <div className="flex flex-col sm:flex-row gap-2">
           <textarea className="input flex-1 !h-auto" rows={2} placeholder="Tả mục tiêu… (vd: làm trang landing bán khoá học + form đăng ký + blog 3 bài). Lucy sẽ tự chia card."
             value={goal} onChange={(e) => setGoal(e.target.value)} disabled={phase === 'thinking'} />
@@ -99,7 +99,7 @@ export default function Planner({ project, pipes, onDone, onClose }: { project: 
       )}
       {err && <div className="text-[12px] text-pink mt-2">{err}</div>}
 
-      {phase === 'review' && (
+      {(phase === 'review' || phase === 'creating') && (
         <div className="flex flex-col gap-2">
           <div className="text-[12px] text-inkdim">Lucy đề xuất <b className="text-ink">{drafts.length}</b> card — sửa/bỏ rồi tạo:</div>
           {drafts.map((d, i) => (

@@ -9,6 +9,15 @@ import 'dotenv/config'   // auto-load .env (cùng thư mục chạy) → pm2 kh�
 import express, { type Request } from 'express'
 import cookieParser from 'cookie-parser'
 import { spawn } from 'node:child_process'
+import { query, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'  // Đường B: chat stream in-process (thay spawn cho streamClaude)
+// CỤM B (Prompt Architect): gọi TRỰC TIẾP bộ não lõi cụm A (agent-machine, chạy in-process qua tsx).
+// ADDITIVE + FLAG-GATED (LUCY_PROMPT_ARCHITECT). Import tĩnh OK vì hub server chạy bằng tsx (ESM/CJS interop).
+import {
+  runPromptArchitect, escalatePromptArchitect, recordUserEdit,
+  promptArchitectFlagOn, sanitizeChatHistory,
+} from '../../../agent-machine/src/prompt-architect'
+import { getPromptArchitectStore } from '../../../agent-machine/src/prompt-architect-store'
+import { z } from 'zod'  // K2: consult_expert schema
 import { randomBytes, createHmac } from 'node:crypto'
 import path from 'node:path'
 import os from 'node:os'
@@ -76,10 +85,50 @@ const tokens = new Set<string>()
 type Job = { status: 'running' | 'done'; result: string | null; model: string; t0: number; session_id: string | null; prompt: string }
 const jobs = new Map<string, Job>()
 
-// Lịch sử chat (bền qua restart) — server tự giữ session_id để --resume
+// Phase J — CHAT ĐA-PHIÊN: nhiều hội thoại lưu riêng (chats/<id>.json), `chat` = hội thoại HIỆN TẠI.
+// Backward-compat: tự migrate chat.json cũ thành hội thoại đầu. `chat.messages`/`chat.sessionId`/saveChat() giữ nguyên API.
 type ChatMsg = { role: 'me' | 'lucy'; text: string; t: number }
-let chat = readJSON<{ sessionId: string | null; messages: ChatMsg[] }>(CHAT_FILE, { sessionId: null, messages: [] })
-const saveChat = () => { if (chat.messages.length > 400) chat.messages = chat.messages.slice(-400); writeJSON(CHAT_FILE, chat) }
+type Conversation = { id: string; title: string; sessionId: string | null; messages: ChatMsg[]; createdAt: number; updatedAt: number }
+const CHATS_DIR = path.join(STATE, 'chats'); fs.mkdirSync(CHATS_DIR, { recursive: true })
+const CUR_FILE = path.join(STATE, 'chats-current.json')
+const convFile = (id: string) => path.join(CHATS_DIR, id.replace(/[^A-Za-z0-9_-]/g, '') + '.json')
+const newConvId = () => randomBytes(6).toString('base64url')
+const deriveTitle = (msgs: ChatMsg[]): string => {
+  const first = msgs.find((m) => m.role === 'me')
+  return first ? first.text.replace(/\s+/g, ' ').trim().slice(0, 48) : 'Hội thoại mới'
+}
+function listConversations(): { id: string; title: string; updatedAt: number; count: number }[] {
+  try {
+    return fs.readdirSync(CHATS_DIR).filter((f) => f.endsWith('.json'))
+      .map((f) => readJSON<Conversation | null>(path.join(CHATS_DIR, f), null)).filter((c): c is Conversation => !!c?.id)
+      .map((c) => ({ id: c.id, title: c.title || '(chưa đặt tên)', updatedAt: c.updatedAt || 0, count: c.messages?.length || 0 }))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+  } catch { return [] }
+}
+function loadConv(id: string): Conversation | null { return readJSON<Conversation | null>(convFile(id), null) }
+function freshConv(): Conversation { return { id: newConvId(), title: 'Hội thoại mới', sessionId: null, messages: [], createdAt: Date.now(), updatedAt: Date.now() } }
+let chat: Conversation = (() => {
+  // migrate chat.json cũ → hội thoại đầu (1 lần)
+  if (!listConversations().length) {
+    const legacy = readJSON<{ sessionId: string | null; messages: ChatMsg[] } | null>(CHAT_FILE, null)
+    if (legacy?.messages?.length) {
+      const c: Conversation = { id: newConvId(), title: deriveTitle(legacy.messages), sessionId: legacy.sessionId, messages: legacy.messages, createdAt: Date.now(), updatedAt: Date.now() }
+      writeJSON(convFile(c.id), c)
+    }
+  }
+  const curId = readJSON<{ id?: string }>(CUR_FILE, {}).id
+  if (curId) { const c = loadConv(curId); if (c) return c }
+  const list = listConversations()
+  if (list.length) { const c = loadConv(list[0].id); if (c) return c }
+  const c = freshConv(); writeJSON(convFile(c.id), c); return c
+})()
+const setCurrent = (c: Conversation) => { chat = c; writeJSON(CUR_FILE, { id: c.id }) }
+const saveChat = () => {
+  if (chat.messages.length > 400) chat.messages = chat.messages.slice(-400)
+  chat.updatedAt = Date.now()
+  if ((!chat.title || chat.title === 'Hội thoại mới') && chat.messages.length) chat.title = deriveTitle(chat.messages)
+  writeJSON(convFile(chat.id), chat)
+}
 
 function runClaude(prompt: string, sessionId: string | null, model: string): Promise<{ sid: string | null; text: string }> {
   const args = ['-p', prompt, '--output-format', 'json', '--permission-mode', 'bypassPermissions', '--model', model]
@@ -109,35 +158,65 @@ function runClaude(prompt: string, sessionId: string | null, model: string): Pro
   })
 }
 
-// Phase D (D1+D3): claude -p stream-json → gọi onEvent({delta|thinking}) khi có chữ. Trả {sid, text, thinking}.
-function streamClaude(prompt: string, sessionId: string | null, model: string,
-                      onEvent: (e: { type: 'delta' | 'thinking'; text: string }) => void): Promise<{ sid: string | null; text: string; thinking: string }> {
-  const args = ['-p', prompt, '--output-format', 'stream-json', '--include-partial-messages', '--verbose',
-                '--permission-mode', 'bypassPermissions', '--model', model]
-  if (fs.existsSync(PERSONA)) args.push('--append-system-prompt-file', PERSONA)
-  if (fs.existsSync(VAULT)) args.push('--add-dir', VAULT)
-  if (sessionId) args.push('--resume', sessionId)
-  return new Promise((resolve) => {
-    const child = spawn(CLAUDE, args, { cwd: WORKDIR, env: { ...process.env, IS_SANDBOX: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
-    let buf = '', answer = '', thinking = '', sid: string | null = null, finalResult: string | null = null
-    const timer = setTimeout(() => child.kill(), TIMEOUT)
-    child.stdout.on('data', (d) => {
-      buf += d
-      let nl: number
-      while ((nl = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1)
-        if (!line) continue
-        let j: any; try { j = JSON.parse(line) } catch { continue }
-        if (j.type === 'stream_event' && j.event?.type === 'content_block_delta') {
-          const dl = j.event.delta || {}
-          if (dl.type === 'text_delta' && dl.text) { answer += dl.text; onEvent({ type: 'delta', text: dl.text }) }
-          else if (dl.type === 'thinking_delta' && dl.thinking) { thinking += dl.thinking; onEvent({ type: 'thinking', text: dl.thinking }) }
-        } else if (j.type === 'result') { sid = j.session_id || null; finalResult = j.result ?? null }
+// Phase D (D1+D3): claude -p stream-json → gọi onEvent khi có chữ/thinking/tool. Trả {sid, text, thinking}.
+type StreamEvt = { type: 'delta' | 'thinking' | 'tool_use' | 'tool_result' | 'usage'; text?: string; name?: string; input?: string; id?: string; inTok?: number; cacheTok?: number; outTok?: number }
+// gọn nội dung tool_result (string | mảng block) thành text ngắn để hiện UI
+function toolResultText(content: any): string {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) return content.map((b) => (typeof b === 'string' ? b : b?.text ?? '')).join('\n')
+  return ''
+}
+// Đường B (Claude Agent SDK): query() in-process thay spawn. Cùng shape message (stream_event/assistant/user/result)
+// → giữ y logic emit event. Dùng auth subscription như CLI. abort sau TIMEOUT.
+async function streamClaude(prompt: string, sessionId: string | null, model: string,
+                            onEvent: (e: StreamEvt) => void): Promise<{ sid: string | null; text: string; thinking: string }> {
+  let answer = '', thinking = '', sid: string | null = null, finalResult: string | null = null
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), TIMEOUT)
+  const appendSys = fs.existsSync(PERSONA) ? fs.readFileSync(PERSONA, 'utf8') : undefined
+  const dirs = fs.existsSync(VAULT) ? [VAULT] : undefined
+  try {
+    const q = query({
+      prompt,
+      options: {
+        model, permissionMode: 'bypassPermissions', cwd: WORKDIR, includePartialMessages: true,
+        ...(appendSys ? { appendSystemPrompt: appendSys } : {}),
+        ...(dirs ? { additionalDirectories: dirs } : {}),
+        ...(sessionId ? { resume: sessionId } : {}),
+        env: { ...process.env, IS_SANDBOX: '1' },
+        abortController: ac,
+        mcpServers: { 'lucy-experts': expertMcpServer },  // K2 consult_expert inline (#3 minh bạch)
+      },
+    } as any)
+    for await (const m of q as any) {
+      if (m.type === 'stream_event' && m.event?.type === 'content_block_delta') {
+        const dl = m.event.delta || {}
+        if (dl.type === 'text_delta' && dl.text) { answer += dl.text; onEvent({ type: 'delta', text: dl.text }) }
+        else if (dl.type === 'thinking_delta' && dl.thinking) { thinking += dl.thinking; onEvent({ type: 'thinking', text: dl.thinking }) }
+      } else if (m.type === 'assistant') {
+        for (const b of m.message?.content || []) {
+          if (b?.type === 'tool_use') onEvent({ type: 'tool_use', name: b.name, input: JSON.stringify(b.input ?? {}).slice(0, 600), id: b.id })
+        }
+      } else if (m.type === 'user') {
+        for (const b of m.message?.content || []) {
+          if (b?.type === 'tool_result') onEvent({ type: 'tool_result', id: b.tool_use_id, text: toolResultText(b.content).slice(0, 800) })
+        }
+      } else if (m.type === 'result') {
+        sid = m.session_id || sid; finalResult = m.result ?? null
+        // E3: đo prompt-cache + context dùng — cho Hub HIỆN badge "cache X% · ctx Ytok"
+        const u = m.usage || {}
+        const inTok = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+        onEvent({ type: 'usage', inTok, cacheTok: u.cache_read_input_tokens ?? 0, outTok: u.output_tokens ?? 0 })
+        reportTok(inTok, u.output_tokens ?? 0)   // B1: claude-path → token-guard CHUNG (parity bridge)
       }
-    })
-    child.on('error', (e) => { clearTimeout(timer); resolve({ sid: null, text: answer || `❌ spawn lỗi: ${String(e).slice(0, 300)}`, thinking }) })
-    child.on('close', () => { clearTimeout(timer); resolve({ sid, text: finalResult ?? answer ?? '(rỗng)', thinking }) })
-  })
+      else if (m.type === 'system' && m.session_id && !sid) sid = m.session_id
+    }
+  } catch (e) {
+    clearTimeout(timer)
+    return { sid, text: answer || `❌ SDK lỗi: ${String((e as any)?.message || e).slice(0, 300)}`, thinking }
+  }
+  clearTimeout(timer)
+  return { sid, text: finalResult ?? answer ?? '(rỗng)', thinking }
 }
 
 const app = express()
@@ -225,12 +304,41 @@ app.post('/api/send', (req, res) => {
 
 app.get('/api/chat', (req, res) => {
   if (!authed(req)) return res.status(401).json({ error: 'unauth' })
-  res.json({ messages: chat.messages.slice(-200) })
+  res.json({ messages: chat.messages.slice(-200), id: chat.id, title: chat.title })
 })
 app.post('/api/chat/new', (req, res) => {
   if (!authed(req)) return res.status(401).json({ error: 'unauth' })
-  chat = { sessionId: null, messages: [] }; saveChat(); logEvent('info', 'chat', 'phiên chat mới')
+  const c = freshConv(); writeJSON(convFile(c.id), c); setCurrent(c); logEvent('info', 'chat', 'hội thoại mới')
+  res.json({ ok: true, id: c.id })
+})
+// Phase J: quản nhiều hội thoại
+app.get('/api/chats', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  res.json({ chats: listConversations(), currentId: chat.id })
+})
+app.post('/api/chats/switch', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  const c = loadConv(String(req.body?.id || '')); if (!c) return res.status(404).json({ error: 'nochat' })
+  setCurrent(c); res.json({ ok: true, id: c.id, messages: c.messages.slice(-200), title: c.title })
+})
+app.post('/api/chats/rename', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  const id = String(req.body?.id || ''); const title = String(req.body?.title || '').trim().slice(0, 80)
+  const c = loadConv(id); if (!c || !title) return res.status(400).json({ error: 'bad' })
+  c.title = title; c.updatedAt = Date.now(); writeJSON(convFile(c.id), c)
+  if (chat.id === c.id) chat.title = title
   res.json({ ok: true })
+})
+app.post('/api/chats/delete', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  const id = String(req.body?.id || '')
+  try { fs.unlinkSync(convFile(id)) } catch { /* đã mất */ }
+  if (chat.id === id) { // xoá hội thoại đang mở → chuyển sang mới nhất / tạo mới
+    const list = listConversations()
+    const next = list.length ? loadConv(list[0].id) : null
+    setCurrent(next || (() => { const c = freshConv(); writeJSON(convFile(c.id), c); return c })())
+  }
+  res.json({ ok: true, currentId: chat.id })
 })
 
 // ---- Aki (Discord) qua radiant-bot control API (HMAC) ----
@@ -503,6 +611,98 @@ async function amFetch(p: string, init?: { method?: string; body?: string }) {
   if (init?.body) headers['content-type'] = 'application/json'
   return fetch(AM_URL + p, { method: init?.method || 'GET', headers, body: init?.body })
 }
+// B1 — token consolidation: cộng token tiêu của MỌI đường hub (claude-path + lane + prompt-architect)
+// vào token-guard CHUNG (NGUỒN DUY NHẤT ở coordinator). Fire-and-forget — không chặn response, lỗi → bỏ qua.
+// Tắt = LUCY_TOKEN_REPORT=0. Coordinator lane KHÔNG tự cộng → đây là chỗ DUY NHẤT cộng lane của hub (hết double-count).
+const TOKEN_REPORT = !['0', 'false', 'off'].includes(String(process.env.LUCY_TOKEN_REPORT ?? '1').trim().toLowerCase())
+function reportTok(inTok?: number, outTok?: number) {
+  if (!TOKEN_REPORT || !amOn()) return
+  const i = Math.max(0, Number(inTok) || 0)
+  const o = Math.max(0, Number(outTok) || 0)
+  if (i <= 0 && o <= 0) return
+  amFetch('/token-guard/add', { method: 'POST', body: JSON.stringify({ inTok: i, outTok: o }) }).catch(() => {})
+}
+// PHASE 0: prefetch recall — tra memory vault (coordinator POST /recall) trước khi gọi claude.
+// Trả khối '🧠 Trí nhớ liên quan' (cap 5 hit / ~800 ký tự) để prepend vào prompt. Tắt = LUCY_RECALL_PREFETCH=0.
+const RECALL_PREFETCH = !['0', 'false', 'off', ''].includes(String(process.env.LUCY_RECALL_PREFETCH ?? '1').trim().toLowerCase())
+async function recallPrefetch(text: string): Promise<string> {
+  if (!RECALL_PREFETCH || !amOn() || !text.trim()) return ''
+  try {
+    const ctl = new AbortController()
+    const t = setTimeout(() => ctl.abort(), 4000)
+    const headers: Record<string, string> = { 'content-type': 'application/json' }
+    if (AM_TOKEN) headers['x-worker-token'] = AM_TOKEN
+    const r = await fetch(AM_URL + '/recall', { method: 'POST', headers, body: JSON.stringify({ q: text.slice(0, 500), limit: 5 }), signal: ctl.signal })
+    clearTimeout(t)
+    const hits = ((await r.json()) as any)?.hits || []
+    let budget = 800
+    const lines: string[] = []
+    for (const h of hits.slice(0, 5)) {
+      const title = String(h.title || h.file_path || '').trim()
+      const snip = String(h.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 200)
+      const item = snip ? `- ${title}: ${snip}` : `- ${title}`
+      if (budget - item.length < 0) break
+      budget -= item.length
+      lines.push(item)
+    }
+    if (!lines.length) return ''
+    return '🧠 Trí nhớ liên quan (tra tự động từ vault — dùng nếu hữu ích, bỏ qua nếu lạc đề):\n' + lines.join('\n') + '\n\n'
+  } catch { return '' }
+}
+// PHASE 2: episodic — ghi turn hội thoại Hub vào memory.db (coordinator POST /episodic), fire-and-forget.
+// Tắt = LUCY_EPISODIC=0. Lỗi/coordinator off → bỏ qua (không chặn chat).
+const EPISODIC = !['0', 'false', 'off', ''].includes(String(process.env.LUCY_EPISODIC ?? '1').trim().toLowerCase())
+function episodicLog(role: string, content: string, sessionId?: string | null) {
+  if (!EPISODIC || !amOn() || !content || !content.trim()) return
+  const safe = scrubSecrets(content)   // BẢO MẬT: giấu key/token trước khi lưu turn
+  amFetch('/episodic', { method: 'POST', body: JSON.stringify({ source: 'hub', chat_id: 'hub', role, content: safe.slice(0, 8000), session_id: sessionId || '' }) }).catch(() => { /* fire-and-forget */ })
+}
+// BẢO MẬT: scrub secret khỏi text trước khi ghi episodic turn (mirror redact.ts/scrub_secrets bridge).
+const SECRET_RULES: { re: RegExp; repl: string }[] = [
+  { re: /\bBearer\s+[A-Za-z0-9._\-]{8,}/gi, repl: 'Bearer [REDACTED]' },
+  { re: /\b(?:sk|rk|pk)-[A-Za-z0-9_\-]{16,}/g, repl: '[REDACTED]' },
+  { re: /\bjina_[A-Za-z0-9]{16,}/g, repl: '[REDACTED]' },
+  { re: /\b(?:ghp|gho|ghs|ghr|github_pat)_[A-Za-z0-9_]{16,}/g, repl: '[REDACTED]' },
+  { re: /\bxox[baprs]-[A-Za-z0-9-]{10,}/g, repl: '[REDACTED]' },
+  { re: /\bAKIA[0-9A-Z]{16}\b/g, repl: '[REDACTED]' },
+  { re: /\b([A-Za-z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD|PASSWD|ACCESS[_-]?KEY))\s*[=:]\s*\S+/gi, repl: '$1=[REDACTED]' },
+]
+function scrubSecrets(text: string): string {
+  if (!text) return text
+  let s = text
+  for (const { re, repl } of SECRET_RULES) s = s.replace(re, repl)
+  s = s.replace(/[A-Za-z0-9+/_\-]{40,}={0,2}/g, (m) => {
+    const hasB64 = /[+/=]/.test(m), hasUpper = /[A-Z]/.test(m), hasLower = /[a-z]/.test(m), hasDigit = /[0-9]/.test(m)
+    return hasB64 || (hasUpper && hasLower && hasDigit) ? '[REDACTED]' : m
+  })
+  return s
+}
+// K2 consult_expert MCP server in-process cho claude-path (#3 minh bạch: tool_use event hiện card UI).
+// Handler gọi coordinator /consult-expert khi Claude chọn dùng tool này.
+const expertMcpServer = createSdkMcpServer({
+  name: 'lucy-experts',
+  alwaysLoad: true,
+  instructions: 'Gọi consult_expert khi cần góc chuyên sâu từ expert persona (finance·marketing·researcher·designer·data·architect·engineer·security·investigator·devops·tester·writer).',
+  tools: [{
+    name: 'consult_expert',
+    description: 'Hỏi 1 EXPERT chuyên lĩnh vực rồi dệt góc nhìn đó vào câu trả lời. Dùng khi cần chuyên sâu ngoài thế mạnh của mình.',
+    inputSchema: {
+      persona: z.string().describe('id expert: finance(tài chính) | marketing | researcher | designer(UI/UX) | data | architect | engineer | security(audit) | investigator(root-cause/debug) | devops(deploy/CI) | tester(QA) | writer(docs)'),
+      question: z.string().describe('câu hỏi/yêu cầu cụ thể cho expert'),
+    },
+    handler: async ({ persona, question }: { persona: string; question: string }) => {
+      try {
+        if (!AM_URL) return { content: [{ type: 'text' as const, text: 'coordinator chưa cấu hình (AM_COORD_URL) — consult không khả dụng' }] }
+        const r = await amFetch('/consult-expert', { method: 'POST', body: JSON.stringify({ persona, question }) })
+        const d = await r.json() as any
+        return { content: [{ type: 'text' as const, text: d.answer || d.error || '(rỗng)' }] }
+      } catch (e) {
+        return { content: [{ type: 'text' as const, text: 'consult lỗi: ' + String(e).slice(0, 200) }], isError: true }
+      }
+    },
+  }],
+} as any)
+
 app.get('/api/metrics', async (req, res) => {
   if (!authed(req)) return res.status(401).json({ error: 'unauth' })
   if (!amOn()) return res.json({ configured: false, tokenDay: 0, tokenMonth: 0, costDay: 0, costMonth: 0, costByModel: [], costByAgent: [], costByCard: [], cardsRunning: 0, cardsWaiting: 0, cardsTotal: 0, providers: [], alerts: [] })
@@ -534,10 +734,99 @@ app.get('/api/llm/guard', async (req, res) => {
   try { const r = await amFetch('/llm/guard'); res.json({ configured: true, ...(await r.json()) }) }
   catch (e) { res.json({ configured: true, offline: true, guarded: [], quota: {}, error: String(e).slice(0, 120) }) }
 })
+// BH-D meta-learning: gửi feedback 👍/👎 cho model → routing tự học; xem bảng outcome đã học.
+app.post('/api/llm/feedback', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!amOn()) return res.json({ ok: false, error: 'coordinator chưa cấu hình' })
+  try { const r = await amFetch('/llm/feedback', { method: 'POST', body: JSON.stringify(req.body || {}) }); res.json(await r.json()) }
+  catch (e) { res.json({ ok: false, error: String(e).slice(0, 120) }) }
+})
+app.get('/api/llm/outcomes', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!amOn()) return res.json({ configured: false, stats: [], total: 0 })
+  try { const r = await amFetch('/llm/outcomes'); res.json({ configured: true, ...(await r.json()) }) }
+  catch (e) { res.json({ configured: true, offline: true, stats: [], total: 0, error: String(e).slice(0, 120) }) }
+})
+// K4 persona registry: CRUD expert qua Hub (proxy → coordinator /personas)
+app.get('/api/personas', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!amOn()) return res.json({ configured: false, personas: [] })
+  try { const r = await amFetch('/personas'); res.json({ configured: true, ...(await r.json()) }) }
+  catch (e) { res.json({ configured: true, offline: true, personas: [], error: String(e).slice(0, 120) }) }
+})
+app.post('/api/personas', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!amOn()) return res.status(400).json({ error: 'Agent-Machine chưa cấu hình (AM_COORD_URL)' })
+  try { const r = await amFetch('/personas', { method: 'POST', body: JSON.stringify(req.body || {}) }); res.status(r.status).json(await r.json()) }
+  catch (e) { res.status(502).json({ error: String(e).slice(0, 120) }) }
+})
+app.delete('/api/personas/:id', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!amOn()) return res.status(400).json({ error: 'Agent-Machine chưa cấu hình (AM_COORD_URL)' })
+  try { const r = await amFetch('/personas?id=' + encodeURIComponent(req.params.id), { method: 'DELETE' }); res.status(r.status).json(await r.json()) }
+  catch (e) { res.status(502).json({ error: String(e).slice(0, 120) }) }
+})
+
+// M3.5 persona chat đa lượt + auto-routing (proxy → coordinator). Flag LUCY_PERSONA_CHAT ở coordinator.
+app.post('/api/persona/chat', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!amOn()) return res.status(400).json({ error: 'Agent-Machine chưa cấu hình (AM_COORD_URL)' })
+  try { const r = await amFetch('/persona-chat', { method: 'POST', body: JSON.stringify(req.body || {}) }); res.status(r.status).json(await r.json()) }
+  catch (e) { res.status(502).json({ error: String(e).slice(0, 120) }) }
+})
+app.post('/api/persona/route', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!amOn()) return res.status(400).json({ error: 'Agent-Machine chưa cấu hình (AM_COORD_URL)' })
+  try { const r = await amFetch('/persona-route', { method: 'POST', body: JSON.stringify(req.body || {}) }); res.status(r.status).json(await r.json()) }
+  catch (e) { res.status(502).json({ error: String(e).slice(0, 120) }) }
+})
+
+// T5 MCP "Kết nối": trạng thái server MCP (proxy → coordinator /mcp)
+app.get('/api/mcp', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!amOn()) return res.json({ configured: false, masterOn: false, servers: [] })
+  try { const r = await amFetch('/mcp'); res.json({ configured: true, ...(await r.json()) }) }
+  catch (e) { res.json({ configured: true, offline: true, masterOn: false, servers: [], error: String(e).slice(0, 120) }) }
+})
+
+// T6 Skill "Kỹ năng": active (INDEX) + proposed (_proposed, M3.3) (proxy → coordinator /skills)
+app.get('/api/skills', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!amOn()) return res.json({ configured: false, learnOn: false, active: [], proposed: [] })
+  try { const r = await amFetch('/skills'); res.json({ configured: true, ...(await r.json()) }) }
+  catch (e) { res.json({ configured: true, offline: true, learnOn: false, active: [], proposed: [], error: String(e).slice(0, 120) }) }
+})
 
 // Phase D (D1+D2+D3): chat STREAMING qua SSE. model = claude:sonnet|claude:opus | auto | <lane-key>.
 // claude → stream-json (chữ chạy thật). lane → coordinator /chat-lane (nhanh, trả 1 cục). auto → /route rồi dispatch.
 const LANE_KEYS = new Set<string>()
+const TOOL_LANE_KEYS = new Set<string>()   // M4: lane model hỗ trợ tool-calling → đi đường agentic (có web/file/bash)
+// L2 (Hermes parity): lane model STATELESS → tự gửi persona (system) + LỊCH SỬ hội thoại để nối mạch + giữ persona.
+// L3: compressor — token-aware sliding window thay cap cứng 24 msg.
+const LANE_CTX_TOKENS = 5000   // ngân sách tối ước token
+const LANE_VERBATIM_MIN = 6    // tối thiểu N tin gần nhất giữ nguyên
+function estimateTok(text: string): number { return Math.ceil((text || '').length / 4) }
+function buildLaneMessages(): { role: string; content: string }[] {
+  const sys = fs.existsSync(PERSONA) ? fs.readFileSync(PERSONA, 'utf8') : ''
+   const all = chat.messages
+  if (!all.length) return sys ? [{ role: 'system', content: sys }] : []
+  let budget = LANE_CTX_TOKENS
+  let start = all.length
+  for (let i = all.length - 1; i >= 0; i--) {
+    const tok = estimateTok(all[i].text)
+    if (budget - tok < 0 && all.length - start >= LANE_VERBATIM_MIN) break
+    budget -= tok
+    start = i
+  }
+  const verbatim = all.slice(start).map((m) => ({ role: m.role === 'lucy' ? 'assistant' : 'user', content: m.text }))
+  const older = all.slice(0, start)
+  let sysContent = sys
+  if (older.length > 0) {
+    const lines = older.map((m) => `• [${m.role === 'me' ? 'Chủ nhân' : 'Lucy'}] ${m.text.trim().slice(0, 180)}`).join('\n')
+    sysContent += `\n\n--- Hội thoại trước (${older.length} tin, tóm gọn) ---\n${lines}\n---`
+  }
+  return sysContent ? [{ role: 'system', content: sysContent }, ...verbatim] : verbatim
+}
 app.post('/api/chat/stream', async (req, res) => {
   if (!authed(req)) return res.status(401).json({ error: 'unauth' })
   const prompt = String(req.body?.prompt || '').trim()
@@ -548,12 +837,28 @@ app.post('/api/chat/stream', async (req, res) => {
   let closed = false
   res.on('close', () => { closed = true }) // res (KHÔNG phải req — req 'close' fire ngay sau khi đọc body → chặn nhầm delta)
   // refresh danh sách lane key (1 lần / khi rỗng) để phân biệt lane vs claude
-  if (!LANE_KEYS.size && amOn()) { try { const d = await (await amFetch('/llm/models')).json() as any; for (const m of d.catalog || []) LANE_KEYS.add(m.key) } catch { /* */ } }
+  if (!LANE_KEYS.size && amOn()) {
+    try {
+      const d = await (await amFetch('/llm/models')).json() as any
+      for (const m of d.catalog || []) LANE_KEYS.add(m.key)
+      // M4: model tool-capable = role dùng tool (tool-calling/agentic-code/reasoning/long-context). content/fast-classify → chat thuần.
+      const rt = d.routeTable || {}
+      for (const role of ['tool-calling', 'agentic-code', 'reasoning', 'long-context']) for (const k of (rt[role] || [])) TOOL_LANE_KEYS.add(k)
+    } catch { /* */ }
+  }
+  // đăng ký job nhẹ để chat hiện ở tab Tasks (stream cũng là 1 task đang chạy)
+  const jobId = randomBytes(8).toString('base64url')
+  jobs.set(jobId, { status: 'running', result: null, model, t0: Date.now(), session_id: chat.sessionId, prompt: prompt.slice(0, 120) })
+  const finishJob = (result: string, sid?: string | null) => { const j = jobs.get(jobId); if (j) { j.status = 'done'; j.result = result; j.model = model; if (sid) j.session_id = sid } }
   try {
     chat.messages.push({ role: 'me', text: prompt, t: Date.now() }); saveChat()
+    episodicLog('user', prompt, chat.sessionId)   // PHASE 2: ghi turn người dùng (async)
     // AUTO: router quyết role/model/needsTools
     if (model === 'auto') {
-      if (!amOn()) { model = 'claude:sonnet' }
+      // D7: phiên ĐÃ CÓ context (sessionId) → KHÔNG hạ xuống lane rẻ (lane stateless, mất persona+lịch sử → hỏng mạch).
+      // Chỉ route lane cho câu MỚI/độc lập (chưa có session). Giữ mạch phiên trên claude (có --resume).
+      if (chat.sessionId) { sse({ type: 'route', text: '🧭 auto → claude (giữ mạch phiên đang có)' }); model = 'claude:sonnet' }
+      else if (!amOn()) { model = 'claude:sonnet' }
       else {
         try {
           const dec = await (await amFetch('/route', { method: 'POST', body: JSON.stringify({ brief: prompt }) })).json() as any
@@ -562,32 +867,57 @@ app.post('/api/chat/stream', async (req, res) => {
         } catch { model = 'claude:sonnet' }
       }
     }
-    // LANE: model free/rẻ qua coordinator (chat thuần, không tool) — nhanh, trả 1 cục.
+    // LANE: model free/rẻ qua coordinator. L2 = persona+history. M = tool-capable → AGENTIC (web/file/bash), else chat thuần.
     if (model.startsWith('claude') === false && LANE_KEYS.has(model)) {
       if (!amOn()) { sse({ type: 'error', text: 'coordinator chưa cấu hình' }); return res.end() }
       try {
-        const r = await (await amFetch('/chat-lane', { method: 'POST', body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }] }) })).json() as any
-        if (r?.error) { sse({ type: 'error', text: r.error }) }
-        else {
-          if (r.thinking) sse({ type: 'thinking', text: String(r.thinking).slice(0, 2000) })
-          sse({ type: 'delta', text: r.answer || '(rỗng)' })
-          chat.messages.push({ role: 'lucy', text: r.answer || '(rỗng)', t: Date.now() }); saveChat()
+        if (TOOL_LANE_KEYS.has(model)) {
+          // M: lane agentic — model rẻ tự web_search/web_fetch/read/bash. Trả {answer, trace, usage}.
+          const r = await (await amFetch('/chat-lane-agentic', { method: 'POST', body: JSON.stringify({ model, messages: buildLaneMessages() }) })).json() as any
+          if (r?.error) { sse({ type: 'error', text: r.error }); finishJob('❌ ' + r.error) }
+          else {
+            // #3 minh bạch: hiện tool-card (gửi gì / nhận gì) — khớp UI Section A theo id.
+            (r.trace || []).forEach((t: any, i: number) => {
+              sse({ type: 'tool_use', name: t.name, input: t.input, id: 'lt' + i })
+              sse({ type: 'tool_result', id: 'lt' + i, text: t.result })
+            })
+            if (r.usage) { sse({ type: 'usage', inTok: r.usage.inTok, cacheTok: 0, outTok: r.usage.outTok }); reportTok(r.usage.inTok, r.usage.outTok) }   // B1: lane agentic → token-guard CHUNG
+            sse({ type: 'delta', text: r.answer || '(rỗng)' })
+            chat.messages.push({ role: 'lucy', text: r.answer || '(rỗng)', t: Date.now() }); saveChat()
+            episodicLog('assistant', r.answer || '', chat.sessionId)
+            finishJob(r.answer || '(rỗng)')
+          }
+        } else {
+          const r = await (await amFetch('/chat-lane', { method: 'POST', body: JSON.stringify({ model, messages: buildLaneMessages() }) })).json() as any
+          if (r?.error) { sse({ type: 'error', text: r.error }); finishJob('❌ ' + r.error) }
+          else {
+            if (r.thinking) sse({ type: 'thinking', text: String(r.thinking).slice(0, 2000) })
+            if (r.usage) { sse({ type: 'usage', inTok: r.usage.inTok, cacheTok: 0, outTok: r.usage.outTok }); reportTok(r.usage.inTok, r.usage.outTok) }   // B1: lane chat → token-guard CHUNG
+            sse({ type: 'delta', text: r.answer || '(rỗng)' })
+            chat.messages.push({ role: 'lucy', text: r.answer || '(rỗng)', t: Date.now() }); saveChat()
+            episodicLog('assistant', r.answer || '', chat.sessionId)
+            finishJob(r.answer || '(rỗng)')
+          }
         }
-      } catch (e) { sse({ type: 'error', text: 'lane lỗi: ' + String(e).slice(0, 120) }) }
+      } catch (e) { sse({ type: 'error', text: 'lane lỗi: ' + String(e).slice(0, 120) }); finishJob('❌ lane lỗi') }
       sse({ type: 'done', model }); return res.end()
     }
     // CLAUDE: stream-json (chữ chạy thật) — dùng subscription, giữ session chat.
     const cm = model === 'claude:opus' ? 'opus' : 'sonnet'
-    let out = await streamClaude(prompt, chat.sessionId, cm, (e) => { if (!closed) sse(e) })
+    // PHASE 0: chèn khối memory liên quan vào đầu prompt (lỗi/tắt flag → '' → prompt nguyên gốc).
+    const cprompt = (await recallPrefetch(prompt)) + prompt
+    let out = await streamClaude(cprompt, chat.sessionId, cm, (e) => { if (!closed) sse(e) })
     // resume hỏng (session cũ/khác process → claude trả rỗng) → chạy lại KHÔNG resume (như bridge ClaudeRunner)
     if (chat.sessionId && !out.sid && (!out.text || out.text === '(rỗng)')) {
-      out = await streamClaude(prompt, null, cm, (e) => { if (!closed) sse(e) })
+      out = await streamClaude(cprompt, null, cm, (e) => { if (!closed) sse(e) })
     }
     chat.sessionId = out.sid || chat.sessionId
     chat.messages.push({ role: 'lucy', text: out.text, t: Date.now() }); saveChat()
+    episodicLog('assistant', out.text, chat.sessionId)   // PHASE 2: ghi trả lời claude
+    finishJob(out.text, out.sid)
     sse({ type: 'final', text: out.text, model: cm })
     sse({ type: 'done', model: cm })
-  } catch (e) { sse({ type: 'error', text: String(e).slice(0, 200) }) }
+  } catch (e) { sse({ type: 'error', text: String(e).slice(0, 200) }); finishJob('❌ ' + String(e).slice(0, 200)) }
   res.end()
 })
 app.get('/api/am/config', async (req, res) => {
@@ -616,7 +946,7 @@ for (const [route, fwd] of [['/api/brain/state', '/brain/state'], ['/api/brain/g
     catch (e) { res.json({ configured: true, offline: true, error: String(e).slice(0, 120) }) }
   })
 }
-for (const [route, fwd] of [['/api/brain/reindex', '/brain/reindex'], ['/api/brain/dream', '/brain/dream'], ['/api/brain/evidence', '/brain/evidence'], ['/api/brain/pin', '/brain/pin']] as const) {
+for (const [route, fwd] of [['/api/brain/reindex', '/brain/reindex'], ['/api/brain/dream', '/brain/dream'], ['/api/brain/evidence', '/brain/evidence'], ['/api/brain/pin', '/brain/pin'], ['/api/llm/catalog-refresh', '/llm/catalog-refresh']] as const) {
   app.post(route, async (req, res) => {
     if (!authed(req)) return res.status(401).json({ error: 'unauth' })
     if (!amOn()) return res.status(400).json({ error: 'Agent-Machine chưa cấu hình (AM_COORD_URL)' })
@@ -624,6 +954,79 @@ for (const [route, fwd] of [['/api/brain/reindex', '/brain/reindex'], ['/api/bra
     catch (e) { res.status(502).json({ error: 'coordinator offline: ' + String(e).slice(0, 120) }) }
   })
 }
+
+// ---- PROMPT ARCHITECT (CỤM B, task 3) — flag LUCY_PROMPT_ARCHITECT, MẶC ĐỊNH TẮT ----
+// Bộ não lõi ở agent-machine (cụm A). Hub chỉ: wire flag + stream SSE + đọc store.recent() + nút escalate.
+// KHÔNG EXECUTE: core dùng callLLM thuần (no tool). Tab UI chỉ hiện khi /api/prompts/status → enabled.
+const PA_CHAT_ID = 'hub-prompts'   // 1 luồng lịch sử riêng cho tab Prompts ở Hub (tách khỏi chat tổng)
+
+app.get('/api/prompts/status', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  res.json({ enabled: promptArchitectFlagOn() })
+})
+
+// Lịch sử phiên (store.recent) — đọc trực tiếp sidecar DB cụm A. limit cap ở store (≤50).
+app.get('/api/prompts/history', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!promptArchitectFlagOn()) return res.json({ enabled: false, sessions: [] })
+  try {
+    const store = getPromptArchitectStore(VAULT)
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50)
+    const sessions = store ? store.recent({ chatId: PA_CHAT_ID, limit }) : []
+    res.json({ enabled: true, sessions })
+  } catch (e) { res.json({ enabled: true, sessions: [], error: String(e).slice(0, 120) }) }
+})
+
+// Chạy 1 lượt (model RẺ ds-chat). Trả SSE giống chat: delta(answer) → final → done. Core không stream từng chữ
+// (callLLM trả 1 cục) → emit 1 delta. Kèm meta (clarifying/finalPrompt/sessionId) trong sự kiện final.
+app.post('/api/prompts/run', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!promptArchitectFlagOn()) return res.status(403).json({ error: 'Prompt Architect đang TẮT (đặt LUCY_PROMPT_ARCHITECT=1).' })
+  const context = String(req.body?.context || '').trim()
+  if (!context) return res.status(400).json({ error: 'empty' })
+  const targetModel = String(req.body?.targetModel || '').trim() || undefined
+  const variants = Number.isFinite(Number(req.body?.variants)) ? Number(req.body.variants) : undefined  // CỤM C: ≥2 → xuất đa biến thể
+  const history = sanitizeChatHistory(req.body?.history)
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' })
+  const sse = (ev: Record<string, unknown>) => { try { res.write(`data: ${JSON.stringify(ev)}\n\n`) } catch { /* client ngắt */ } }
+  try {
+    const r = await runPromptArchitect(context, { history, targetModel, variants, source: 'hub', chatId: PA_CHAT_ID, vaultDir: VAULT })
+    if (r.usage) reportTok(r.usage.inTok, r.usage.outTok)   // B1: prompt-architect lane → token-guard CHUNG
+    if (r.rateLimit) sse({ type: 'route', text: `⏸️ rate-limit (~${Math.round(r.rateLimit.retryAfterMs / 1000)}s)` })
+    sse({ type: 'delta', text: r.answer })
+    sse({ type: 'final', text: r.answer, clarifying: r.clarifying, finalPrompt: r.finalPrompt, sessionId: r.sessionId, laneModel: r.laneModel, escalated: r.escalated, scorecard: r.scorecard, variants: r.variants, preferenceApplied: r.preferenceApplied })
+    sse({ type: 'done', model: r.laneModel })
+    logEvent('info', 'prompt-architect', `▶ run ${r.laneModel}${r.clarifying ? ' (hỏi làm-rõ)' : ''}: ${context.slice(0, 60)}`)
+  } catch (e) { sse({ type: 'error', text: String(e).slice(0, 200) }) }
+  res.end()
+})
+
+// Escalate 1 phiên khó bằng Claude (model mạnh) — trả JSON (1 cục, qua SDK query 1-shot).
+app.post('/api/prompts/escalate', async (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!promptArchitectFlagOn()) return res.status(403).json({ error: 'Prompt Architect đang TẮT (đặt LUCY_PROMPT_ARCHITECT=1).' })
+  const context = String(req.body?.context || '').trim()
+  if (!context) return res.status(400).json({ error: 'empty' })
+  const targetModel = String(req.body?.targetModel || '').trim() || undefined
+  const history = sanitizeChatHistory(req.body?.history)
+  const sessionId = Number.isFinite(Number(req.body?.sessionId)) ? Number(req.body.sessionId) : undefined
+  try {
+    logEvent('info', 'prompt-architect', `⬆ escalate Claude: ${context.slice(0, 60)}`)
+    const r = await escalatePromptArchitect(context, { history, targetModel, source: 'hub', chatId: PA_CHAT_ID, sessionId, vaultDir: VAULT })
+    res.json({ answer: r.answer, clarifying: r.clarifying, finalPrompt: r.finalPrompt, sessionId: r.sessionId, laneModel: r.laneModel, escalated: r.escalated, scorecard: r.scorecard })
+  } catch (e) { res.status(502).json({ error: String(e).slice(0, 200) }) }
+})
+
+// Ghi bản EDIT của chủ nhân lên 1 phiên (rewrite-then-edit).
+app.post('/api/prompts/edit', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  if (!promptArchitectFlagOn()) return res.status(403).json({ error: 'Prompt Architect đang TẮT.' })
+  const sessionId = Number(req.body?.sessionId)
+  const edit = String(req.body?.edit || '')
+  if (!Number.isFinite(sessionId) || !edit.trim()) return res.status(400).json({ error: 'cần sessionId + edit' })
+  const ok = recordUserEdit(sessionId, edit, VAULT)
+  res.json({ ok })
+})
 
 // serve React build (đặt CUỐI để /api ưu tiên)
 if (fs.existsSync(DIST)) {
