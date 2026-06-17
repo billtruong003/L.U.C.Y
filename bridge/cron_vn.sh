@@ -111,7 +111,7 @@ Ví dụ: @@DATA VNINDEX=1281 VN30=1357 HNX=234 DXY=105.5 DONG=25450" \
   < /dev/null > "$RES" 2>/dev/null || true
 
 # B1: cộng token vòng claude -p vào token-guard CHUNG (fire-and-forget, không gãy cron)
-python3 "$(dirname "$0")/report_tok.py" "$RES" 2>/dev/null || true
+python3 "$(dirname "$0")/report_tok.py" "$RES" "vn" opus 2>/dev/null || true
 
 # 2. Tách full report + bản gọn Telegram
 python3 -c "

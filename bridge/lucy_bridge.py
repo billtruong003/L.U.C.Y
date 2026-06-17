@@ -275,19 +275,21 @@ def _sdk_usage(m):
     return u if isinstance(u, dict) else None
 
 
-def _report_tok(in_tok, out_tok, cost_usd=0.0):
-    """Lõi: cộng (in_tok,out_tok) đã chuẩn hoá vào token-guard CHUNG + counter cục bộ. Fire-and-forget."""
+def _report_tok(in_tok, out_tok, cost_usd=0.0, cache_read=0, cache_write=0, source="bridge", model="unknown"):
+    """Lõi: ghi 1 lượt đốt token. DASH-FIX S2: gửi /spend đủ trường (source+model+cache tách). Fire-and-forget + counter cục bộ."""
     if not TOKEN_REPORT:
         return
     in_tok = max(0, int(in_tok or 0))
     out_tok = max(0, int(out_tok or 0))
-    if in_tok <= 0 and out_tok <= 0:
+    cache_read = max(0, int(cache_read or 0))
+    cache_write = max(0, int(cache_write or 0))
+    if in_tok <= 0 and out_tok <= 0 and cache_read <= 0 and cache_write <= 0:
         return
-    # đếm cục bộ theo ngày (xem riêng phần Telegram qua /token)
+    # đếm cục bộ theo ngày (xem riêng phần Telegram qua /token) — inTok GỘP cache để hiện tổng đốt như cũ
     try:
         with _TG_TOK_LOCK:
             d = _load_tg_tokens()
-            d["inTok"] += in_tok
+            d["inTok"] += in_tok + cache_read + cache_write
             d["outTok"] += out_tok
             d["costUsd"] = round(d.get("costUsd", 0.0) + float(cost_usd or 0.0), 6)
             d["turns"] += 1
@@ -295,28 +297,29 @@ def _report_tok(in_tok, out_tok, cost_usd=0.0):
     except Exception:
         pass
 
-    # token-guard CHUNG (NGUỒN DUY NHẤT) — fire-and-forget
+    # ledger CHUNG (NGUỒN DUY NHẤT) qua /spend — fire-and-forget
     def _send():
         try:
             headers = {"x-worker-token": COORD_TOK} if COORD_TOK else {}
-            requests.post(f"{COORD_URL}/token-guard/add",
-                          json={"inTok": in_tok, "outTok": out_tok},
+            requests.post(f"{COORD_URL}/spend",
+                          json={"source": source, "model": model, "inTok": in_tok, "outTok": out_tok,
+                                "cacheReadTok": cache_read, "cacheWriteTok": cache_write},
                           headers=headers, timeout=4)
         except Exception:
             pass
     threading.Thread(target=_send, daemon=True).start()
 
 
-def report_tokens(usage, cost_usd=0.0):
+def report_tokens(usage, cost_usd=0.0, model=None):
     """PT: report token 1 lượt claude-path. usage = dict kiểu Anthropic (input_tokens/output_tokens/cache_*).
-    Parity hub: inTok gồm cả cache_read+cache_creation. Tắt flag/None → bỏ qua."""
+    DASH-FIX S2: tách input 'tươi' + cache read/write riêng; source='bridge', model = LAST_MODEL (model thật)."""
     if not usage:
         return
     u = usage or {}
-    in_tok = (int(u.get("input_tokens", 0) or 0)
-              + int(u.get("cache_read_input_tokens", 0) or 0)
-              + int(u.get("cache_creation_input_tokens", 0) or 0))
-    _report_tok(in_tok, int(u.get("output_tokens", 0) or 0), cost_usd)
+    _report_tok(int(u.get("input_tokens", 0) or 0), int(u.get("output_tokens", 0) or 0), cost_usd,
+                cache_read=int(u.get("cache_read_input_tokens", 0) or 0),
+                cache_write=int(u.get("cache_creation_input_tokens", 0) or 0),
+                source="bridge", model=model or LAST_MODEL or "unknown")
 
 
 def _catalog_keys():
@@ -376,7 +379,7 @@ def run_lane(prompt, model_key, chat_id=None, persona_id=None):
         return None, f"❌ lane lỗi: {data['error']}", None
     answer = data.get("answer") or "(rỗng)"
     lu = data.get("usage") or {}   # PT: lane trả {inTok,outTok} đã gộp (coordinator KHÔNG tự cộng token-guard → an toàn)
-    _report_tok(lu.get("inTok"), lu.get("outTok"))
+    _report_tok(lu.get("inTok"), lu.get("outTok"), source="lane", model=data.get("model") or model_key)  # DASH-FIX S2
     # Lưu history (chỉ user+assistant text, không tool_calls)
     if hkey is not None:
         history = history + [

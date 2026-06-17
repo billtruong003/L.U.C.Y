@@ -100,7 +100,7 @@ Xưng em, gọi chủ nhân. TUYỆT ĐỐI KHÔNG bịa số — không lấy �
   < /dev/null > "$RES" 2>/dev/null || true
 
 # B1: cộng token vòng claude -p vào token-guard CHUNG (fire-and-forget, không gãy cron)
-python3 "$(dirname "$0")/report_tok.py" "$RES" 2>/dev/null || true
+python3 "$(dirname "$0")/report_tok.py" "$RES" "brief" opus 2>/dev/null || true
 
 # 2. Tách full report (ghi MD) + bản gọn Telegram (bỏ bảng) — KHÔNG phụ thuộc model tự ghi file
 python3 -c "

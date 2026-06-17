@@ -23,6 +23,8 @@ import { personaChat, personaRoute, personaChatFlagOn, sanitizeHistory } from '.
 import { mcpRegistryOverview } from './mcp-registry'
 import { skillsOverview } from './skill-loader'
 import { runPromptArchitect, promptArchitectFlagOn } from './prompt-architect'
+import { usdFor } from './pricing'
+import type { LedgerSource } from './types'
 
 function serializeJob(j: JobSpec) {
   // worker không cần workspace của coordinator — nó tự tạo workspace local.
@@ -118,11 +120,26 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       if (req.method === 'POST' && url === '/answer') { const b = await readBody(req); engine.answer(b.cardId, b.text || '', b.actor); return send(200, { ok: true }) }
       // ── TOKEN GUARD: trạng thái token/ngày (soft → hạ executor, hard → dừng) ──
       if (url === '/token-guard/reset') { if (req.method === 'POST') { engine.tokenGuard?.resetDay(); return send(200, { ok: true }) } }
-      // Nạp token vào NGUỒN DUY NHẤT (engine.tokenGuard). Autopilot gọi đây thay vì tự đếm → hết double-count/stale.
+      // ── DASH-FIX S1/S3: POST /spend = ĐƯỜNG GHI ĐỦ TRƯỜNG. Coordinator tính usd 1 chỗ (1 nguồn giá), python/hub chỉ gửi token.
+      // body: {ts?, source, model, inTok, outTok, cacheReadTok?, cacheWriteTok?(hoặc cacheTok), usd?(worker tự trả)}.
+      if (req.method === 'POST' && url === '/spend') {
+        const b = await readBody(req)
+        const sane = (v: unknown): number => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : 0 }
+        const SOURCES: LedgerSource[] = ['worker', 'autobuild', 'bridge', 'hub', 'lane', 'cron', 'unknown']
+        const source = SOURCES.includes(b.source) ? (b.source as LedgerSource) : 'unknown'
+        const model = String(b.model || 'unknown')
+        const inTok = sane(b.inTok), outTok = sane(b.outTok)
+        const cacheRead = sane(b.cacheReadTok ?? b.cacheTok), cacheWrite = sane(b.cacheWriteTok)
+        let usd = Number(b.usd)
+        if (!Number.isFinite(usd) || usd < 0) usd = usdFor(model, { inTok, outTok, cacheReadTok: cacheRead, cacheWriteTok: cacheWrite })
+        engine.recordSpend({ ts: Number(b.ts) || undefined, source, model, inTok, outTok, cacheTok: cacheRead + cacheWrite, usd, cardId: b.cardId ? String(b.cardId) : undefined, stage: b.stage ? String(b.stage) : undefined, persona: b.persona ? String(b.persona) : undefined })
+        return send(200, { ok: true, usd, status: engine.tokenGuardStatus() })
+      }
+      // /token-guard/add = ALIAS cũ (chưa kịp migrate sang /spend) → recordSpend source='unknown', model='unknown' (usd=0, không attribution).
       if (req.method === 'POST' && url === '/token-guard/add') {
         const b = await readBody(req)
         const sane = (v: unknown): number => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : 0 }
-        engine.tokenGuard?.addTokens(sane(b.inTok), sane(b.outTok))
+        engine.recordSpend({ source: 'unknown', model: 'unknown', inTok: sane(b.inTok), outTok: sane(b.outTok), cacheTok: 0, usd: 0 })
         return send(200, { ok: true, status: engine.tokenGuardStatus() })
       }
       if (url === '/token-guard') { return send(200, engine.tokenGuardStatus()) }
@@ -192,7 +209,8 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
         const targetModel = b.targetModel ? String(b.targetModel).trim() : undefined
         try {
           const r = await runPromptArchitect(context, { targetModel, source: 'bridge', chatId: String(b.chatId || 'bridge-prompt'), vaultDir })
-          if (r.usage) engine.tokenGuard?.addTokens(r.usage.inTok, r.usage.outTok)   // B1: token thật → token-guard CHUNG
+          // DASH-FIX S1: prompt-architect lane → recordSpend (source='lane', model thật) → ledger + usd. Thay addTokens cũ.
+          if (r.usage) engine.recordSpend({ source: 'lane', model: r.laneModel || 'unknown', inTok: r.usage.inTok, outTok: r.usage.outTok, cacheTok: 0 })
           return send(200, { ok: true, answer: r.answer, clarifying: r.clarifying, finalPrompt: r.finalPrompt, laneModel: r.laneModel, scorecard: r.scorecard })
         } catch (e) { return send(502, { error: String(e instanceof Error ? e.message : e) }) }
       }

@@ -65,19 +65,20 @@ def _coord_creds():
     return url.rstrip("/"), tok
 
 def report_tok(usage):
-    """usage = dict kiểu Anthropic (input_tokens/output_tokens/cache_*). inTok gồm cache (parity hub/bridge)."""
+    """usage = dict kiểu Anthropic. DASH-FIX S2: gửi /spend đủ trường — inTok 'tươi' + cache tách read/write, source='autobuild', model='opus'."""
     if not _TOKEN_REPORT or not isinstance(usage, dict): return
-    in_tok = (int(usage.get("input_tokens", 0) or 0)
-              + int(usage.get("cache_read_input_tokens", 0) or 0)
-              + int(usage.get("cache_creation_input_tokens", 0) or 0))
+    in_tok = int(usage.get("input_tokens", 0) or 0)
+    cache_read = int(usage.get("cache_read_input_tokens", 0) or 0)
+    cache_write = int(usage.get("cache_creation_input_tokens", 0) or 0)
     out_tok = int(usage.get("output_tokens", 0) or 0)
-    if in_tok <= 0 and out_tok <= 0: return
+    if in_tok <= 0 and out_tok <= 0 and cache_read <= 0 and cache_write <= 0: return
     def _send():
         try:
             import urllib.request, json as _json
             url, tok = _coord_creds()
-            req = urllib.request.Request(f"{url}/token-guard/add",
-                data=_json.dumps({"inTok": in_tok, "outTok": out_tok}).encode(),
+            req = urllib.request.Request(f"{url}/spend",
+                data=_json.dumps({"source": "autobuild", "model": "opus", "inTok": in_tok, "outTok": out_tok,
+                                  "cacheReadTok": cache_read, "cacheWriteTok": cache_write}).encode(),
                 headers={"content-type": "application/json", **({"x-worker-token": tok} if tok else {})})
             urllib.request.urlopen(req, timeout=4)
         except Exception: pass

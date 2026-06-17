@@ -13,7 +13,7 @@ import { writeSessionNoteSafe } from './session-note'
 import { proposeSkillFrom, skillLearnFlagOn } from './skill-learn'
 import { slug } from './vault'
 import type { Runner } from './runner'
-import type { Card, Stage, Persona, Project, Pipeline, RunResult } from './types'
+import type { Card, Stage, Persona, Project, Pipeline, RunResult, LedgerEntry, LedgerSource } from './types'
 import { TokenGuard, type TokenGuardStatus } from './token-guard'
 import { notifyRateLimitParked } from './notify'
 import { triageCard } from './triage'
@@ -309,6 +309,38 @@ export class Engine {
     return { configured: true, status: this.tokenGuard.check() }
   }
 
+  // ── DASH-FIX S1: recordSpend = 1 NGUỒN ghi token. Mọi đường (worker + /spend) qua đây → ledger.
+  // token-guard.used dẫn xuất Σ ledger hôm nay (wire ở coordinator-main) → hết double-count, attribution đủ.
+  private _usedCache: { day: string; sum: number } | null = null
+  recordSpend(e: {
+    ts?: number; source: LedgerSource; model?: string
+    inTok?: number; cacheTok?: number; outTok?: number; usd?: number
+    cardId?: string; stage?: string; persona?: string
+  }): void {
+    const sane = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : 0 }
+    const entry: LedgerEntry = {
+      ts: Number.isFinite(e.ts) ? Number(e.ts) : Date.now(),
+      cardId: e.cardId || '-', stage: e.stage || '-', persona: e.persona || e.source,
+      source: e.source, model: e.model || 'unknown',
+      inTok: sane(e.inTok), cacheTok: sane(e.cacheTok), outTok: sane(e.outTok),
+      usd: sane(e.usd),
+    }
+    this.store.appendLedger(entry)
+    this._usedCache = null // invalidate → used() đọc lại tươi ngay lượt sau
+  }
+
+  /** Σ token (in+cache+out) các entry ledger thuộc "hôm nay" (UTC — Round 3 đổi VN). Cache 1 ngày, recordSpend xoá. */
+  ledgerUsedToday(): number {
+    const day = new Date().toISOString().slice(0, 10)
+    if (this._usedCache && this._usedCache.day === day) return this._usedCache.sum
+    let sum = 0
+    for (const e of this.store.readLedger()) {
+      if (new Date(e.ts).toISOString().slice(0, 10) === day) sum += (e.inTok || 0) + (e.cacheTok || 0) + (e.outTok || 0)
+    }
+    this._usedCache = { day, sum }
+    return sum
+  }
+
   // crash recovery: card 'working' (đã dispatch nhưng mất kết quả khi restart) -> queued lại.
   // Cards persist trong store; status là source-of-truth -> gate/blocked/done resume tự nhiên sau restart.
   recover(): number {
@@ -484,9 +516,10 @@ export class Engine {
 
     c.cost.usd += result.cost.usd; c.cost.inTok += result.cost.inTok; c.cost.outTok += result.cost.outTok
     this.budget.add(result.cost)
-    // GAP#1: cộng token vào counter NGÀY — thiếu dòng này used()=0 mãi → token-guard không bao giờ kích hoạt
-    this.tokenGuard?.addTokens(result.cost.inTok, result.cost.outTok)
-    this.store.appendLedger({ ts: Date.now(), cardId: c.id, stage: stage.id, persona: persona.id, ...result.cost })
+    // DASH-FIX S1: 1 ĐƯỜNG GHI — recordSpend → ledger; token-guard.used dẫn xuất Σ ledger (BỎ addTokens riêng = hết double-count).
+    // model resolve như metrics.ts (persona.model + card override) để "Nguồn đốt"/costByModel khớp. usd = SDK trả. Worker chưa tách cache → cacheTok 0.
+    const wModel = (!c.modelOverride || c.modelOverride === 'laneModel') ? persona.model : (persona.model === 'opus' ? 'opus' : c.modelOverride)
+    this.recordSpend({ source: 'worker', model: wModel, cardId: c.id, stage: stage.id, persona: persona.id, inTok: result.cost.inTok, outTok: result.cost.outTok, cacheTok: 0, usd: result.cost.usd })
     post(this.store, threadOf(c.id), persona.name, 'status', result.outcome.summary, c.id)
     c.history.push({ ts: Date.now(), stage: stage.id, event: result.outcome.decision, detail: result.outcome.summary })
     if (result.artifacts) c.artifacts = { ...result.artifacts, stage: stage.id } // V1: báo cáo đổi gì

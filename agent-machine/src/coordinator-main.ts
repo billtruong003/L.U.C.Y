@@ -9,6 +9,7 @@ import { loadConfig } from './config'
 import { startCoordinator } from './coordinator'
 import { openRecallFromEnv } from './recall'
 import { TokenGuard } from './token-guard'
+import { refreshOpenRouterPrices } from './pricing'
 import fs from 'node:fs'
 
 const PORT = Number(process.env.AM_PORT || 8780)
@@ -38,6 +39,10 @@ const engine = new Engine(store, new MockRunner({}), new Budget({
 // TokenGuard: giới hạn token/ngày (soft → autopilot hạ executor, hard → dừng tạo card)
 const tokenGuard = new TokenGuard(DATA)
 engine.tokenGuard = tokenGuard
+// DASH-FIX S1: used() DẪN XUẤT = Σ ledger hôm nay (1 nguồn, hết double-count) thay vì counter riêng.
+tokenGuard.ledgerSum = () => engine.ledgerUsedToday()
+// DASH-FIX S3: prefetch giá OpenRouter (lane) — best-effort, lỗi/offline giữ hardcode. Không chặn boot.
+refreshOpenRouterPrices().catch(() => {})
 const tgInit = tokenGuard.check()
 
 if (!TOKEN) console.warn('⚠ AM_TOKEN trống — endpoint /worker KHÔNG có auth. Đặt AM_TOKEN cho production.')

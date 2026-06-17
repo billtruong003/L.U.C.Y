@@ -30,6 +30,8 @@ export class TokenGuard {
   private record: TokenDayRecord
   softLimit: number
   hardLimit: number
+  // DASH-FIX S1: nếu set, used() DẪN XUẤT = Σ ledger hôm nay (1 NGUỒN, hết double-count). Không set → fallback counter (smoke/standalone).
+  ledgerSum?: () => number
 
   constructor(dataDir: string) {
     this.file = path.join(dataDir, 'token-day.json')
@@ -72,8 +74,9 @@ export class TokenGuard {
     this.save()
   }
 
-  /** Tổng token đã dùng hôm nay */
+  /** Tổng token đã dùng hôm nay. DASH-FIX S1: ưu tiên Σ ledger (nguồn duy nhất); fallback counter khi không wire. */
   used(): number {
+    if (this.ledgerSum) { try { return Math.max(0, this.ledgerSum()) } catch { /* fallback counter */ } }
     this.ensureFresh()
     return this.record.inTok + this.record.outTok
   }

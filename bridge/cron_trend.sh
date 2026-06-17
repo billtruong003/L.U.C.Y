@@ -84,7 +84,7 @@ X/Twitter trends VN: tìm 'trending Vietnam today' \
   < /dev/null > "$RES" 2>/dev/null || true
 
 # B1: cộng token vòng claude -p vào token-guard CHUNG (fire-and-forget, không gãy cron)
-python3 "$(dirname "$0")/report_tok.py" "$RES" 2>/dev/null || true
+python3 "$(dirname "$0")/report_tok.py" "$RES" "trend" opus 2>/dev/null || true
 
 # 2. Tách full report + bản gọn Telegram
 python3 -c "

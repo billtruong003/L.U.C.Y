@@ -132,8 +132,8 @@ async function main() {
   const s7 = tg7.check()
   check('reset tự động: used=0', s7.used === 0, `(got ${s7.used})`)
 
-  // ── Test 8: end-to-end submit() → addTokens (GAP#1) + claim() downgrade SCOPE executor (GAP#3) ──
-  console.log('\n── Test 8: submit→addTokens + claim downgrade scope ──')
+  // ── Test 8: end-to-end submit() → ledger (DASH-FIX S1: used dẫn xuất Σ ledger) + claim() downgrade SCOPE executor (GAP#3) ──
+  console.log('\n── Test 8: submit→ledger derive + claim downgrade scope ──')
   const e2eDir = tmp('tg-test8')
   const store8 = new Store(e2eDir)
   loadConfig(store8, CONFIG)
@@ -141,6 +141,7 @@ async function main() {
   tg8.setLimits(100_000, 1_000_000) // cao → không chặn; chỉ để đếm token tích lũy qua submit()
   const engine8 = new Engine(store8, new MockRunner({}), new Budget({ windowMs: 3600e3, capUsd: 100 }), { perCardMaxUsd: 100 })
   engine8.tokenGuard = tg8
+  tg8.ledgerSum = () => engine8.ledgerUsedToday() // DASH-FIX S1: used() = Σ ledger hôm nay (như coordinator-main wire)
 
   // GAP#1: chạy card qua engine → mỗi submit() phải cộng token vào guard (trước fix used()=0 mãi)
   const cardE2E = engine8.createCard('E2E token count', 'chạy pipeline', 'course')

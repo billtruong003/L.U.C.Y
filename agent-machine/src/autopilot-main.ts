@@ -48,9 +48,9 @@ async function fetchTokenStatus(): Promise<TokenGuardStatus | null> {
   } catch { return null }
 }
 
-/** Cộng token ước lượng vào NGUỒN DUY NHẤT qua HTTP (thay cho TokenGuard cục bộ). */
+/** Cộng token ước lượng (director "Lucy trực đêm" gọi opus) vào ledger CHUNG qua /spend. DASH-FIX S2: source='lane', model='opus' → có usd + attribution. */
 async function addTokens(inTok: number, outTok: number): Promise<void> {
-  await post('/token-guard/add', { inTok, outTok })
+  await post('/spend', { source: 'lane', model: 'opus', inTok, outTok })
 }
 
 const HARD_USD = Number(process.env.AM_CARD_HARD_USD || 8)

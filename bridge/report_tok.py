@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""report_tok.py — B1 token consolidation cho cron `claude -p`.
+"""report_tok.py — DASH-FIX S2 token consolidation cho cron `claude -p`.
 Đọc file JSON output (`claude -p --output-format json`) → rút usage thật → POST coordinator
-/token-guard/add {inTok,outTok} (NGUỒN DUY NHẤT). inTok gồm cache (parity hub/bridge/auto-build).
+/spend đủ trường (source='cron:<slug>', model, inTok 'tươi' + cache tách read/write).
 Fire-and-forget — lỗi/coordinator off → im lặng exit 0, KHÔNG làm gãy cron. Tắt = LUCY_TOKEN_REPORT=0.
 
-Dùng:  python3 report_tok.py <result.json>
+Dùng:  python3 report_tok.py <result.json> [slug] [model]
 """
 import os, sys, json, urllib.request
 
@@ -46,17 +46,21 @@ def main():
     u = d.get("usage") if isinstance(d, dict) else None
     if not isinstance(u, dict):
         return
-    in_tok = (int(u.get("input_tokens", 0) or 0)
-              + int(u.get("cache_read_input_tokens", 0) or 0)
-              + int(u.get("cache_creation_input_tokens", 0) or 0))
+    slug = sys.argv[2] if len(sys.argv) > 2 else "unknown"
+    model = sys.argv[3] if len(sys.argv) > 3 else "opus"
+    in_tok = int(u.get("input_tokens", 0) or 0)
+    cache_read = int(u.get("cache_read_input_tokens", 0) or 0)
+    cache_write = int(u.get("cache_creation_input_tokens", 0) or 0)
     out_tok = int(u.get("output_tokens", 0) or 0)
-    if in_tok <= 0 and out_tok <= 0:
+    if in_tok <= 0 and out_tok <= 0 and cache_read <= 0 and cache_write <= 0:
         return
     try:
         url, tok = _coord_creds()
         req = urllib.request.Request(
-            f"{url}/token-guard/add",
-            data=json.dumps({"inTok": in_tok, "outTok": out_tok}).encode(),
+            f"{url}/spend",
+            data=json.dumps({"source": "cron", "model": model, "inTok": in_tok, "outTok": out_tok,
+                             "cacheReadTok": cache_read, "cacheWriteTok": cache_write,
+                             "persona": f"cron:{slug}", "stage": slug}).encode(),
             headers={"content-type": "application/json", **({"x-worker-token": tok} if tok else {})})
         urllib.request.urlopen(req, timeout=4)
     except Exception:

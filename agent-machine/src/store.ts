@@ -1,7 +1,7 @@
 // Store — thin file-based persistence (swappable cho Postgres+pg-boss+DBOS ở M2.1).
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Card, Persona, Pipeline, Project, ChannelMsg, Cost, LedgerEntry } from './types'
+import type { Card, Persona, Pipeline, Project, ChannelMsg, LedgerEntry } from './types'
 
 export class Store {
   dir: string
@@ -77,7 +77,7 @@ export class Store {
     } catch { return [] }
   }
 
-  appendLedger(e: { ts: number; cardId: string; stage: string; persona: string } & Cost) {
+  appendLedger(e: LedgerEntry) {
     fs.appendFileSync(path.join(this.dir, 'ledger.jsonl'), JSON.stringify(e) + '\n')
   }
 
@@ -87,7 +87,13 @@ export class Store {
       const lines = raw.trim().split('\n').filter(Boolean)
       const out: LedgerEntry[] = []
       for (const l of lines) {
-        try { out.push(JSON.parse(l) as LedgerEntry) } catch { /* bỏ dòng hỏng */ }
+        try {
+          const e = JSON.parse(l) as LedgerEntry
+          // DASH-FIX S1 backward-compat: dòng cũ thiếu source/cacheTok → mặc định worker, cache 0 (model resolve sau ở metrics).
+          if (e.source === undefined) e.source = 'worker'
+          if (e.cacheTok === undefined) e.cacheTok = 0
+          out.push(e)
+        } catch { /* bỏ dòng hỏng */ }
       }
       return out
     } catch { return [] }

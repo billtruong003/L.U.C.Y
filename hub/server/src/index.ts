@@ -207,7 +207,8 @@ async function streamClaude(prompt: string, sessionId: string | null, model: str
         const u = m.usage || {}
         const inTok = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
         onEvent({ type: 'usage', inTok, cacheTok: u.cache_read_input_tokens ?? 0, outTok: u.output_tokens ?? 0 })
-        reportTok(inTok, u.output_tokens ?? 0)   // B1: claude-path → token-guard CHUNG (parity bridge)
+        // DASH-FIX S2: tách input "tươi" + cache read/write riêng, kèm source='hub' + model thật (parity bridge claude-path).
+        reportTok(u.input_tokens ?? 0, u.output_tokens ?? 0, { source: 'hub', model, cacheReadTok: u.cache_read_input_tokens ?? 0, cacheWriteTok: u.cache_creation_input_tokens ?? 0 })
       }
       else if (m.type === 'system' && m.session_id && !sid) sid = m.session_id
     }
@@ -615,12 +616,15 @@ async function amFetch(p: string, init?: { method?: string; body?: string }) {
 // vào token-guard CHUNG (NGUỒN DUY NHẤT ở coordinator). Fire-and-forget — không chặn response, lỗi → bỏ qua.
 // Tắt = LUCY_TOKEN_REPORT=0. Coordinator lane KHÔNG tự cộng → đây là chỗ DUY NHẤT cộng lane của hub (hết double-count).
 const TOKEN_REPORT = !['0', 'false', 'off'].includes(String(process.env.LUCY_TOKEN_REPORT ?? '1').trim().toLowerCase())
-function reportTok(inTok?: number, outTok?: number) {
+// DASH-FIX S2: gửi /spend đủ trường (source+model+cache tách). inTok = input "tươi" (KHÔNG gộp cache); cache tách cacheRead/cacheWrite.
+function reportTok(inTok?: number, outTok?: number, opts?: { source?: string; model?: string; cacheReadTok?: number; cacheWriteTok?: number }) {
   if (!TOKEN_REPORT || !amOn()) return
   const i = Math.max(0, Number(inTok) || 0)
   const o = Math.max(0, Number(outTok) || 0)
-  if (i <= 0 && o <= 0) return
-  amFetch('/token-guard/add', { method: 'POST', body: JSON.stringify({ inTok: i, outTok: o }) }).catch(() => {})
+  const cr = Math.max(0, Number(opts?.cacheReadTok) || 0)
+  const cw = Math.max(0, Number(opts?.cacheWriteTok) || 0)
+  if (i <= 0 && o <= 0 && cr <= 0 && cw <= 0) return
+  amFetch('/spend', { method: 'POST', body: JSON.stringify({ source: opts?.source || 'hub', model: opts?.model || 'unknown', inTok: i, outTok: o, cacheReadTok: cr, cacheWriteTok: cw }) }).catch(() => {})
 }
 // PHASE 0: prefetch recall — tra memory vault (coordinator POST /recall) trước khi gọi claude.
 // Trả khối '🧠 Trí nhớ liên quan' (cap 5 hit / ~800 ký tự) để prepend vào prompt. Tắt = LUCY_RECALL_PREFETCH=0.
@@ -881,7 +885,7 @@ app.post('/api/chat/stream', async (req, res) => {
               sse({ type: 'tool_use', name: t.name, input: t.input, id: 'lt' + i })
               sse({ type: 'tool_result', id: 'lt' + i, text: t.result })
             })
-            if (r.usage) { sse({ type: 'usage', inTok: r.usage.inTok, cacheTok: 0, outTok: r.usage.outTok }); reportTok(r.usage.inTok, r.usage.outTok) }   // B1: lane agentic → token-guard CHUNG
+            if (r.usage) { sse({ type: 'usage', inTok: r.usage.inTok, cacheTok: 0, outTok: r.usage.outTok }); reportTok(r.usage.inTok, r.usage.outTok, { source: 'lane', model }) }   // DASH-FIX S2: lane agentic → /spend (source=lane, model thật)
             sse({ type: 'delta', text: r.answer || '(rỗng)' })
             chat.messages.push({ role: 'lucy', text: r.answer || '(rỗng)', t: Date.now() }); saveChat()
             episodicLog('assistant', r.answer || '', chat.sessionId)
@@ -892,7 +896,7 @@ app.post('/api/chat/stream', async (req, res) => {
           if (r?.error) { sse({ type: 'error', text: r.error }); finishJob('❌ ' + r.error) }
           else {
             if (r.thinking) sse({ type: 'thinking', text: String(r.thinking).slice(0, 2000) })
-            if (r.usage) { sse({ type: 'usage', inTok: r.usage.inTok, cacheTok: 0, outTok: r.usage.outTok }); reportTok(r.usage.inTok, r.usage.outTok) }   // B1: lane chat → token-guard CHUNG
+            if (r.usage) { sse({ type: 'usage', inTok: r.usage.inTok, cacheTok: 0, outTok: r.usage.outTok }); reportTok(r.usage.inTok, r.usage.outTok, { source: 'lane', model }) }   // DASH-FIX S2: lane chat → /spend (source=lane, model thật)
             sse({ type: 'delta', text: r.answer || '(rỗng)' })
             chat.messages.push({ role: 'lucy', text: r.answer || '(rỗng)', t: Date.now() }); saveChat()
             episodicLog('assistant', r.answer || '', chat.sessionId)
@@ -991,7 +995,7 @@ app.post('/api/prompts/run', async (req, res) => {
   const sse = (ev: Record<string, unknown>) => { try { res.write(`data: ${JSON.stringify(ev)}\n\n`) } catch { /* client ngắt */ } }
   try {
     const r = await runPromptArchitect(context, { history, targetModel, variants, source: 'hub', chatId: PA_CHAT_ID, vaultDir: VAULT })
-    if (r.usage) reportTok(r.usage.inTok, r.usage.outTok)   // B1: prompt-architect lane → token-guard CHUNG
+    if (r.usage) reportTok(r.usage.inTok, r.usage.outTok, { source: 'lane', model: r.laneModel || 'unknown' })   // DASH-FIX S2: prompt-architect lane → /spend (source=lane, model thật)
     if (r.rateLimit) sse({ type: 'route', text: `⏸️ rate-limit (~${Math.round(r.rateLimit.retryAfterMs / 1000)}s)` })
     sse({ type: 'delta', text: r.answer })
     sse({ type: 'final', text: r.answer, clarifying: r.clarifying, finalPrompt: r.finalPrompt, sessionId: r.sessionId, laneModel: r.laneModel, escalated: r.escalated, scorecard: r.scorecard, variants: r.variants, preferenceApplied: r.preferenceApplied })

@@ -83,7 +83,14 @@ export type Outcome = {
 }
 export type RunResult = { outcome: Outcome; cost: Cost; raw: string; report?: string; sessionId?: string; artifacts?: { files?: string[]; diffstat?: string; isRepo?: boolean }; rateLimit?: { retryAfterMs: number; detail: string } }
 
-export type LedgerEntry = { ts: number; cardId: string; stage: string; persona: string } & Cost
+// DASH-FIX S1: nguồn đốt token (attribution). 'worker' = persona run; còn lại = đường ngoài (B1 cũ chỉ đếm số).
+export type LedgerSource = 'worker' | 'autobuild' | 'bridge' | 'hub' | 'lane' | 'cron' | 'unknown'
+// LedgerEntry: thêm source/model/cacheTok (backward-compat — dòng cũ thiếu → readLedger vá source='worker', cacheTok=0).
+// cacheTok = TỔNG token cache (read+creation) tách khỏi inTok (inTok giờ = input "tươi", hết gộp cache).
+export type LedgerEntry = {
+  ts: number; cardId: string; stage: string; persona: string
+  source?: LedgerSource; model?: string; cacheTok?: number
+} & Cost
 
 export type ChannelKind = 'chat' | 'status' | 'report' | 'decision' | 'system' | 'handoff'
 export type ChannelMsg = {

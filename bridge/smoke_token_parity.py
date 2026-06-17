@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""PT smoke — bridge token-guard parity. KHÔNG cần Telegram/coordinator thật:
-mock HTTP server bắt POST /token-guard/add + GET /token-guard. Chạy: python3 smoke_token_parity.py"""
+"""PT smoke — bridge token spend parity (DASH-FIX S2). KHÔNG cần Telegram/coordinator thật:
+mock HTTP server bắt POST /spend + GET /token-guard. Chạy: python3 smoke_token_parity.py"""
 import os, json, time, tempfile, threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 _TMP = tempfile.mkdtemp()
-_RECV = []  # các body POST /token-guard/add nhận được
+_RECV = []  # các body POST /spend nhận được
 
 
 class _H(BaseHTTPRequestHandler):
@@ -15,7 +15,7 @@ class _H(BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get("content-length", 0))
         body = json.loads(self.rfile.read(n) or b"{}")
-        if self.path == "/token-guard/add":
+        if self.path in ("/spend", "/token-guard/add"):
             _RECV.append(body)
         self.send_response(200); self.send_header("content-type", "application/json"); self.end_headers()
         self.wfile.write(b'{"ok":true}')
@@ -60,27 +60,31 @@ def _wait_recv(n, timeout=3):
 
 print("PT token parity smoke")
 
-# 1) claude-path: usage kiểu Anthropic — inTok GỒM cache (parity hub)
+# 1) claude-path: usage kiểu Anthropic — /spend tách inTok 'tươi' + cache read/write riêng
 _RECV.clear()
 lb.report_tokens({"input_tokens": 100, "output_tokens": 50,
                   "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 200},
                  0.0123)
 _wait_recv(1)
-ck("claude usage → 1 POST /token-guard/add", len(_RECV) == 1)
-ck("inTok = input+cache_read+cache_creation (1300)", _RECV and _RECV[0]["inTok"] == 1300)
+ck("claude usage → 1 POST /spend", len(_RECV) == 1)
+ck("inTok = input 'tươi' (100)", _RECV and _RECV[0]["inTok"] == 100)
+ck("cacheReadTok = cache_read (1000)", _RECV and _RECV[0]["cacheReadTok"] == 1000)
+ck("cacheWriteTok = cache_creation (200)", _RECV and _RECV[0]["cacheWriteTok"] == 200)
 ck("outTok = output_tokens (50)", _RECV and _RECV[0]["outTok"] == 50)
+ck("source = 'bridge'", _RECV and _RECV[0]["source"] == "bridge")
 
 d = lb._load_tg_tokens()
-ck("local counter inTok=1300", d["inTok"] == 1300)
+ck("local counter inTok=1300 (gộp cache)", d["inTok"] == 1300)
 ck("local counter outTok=50", d["outTok"] == 50)
 ck("local cost ~0.0123", abs(d["costUsd"] - 0.0123) < 1e-6)
 ck("local turns=1", d["turns"] == 1)
 
-# 2) lane-path: usage {inTok,outTok} đã gộp → cộng dồn
+# 2) lane-path: _report_tok(200,80) → /spend (source mặc định 'bridge', cache 0) + counter cộng dồn
 _RECV.clear()
 lb._report_tok(200, 80)
 _wait_recv(1)
-ck("lane → POST {inTok:200,outTok:80}", _RECV and _RECV[0] == {"inTok": 200, "outTok": 80})
+ck("lane → POST inTok=200,outTok=80", _RECV and _RECV[0]["inTok"] == 200 and _RECV[0]["outTok"] == 80)
+ck("lane cache 0", _RECV and _RECV[0]["cacheReadTok"] == 0 and _RECV[0]["cacheWriteTok"] == 0)
 d2 = lb._load_tg_tokens()
 ck("lane cộng dồn inTok=1500", d2["inTok"] == 1500)
 ck("lane cộng dồn outTok=130", d2["outTok"] == 130)
