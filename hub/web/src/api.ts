@@ -177,8 +177,10 @@ export async function readFile(p: string): Promise<{ binary?: boolean; tooBig?: 
 
 // ---- METRICS ----
 export type MetricsProvider = { provider: string; label: string; hasKey: boolean }
-export type MetricsCostEntry = { model: string; usd: number; tokens: number }
-export type MetricsAgentEntry = { agent: string; usd: number; tokens: number }
+// DASH-FIX S4: thêm cột in·out·cache (kiểu Hermes). tokens = tổng cả 3.
+export type MetricsCostEntry = { model: string; usd: number; tokens: number; inTok?: number; outTok?: number; cacheTok?: number }
+export type MetricsAgentEntry = { agent: string; usd: number; tokens: number; inTok?: number; outTok?: number; cacheTok?: number }
+export type MetricsSourceEntry = { source: string; usd: number; tokens: number; inTok: number; outTok: number; cacheTok: number }
 export type MetricsCardEntry = { cardId: string; title: string; usd: number; tokens: number }
 export type MetricsAlert = { kind: string; message: string }
 export type TokenGuardStatus = { ok: boolean; soft: boolean; hard: boolean; used: number; softLimit: number; hardLimit: number }
@@ -192,6 +194,7 @@ export type MetricsData = {
   costDay: number; costMonth: number
   costByModel: MetricsCostEntry[]
   costByAgent: MetricsAgentEntry[]
+  costBySource?: MetricsSourceEntry[]
   costByCard: MetricsCardEntry[]
   cardsRunning: number; cardsWaiting: number; cardsTotal: number
   providers: MetricsProvider[]

@@ -245,26 +245,32 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
         const m = buildMetrics(store, recall)
         const today = new Date().toISOString().slice(0, 10)
         const monthPfx = today.slice(0, 7)
+        // S4: tokenDay/Month gồm CACHE (khớp token-guard.used = Σ ledger hôm nay) + mọi source (ledger đã đủ) → hết ngày>tháng & 0-worker.
         let tokenDay = 0, tokenMonth = 0, costDay = 0, costMonth = 0
         for (const [day, d] of Object.entries(m.tokenByDay)) {
-          const toks = d.inTok + d.outTok
+          const toks = d.inTok + d.outTok + d.cacheTok
           if (day === today) { tokenDay = toks; costDay = d.usd }
           if (day.startsWith(monthPfx)) { tokenMonth += toks; costMonth += d.usd }
         }
+        // S4: cột in·out·cache (kiểu Hermes) — tokens = tổng cả 3.
         const costByModel = Object.entries(m.costByModel)
-          .map(([model, g]) => ({ model, usd: g.usd, tokens: g.inTok + g.outTok }))
+          .map(([model, g]) => ({ model, usd: g.usd, tokens: g.inTok + g.outTok + g.cacheTok, inTok: g.inTok, outTok: g.outTok, cacheTok: g.cacheTok }))
           .sort((a, b) => b.usd - a.usd).slice(0, 8)
         const costByAgent = Object.entries(m.costByAgent)
           .map(([pId, g]) => {
             const pName = store.personas.get(pId)?.name ?? pId
-            return { agent: pName.split('·')[0].trim(), usd: g.usd, tokens: g.inTok + g.outTok }
+            return { agent: pName.split('·')[0].trim(), usd: g.usd, tokens: g.inTok + g.outTok + g.cacheTok, inTok: g.inTok, outTok: g.outTok, cacheTok: g.cacheTok }
           })
           .sort((a, b) => b.usd - a.usd).slice(0, 8)
+        // S4: "Nguồn đốt" — worker/autobuild/bridge/hub/cron/lane/unknown.
+        const costBySource = Object.entries(m.costBySource)
+          .map(([source, g]) => ({ source, usd: g.usd, tokens: g.inTok + g.outTok + g.cacheTok, inTok: g.inTok, outTok: g.outTok, cacheTok: g.cacheTok }))
+          .sort((a, b) => b.tokens - a.tokens)
         const ledger = store.readLedger()
         const cardCost = new Map<string, { usd: number; tokens: number }>()
         for (const e of ledger) {
           const c = cardCost.get(e.cardId) ?? { usd: 0, tokens: 0 }
-          c.usd += e.usd; c.tokens += e.inTok + e.outTok
+          c.usd += e.usd; c.tokens += e.inTok + e.outTok + (e.cacheTok || 0)
           cardCost.set(e.cardId, c)
         }
         const activeCards = store.listCards().filter(c => !['done', 'failed'].includes(c.status))
@@ -280,7 +286,7 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
         if (costMonth > 10) alerts.push({ kind: 'cost', message: `Chi phí tháng này $${costMonth.toFixed(2)} — vượt ngưỡng $10` })
         else if (costDay > 2) alerts.push({ kind: 'cost', message: `Chi phí hôm nay $${costDay.toFixed(2)} — vượt ngưỡng $2` })
         const series = buildSeries(store, Date.now()) // M5: time-series cho sparkline (24h/7d/30d)
-        return send(200, { tokenDay, tokenMonth, costDay, costMonth, costByModel, costByAgent, costByCard, cardsRunning, cardsWaiting, cardsTotal, providers, alerts, series, tokenGuard: engine.tokenGuardStatus() })
+        return send(200, { tokenDay, tokenMonth, costDay, costMonth, costByModel, costByAgent, costBySource, costByCard, cardsRunning, cardsWaiting, cardsTotal, providers, alerts, series, tokenGuard: engine.tokenGuardStatus() })
       }
       // ── ERROR-STATS: phân loại lỗi agent từ turn-log.jsonl (đọc env AM_TURNS_LOG cục bộ) ──
       if (req.method === 'GET' && url === '/error-stats') return send(200, buildErrorStats(store))

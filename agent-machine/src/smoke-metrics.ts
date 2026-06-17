@@ -54,6 +54,14 @@ async function main() {
 
   check('costByProject có "default"', !!m.costByProject['default'])
 
+  // S4: costBySource — worker run phải vào nguồn 'worker'
+  check('costBySource có "worker"', !!m.costBySource['worker'], `(keys: ${Object.keys(m.costBySource).join(',')})`)
+  check('totals.cacheTok ≥ 0', m.totals.cacheTok >= 0, `(got ${m.totals.cacheTok})`)
+  // S4 reconcile: Σ token costBySource == Σ token costByModel (cùng ledger, khác key)
+  const sumSrc = Object.values(m.costBySource).reduce((s, g) => s + g.inTok + g.outTok + g.cacheTok, 0)
+  const sumMod = Object.values(m.costByModel).reduce((s, g) => s + g.inTok + g.outTok + g.cacheTok, 0)
+  check('Σ token costBySource == costByModel', sumSrc === sumMod, `(src ${sumSrc} vs mod ${sumMod})`)
+
   const tpDays = Object.keys(m.cardThroughput).length
   check('cardThroughput có ≥1 ngày', tpDays >= 1, `(got ${tpDays})`)
   const createdTotal = Object.values(m.cardThroughput).reduce((s, d) => s + d.created, 0)

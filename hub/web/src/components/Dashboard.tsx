@@ -15,6 +15,22 @@ function fmtUsd(n: number): string {
 function pct(v: number, total: number): number {
   return !total ? 0 : Math.min(100, Math.round((v / total) * 100))
 }
+// DASH-FIX S4: breakdown in·out·cache (kiểu Hermes) — chỉ hiện khi có ≥1 trường tách.
+function TokBreakdown({ inTok, outTok, cacheTok }: { inTok?: number; outTok?: number; cacheTok?: number }) {
+  if (inTok == null && outTok == null && cacheTok == null) return null
+  return (
+    <div className="flex gap-2 mono text-[9.5px] text-inkfaint mt-0.5">
+      <span>in {fmtTokens(inTok ?? 0)}</span>
+      <span>out {fmtTokens(outTok ?? 0)}</span>
+      {!!cacheTok && <span className="text-[#b78cff]">cache {fmtTokens(cacheTok)}</span>}
+    </div>
+  )
+}
+// Nhãn nguồn đốt (LedgerSource) → tiếng Việt + icon.
+const SOURCE_LABEL: Record<string, string> = {
+  worker: '🤖 Worker (agent)', autobuild: '🏗️ Auto-build', bridge: '✈️ Telegram',
+  hub: '🖥️ Hub chat', lane: '🛤️ Lane (model rẻ)', cron: '⏰ Cron', unknown: '❔ Khác (chưa gắn nguồn)',
+}
 
 // ── M5 sparkline (SVG thuần, không cần lib charting) ──────────────────────────
 const RANGE_LABEL: Record<SeriesRange, string> = { '24h': '24h', '7d': '7 ngày', '30d': '30 ngày' }
@@ -279,6 +295,8 @@ export default function Dashboard() {
   // ── Overview ───────────────────────────────────────────────────────────────
   const maxModelUsd = Math.max(...data.costByModel.map(m => m.usd), 0.0001)
   const maxAgentUsd = Math.max(...data.costByAgent.map(a => a.usd), 0.0001)
+  const sources = data.costBySource ?? []
+  const maxSourceTok = Math.max(...sources.map(s => s.tokens), 1) // S4: thanh nguồn đốt theo token (gồm cache)
   const elapsed = lastRefresh ? Math.round((Date.now() - lastRefresh) / 1000) : null
 
   const totalFail   = agentStats.reduce((a, s) => a + s.failCount, 0)
@@ -349,9 +367,10 @@ export default function Dashboard() {
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { label: 'Token / ngày', value: fmtTokens(data.tokenDay), sub: 'in + out hôm nay', accent: false },
-                { label: 'Token / tháng', value: fmtTokens(data.tokenMonth), sub: 'cộng dồn tháng', accent: false },
-                { label: 'Chi phí hôm nay', value: fmtUsd(data.costDay), sub: 'USD agent-machine', accent: data.costDay > 1 },
+                // DASH-FIX S4: REVERT vá interim. tokenDay/Month giờ = Σ ledger (mọi nguồn + cache) → = token-guard.used, hết ngày>tháng.
+                { label: 'Token / ngày', value: fmtTokens(data.tokenDay), sub: 'ledger · mọi nguồn + cache', accent: false },
+                { label: 'Token / tháng', value: fmtTokens(data.tokenMonth), sub: 'ledger · mọi nguồn', accent: false },
+                { label: 'Chi phí hôm nay', value: fmtUsd(data.costDay), sub: 'USD · mọi nguồn', accent: data.costDay > 1 },
                 { label: 'Chi phí tháng', value: fmtUsd(data.costMonth), sub: 'USD tháng này', accent: data.costMonth > 5 },
               ].map((s) => (
                 <div key={s.label} className="card px-4 py-3.5">
@@ -475,6 +494,7 @@ export default function Dashboard() {
                           <div className="h-full rounded-full bg-cyan/60 transition-all duration-500"
                             style={{ width: pct(m.usd, maxModelUsd) + '%' }} />
                         </div>
+                        <TokBreakdown inTok={m.inTok} outTok={m.outTok} cacheTok={m.cacheTok} />
                       </div>
                     ))}
                   </div>
@@ -498,11 +518,40 @@ export default function Dashboard() {
                           <div className="h-full rounded-full bg-cyan/60 transition-all duration-500"
                             style={{ width: pct(a.usd, maxAgentUsd) + '%' }} />
                         </div>
+                        <TokBreakdown inTok={a.inTok} outTok={a.outTok} cacheTok={a.cacheTok} />
                       </div>
                     ))}
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* DASH-FIX S4: NGUỒN ĐỐT — worker/autobuild/telegram/hub/cron/lane (1 nguồn = ledger costBySource) */}
+            <div className="card px-4 py-4">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-[10px] text-inkfaint uppercase tracking-widest flex-1">Nguồn đốt token</span>
+                <span className="chip !py-0 !text-[10px]">{sources.length}</span>
+              </div>
+              {sources.length === 0 ? (
+                <div className="text-[12px] text-inkfaint py-2">Chưa có ledger — chờ nguồn đốt đầu tiên.</div>
+              ) : (
+                <div className="flex flex-col gap-2.5">
+                  {sources.map((s) => (
+                    <div key={s.source}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[12px] text-ink flex-1 truncate">{SOURCE_LABEL[s.source] ?? s.source}</span>
+                        <span className="mono text-[11px] text-cyan">{fmtUsd(s.usd)}</span>
+                        <span className="mono text-[10px] text-inkfaint">{fmtTokens(s.tokens)}</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                        <div className="h-full rounded-full bg-[#b78cff]/60 transition-all duration-500"
+                          style={{ width: pct(s.tokens, maxSourceTok) + '%' }} />
+                      </div>
+                      <TokBreakdown inTok={s.inTok} outTok={s.outTok} cacheTok={s.cacheTok} />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="card px-4 py-4">

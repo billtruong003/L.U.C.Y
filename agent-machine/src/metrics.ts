@@ -2,18 +2,21 @@
 // Thuần: không đụng engine, không đọc file trực tiếp, chỉ gọi store + recall.
 import type { Store } from './store'
 import type { Recall } from './recall'
+import type { LedgerEntry } from './types'
 
-export type MetricsDay = { inTok: number; outTok: number; usd: number }
-export type MetricsGroup = { usd: number; inTok: number; outTok: number; runs: number }
+// DASH-FIX S4: cacheTok tách cột (kiểu Hermes in·out·cache). inTok = input "tươi"; cacheTok = cache read+creation.
+export type MetricsDay = { inTok: number; outTok: number; cacheTok: number; usd: number }
+export type MetricsGroup = { usd: number; inTok: number; outTok: number; cacheTok: number; runs: number }
 
 export type Metrics = {
   tokenByDay: Record<string, MetricsDay>
   costByModel: Record<string, MetricsGroup>
   costByAgent: Record<string, MetricsGroup>
   costByProject: Record<string, MetricsGroup>
+  costBySource: Record<string, MetricsGroup> // DASH-FIX S4: nguồn đốt (worker/autobuild/bridge/hub/cron/lane/unknown)
   cardThroughput: Record<string, { created: number; done: number }>
   vault: { notes: number; observations: number } | null
-  totals: { usd: number; inTok: number; outTok: number; runs: number; cards: number }
+  totals: { usd: number; inTok: number; outTok: number; cacheTok: number; runs: number; cards: number }
 }
 
 // ── M5 time-series: bucket ledger thành chuỗi token/cost cho sparkline (24h theo giờ, 7d/30d theo ngày).
@@ -38,7 +41,7 @@ export function buildSeries(store: Store, now: number): MetricsSeries {
     }
     for (const e of entries) {
       const p = idx.get(align(e.ts))
-      if (p) { p.tokens += e.inTok + e.outTok; p.usd += e.usd; p.runs++ }
+      if (p) { p.tokens += e.inTok + e.outTok + (e.cacheTok || 0); p.usd += e.usd; p.runs++ } // S4: token gồm cache → khớp guard.used
     }
     return points
   }
@@ -65,42 +68,41 @@ export function buildMetrics(store: Store, recall?: Recall | null): Metrics {
   const costByModel: Record<string, MetricsGroup> = {}
   const costByAgent: Record<string, MetricsGroup> = {}
   const costByProject: Record<string, MetricsGroup> = {}
+  const costBySource: Record<string, MetricsGroup> = {}
+
+  // S4: gom 1 entry vào 1 group (tạo nếu chưa có) — đủ in/out/cache cho cột Hermes.
+  const add = (bag: Record<string, MetricsGroup>, key: string, e: LedgerEntry) => {
+    let g = bag[key]
+    if (!g) { g = { usd: 0, inTok: 0, outTok: 0, cacheTok: 0, runs: 0 }; bag[key] = g }
+    g.usd += e.usd; g.inTok += e.inTok; g.outTok += e.outTok; g.cacheTok += (e.cacheTok || 0); g.runs++
+  }
 
   for (const e of entries) {
     const day = new Date(e.ts).toISOString().slice(0, 10)
 
     // tokenByDay
     let d = tokenByDay[day]
-    if (!d) { d = { inTok: 0, outTok: 0, usd: 0 }; tokenByDay[day] = d }
+    if (!d) { d = { inTok: 0, outTok: 0, cacheTok: 0, usd: 0 }; tokenByDay[day] = d }
     d.inTok += e.inTok
     d.outTok += e.outTok
+    d.cacheTok += (e.cacheTok || 0)
     d.usd += e.usd
 
-    // tra cứu card để lấy projectId + modelOverride
+    // tra cứu card để lấy projectId + modelOverride (cho dòng worker cũ)
     const card = store.getCard(e.cardId)
     const projectId = card ? (card.projectId || 'unknown') : 'unknown'
 
-    // resolve model từ persona + card override
-    const personaObj = store.personas.get(e.persona)
-    const model = personaObj
-      ? resolveModel(card ?? { modelOverride: undefined }, personaObj.model)
-      : 'unknown'
+    // S4: ưu tiên model GHI THẲNG trong entry (Round-1+); dòng cũ thiếu → resolve từ persona+card.
+    let model = e.model && e.model !== 'unknown' ? e.model : ''
+    if (!model) {
+      const personaObj = store.personas.get(e.persona)
+      model = personaObj ? resolveModel(card ?? { modelOverride: undefined }, personaObj.model) : 'unknown'
+    }
 
-    // costByModel
-    let m = costByModel[model]
-    if (!m) { m = { usd: 0, inTok: 0, outTok: 0, runs: 0 }; costByModel[model] = m }
-    m.usd += e.usd; m.inTok += e.inTok; m.outTok += e.outTok; m.runs++
-
-    // costByAgent — key = persona id
-    const agent = e.persona
-    let a = costByAgent[agent]
-    if (!a) { a = { usd: 0, inTok: 0, outTok: 0, runs: 0 }; costByAgent[agent] = a }
-    a.usd += e.usd; a.inTok += e.inTok; a.outTok += e.outTok; a.runs++
-
-    // costByProject
-    let p = costByProject[projectId]
-    if (!p) { p = { usd: 0, inTok: 0, outTok: 0, runs: 0 }; costByProject[projectId] = p }
-    p.usd += e.usd; p.inTok += e.inTok; p.outTok += e.outTok; p.runs++
+    add(costByModel, model, e)
+    add(costByAgent, e.persona, e)          // key = persona id (worker) hoặc source (đường ngoài, persona=source)
+    add(costByProject, projectId, e)
+    add(costBySource, e.source || 'worker', e) // nguồn đốt
   }
 
   // ── cardThroughput: từ card.history events ──
@@ -116,9 +118,9 @@ export function buildMetrics(store: Store, recall?: Recall | null): Metrics {
   }
 
   // totals
-  let totalUsd = 0, totalInTok = 0, totalOutTok = 0, totalRuns = 0
+  let totalUsd = 0, totalInTok = 0, totalOutTok = 0, totalCacheTok = 0, totalRuns = 0
   for (const g of Object.values(costByModel)) {
-    totalUsd += g.usd; totalInTok += g.inTok; totalOutTok += g.outTok; totalRuns += g.runs
+    totalUsd += g.usd; totalInTok += g.inTok; totalOutTok += g.outTok; totalCacheTok += g.cacheTok; totalRuns += g.runs
   }
 
   // vault
@@ -131,12 +133,14 @@ export function buildMetrics(store: Store, recall?: Recall | null): Metrics {
     costByModel,
     costByAgent,
     costByProject,
+    costBySource,
     cardThroughput,
     vault,
     totals: {
       usd: Math.round(totalUsd * 1e6) / 1e6,
       inTok: totalInTok,
       outTok: totalOutTok,
+      cacheTok: totalCacheTok,
       runs: totalRuns,
       cards: store.listCards().length,
     },
