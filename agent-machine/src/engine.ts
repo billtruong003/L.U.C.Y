@@ -12,6 +12,7 @@ import { distillCardSafe } from './distill'
 import { writeSessionNoteSafe } from './session-note'
 import { proposeSkillFrom, skillLearnFlagOn } from './skill-learn'
 import { slug } from './vault'
+import { vnDay } from './tz'
 import type { Runner } from './runner'
 import type { Card, Stage, Persona, Project, Pipeline, RunResult, LedgerEntry, LedgerSource } from './types'
 import { TokenGuard, type TokenGuardStatus } from './token-guard'
@@ -329,13 +330,13 @@ export class Engine {
     this._usedCache = null // invalidate → used() đọc lại tươi ngay lượt sau
   }
 
-  /** Σ token (in+cache+out) các entry ledger thuộc "hôm nay" (UTC — Round 3 đổi VN). Cache 1 ngày, recordSpend xoá. */
+  /** Σ token (in+cache+out) các entry ledger thuộc "hôm nay" (giờ VN, UTC+7 — DASH-FIX S5). Cache 1 ngày, recordSpend xoá. */
   ledgerUsedToday(): number {
-    const day = new Date().toISOString().slice(0, 10)
+    const day = vnDay()
     if (this._usedCache && this._usedCache.day === day) return this._usedCache.sum
     let sum = 0
     for (const e of this.store.readLedger()) {
-      if (new Date(e.ts).toISOString().slice(0, 10) === day) sum += (e.inTok || 0) + (e.cacheTok || 0) + (e.outTok || 0)
+      if (vnDay(e.ts) === day) sum += (e.inTok || 0) + (e.cacheTok || 0) + (e.outTok || 0)
     }
     this._usedCache = { day, sum }
     return sum

@@ -3,6 +3,7 @@
 import type { Store } from './store'
 import type { Recall } from './recall'
 import type { LedgerEntry } from './types'
+import { vnDay, vnAlign } from './tz'
 
 // DASH-FIX S4: cacheTok tách cột (kiểu Hermes in·out·cache). inTok = input "tươi"; cacheTok = cache read+creation.
 export type MetricsDay = { inTok: number; outTok: number; cacheTok: number; usd: number }
@@ -20,7 +21,7 @@ export type Metrics = {
 }
 
 // ── M5 time-series: bucket ledger thành chuỗi token/cost cho sparkline (24h theo giờ, 7d/30d theo ngày).
-// Zero-fill bucket rỗng = SỐ THẬT (không có run → 0, KHÔNG bịa). t = mốc bắt đầu bucket (ms, UTC-aligned).
+// Zero-fill bucket rỗng = SỐ THẬT (không có run → 0, KHÔNG bịa). t = mốc bắt đầu bucket (ms; ngày căn nửa đêm VN — S5).
 export type SeriesPoint = { t: number; tokens: number; usd: number; runs: number }
 export type MetricsSeries = { '24h': SeriesPoint[]; '7d': SeriesPoint[]; '30d': SeriesPoint[] }
 
@@ -30,7 +31,7 @@ const DAY_MS = 86_400_000
 export function buildSeries(store: Store, now: number): MetricsSeries {
   const entries = store.readLedger()
   const bucketize = (count: number, span: number): SeriesPoint[] => {
-    const align = (t: number) => Math.floor(t / span) * span
+    const align = (t: number) => vnAlign(t, span) // S5: ngày căn nửa đêm VN (giờ: 7h chia hết → giữ nguyên)
     const end = align(now)                  // bucket hiện tại (mới nhất)
     const points: SeriesPoint[] = []
     const idx = new Map<number, SeriesPoint>()
@@ -78,7 +79,7 @@ export function buildMetrics(store: Store, recall?: Recall | null): Metrics {
   }
 
   for (const e of entries) {
-    const day = new Date(e.ts).toISOString().slice(0, 10)
+    const day = vnDay(e.ts) // S5: ngày theo VN (UTC+7), khớp token-guard/coordinator
 
     // tokenByDay
     let d = tokenByDay[day]
@@ -109,7 +110,7 @@ export function buildMetrics(store: Store, recall?: Recall | null): Metrics {
   const cardThroughput: Record<string, { created: number; done: number }> = {}
   for (const c of store.listCards()) {
     for (const h of c.history) {
-      const day = new Date(h.ts).toISOString().slice(0, 10)
+      const day = vnDay(h.ts) // S5: VN
       let td = cardThroughput[day]
       if (!td) { td = { created: 0, done: 0 }; cardThroughput[day] = td }
       if (h.event === 'created' || h.event === 'created-backlog') td.created++

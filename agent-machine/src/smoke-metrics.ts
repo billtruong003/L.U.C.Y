@@ -62,6 +62,25 @@ async function main() {
   const sumMod = Object.values(m.costByModel).reduce((s, g) => s + g.inTok + g.outTok + g.cacheTok, 0)
   check('Σ token costBySource == costByModel', sumSrc === sumMod, `(src ${sumSrc} vs mod ${sumMod})`)
 
+  // ── DASH-FIX S5 RECONCILE invariants (Token/ngày ≤ Token/tháng · token>0 ⇒ cost>0) ──
+  const { vnDay } = await import('./tz')
+  const todayVN = vnDay()
+  const monthPfx = todayVN.slice(0, 7)
+  const tok = (d: { inTok: number; outTok: number; cacheTok: number }) => d.inTok + d.outTok + d.cacheTok
+  let tokenDay = 0, tokenMonth = 0, costDay = 0, costMonth = 0
+  for (const [day, d] of Object.entries(m.tokenByDay)) {
+    if (day === todayVN) { tokenDay = tok(d); costDay = d.usd }
+    if (day.startsWith(monthPfx)) { tokenMonth += tok(d); costMonth += d.usd }
+  }
+  check('invariant: Token/ngày ≤ Token/tháng', tokenDay <= tokenMonth, `(ngày ${tokenDay} > tháng ${tokenMonth})`)
+  check('invariant: Cost/ngày ≤ Cost/tháng', costDay <= costMonth + 1e-9, `(ngày ${costDay} > tháng ${costMonth})`)
+  // Σ costBySource.usd == Σ costByModel.usd (cùng ledger)
+  const usdSrc = Object.values(m.costBySource).reduce((s, g) => s + g.usd, 0)
+  const usdMod = Object.values(m.costByModel).reduce((s, g) => s + g.usd, 0)
+  check('reconcile: Σ usd costBySource == costByModel', Math.abs(usdSrc - usdMod) < 1e-9, `(src ${usdSrc} vs mod ${usdMod})`)
+  // worker entry token>0 ⇒ cost>0 (priced); worker run của smoke phải có usd>0
+  check('invariant: worker token>0 ⇒ usd>0', (m.costBySource['worker']?.inTok ?? 0) === 0 || (m.costBySource['worker']?.usd ?? 0) > 0)
+
   const tpDays = Object.keys(m.cardThroughput).length
   check('cardThroughput có ≥1 ngày', tpDays >= 1, `(got ${tpDays})`)
   const createdTotal = Object.values(m.cardThroughput).reduce((s, d) => s + d.created, 0)

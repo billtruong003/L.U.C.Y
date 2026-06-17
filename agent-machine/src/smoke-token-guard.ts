@@ -119,12 +119,12 @@ async function main() {
   check('tokenGuardStatus khi null → configured=false', tgsNull.configured === false)
   engine.tokenGuard = tg5 // restore
 
-  // ── Test 7: auto reset UTC day ──
-  console.log('\n── Test 7: auto reset UTC day ──')
+  // ── Test 7: auto reset sang ngày mới (mốc VN — DASH-FIX S5) ──
+  console.log('\n── Test 7: auto reset ngày VN ──')
+  const { vnDay: vnDay7 } = await import('./tz')
   const tg7dir = tmp('tg-test7')
-  // Giả lập record cũ (ngày hôm qua)
-  const yesterday = new Date(Date.now() - 86400e3)
-  const yDate = `${yesterday.getUTCFullYear()}-${String(yesterday.getUTCMonth() + 1).padStart(2, '0')}-${String(yesterday.getUTCDate()).padStart(2, '0')}`
+  // Giả lập record cũ (ngày hôm qua theo VN)
+  const yDate = vnDay7(Date.now() - 86400e3)
   const recordFile = path.join(tg7dir, 'token-day.json')
   fs.mkdirSync(tg7dir, { recursive: true })
   fs.writeFileSync(recordFile, JSON.stringify({ date: yDate, inTok: 99999, outTok: 99999 }))
@@ -149,6 +149,21 @@ async function main() {
   const used8 = tg8.used()
   check('submit() cộng token vào guard (used > 0)', used8 > 0, `(got ${used8})`)
   check('guard.used khớp tổng cost của card', used8 === cardE2E.cost.inTok + cardE2E.cost.outTok, `(got ${used8} vs ${cardE2E.cost.inTok + cardE2E.cost.outTok})`)
+
+  // ── DASH-FIX S5 RECONCILE: used == Σ ledger hôm nay (VN) = NGUỒN DUY NHẤT, KHÔNG double-count ──
+  const { vnDay } = await import('./tz')
+  const todayVN = vnDay()
+  let ledgerToday = 0
+  for (const e of store8.readLedger()) {
+    if (vnDay(e.ts) === todayVN) ledgerToday += (e.inTok || 0) + (e.cacheTok || 0) + (e.outTok || 0)
+  }
+  check('reconcile: used == Σ ledger hôm nay (VN)', used8 === ledgerToday, `(used ${used8} vs ledger ${ledgerToday})`)
+  // double-count guard: addTokens() KHÔNG còn cộng vào used (used dẫn xuất ledger) → gọi addTokens không làm used phình
+  tg8.addTokens(123_456, 0)
+  check('double-count guard: addTokens KHÔNG đẩy used (vẫn = Σ ledger)', tg8.used() === ledgerToday, `(got ${tg8.used()} vs ${ledgerToday})`)
+  // token>0 ⇒ cost>0: worker entry phải có usd>0 (priced)
+  const workerCostOk = store8.readLedger().filter(e => (e.inTok + e.outTok) > 0).every(e => e.usd > 0)
+  check('invariant: entry token>0 ⇒ usd>0 (worker priced)', workerCostOk)
 
   // GAP#3: soft reached → claim() hạ EXECUTOR xuống lane rẻ, KHÔNG hạ reviewer (specialist/opus)
   process.env.OPENCODE_ZEN_API_KEY = process.env.OPENCODE_ZEN_API_KEY || 'smoke-fake-key' // để cheapestAvailableLaneKey() != null

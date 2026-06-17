@@ -12,6 +12,7 @@ import { browseVault, readVaultFile, listPreferences, listInbox, readActive, bui
 import { dream } from './dream'
 import { recordEvidence, hasManualEvidenceToday } from './evidence'
 import { buildMetrics, buildSeries } from './metrics'
+import { vnDay } from './tz'
 import { buildErrorStats } from './error-stats'
 import { getDynamicCatalog, providerStatus, refreshOpenRouterCatalog } from './llm-lane'
 import { chatLane, routeTask, routerModel, ROUTE_TABLE } from './chat-lane'
@@ -243,7 +244,7 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       // ── METRICS: frontend-compatible shape ──
       if (req.method === 'GET' && url === '/metrics') {
         const m = buildMetrics(store, recall)
-        const today = new Date().toISOString().slice(0, 10)
+        const today = vnDay() // S5: mốc ngày VN (UTC+7), khớp metrics.tokenByDay + token-guard
         const monthPfx = today.slice(0, 7)
         // S4: tokenDay/Month gồm CACHE (khớp token-guard.used = Σ ledger hôm nay) + mọi source (ledger đã đủ) → hết ngày>tháng & 0-worker.
         let tokenDay = 0, tokenMonth = 0, costDay = 0, costMonth = 0

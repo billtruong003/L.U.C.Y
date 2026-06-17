@@ -79,11 +79,21 @@ export class Store {
 
   appendLedger(e: LedgerEntry) {
     fs.appendFileSync(path.join(this.dir, 'ledger.jsonl'), JSON.stringify(e) + '\n')
+    this._ledgerCache = null // DASH-FIX S5: ghi mới → bỏ cache đọc, lượt sau parse lại tươi
   }
 
+  // DASH-FIX S5 perf: /metrics gọi readLedger 3-4× mỗi request → cache parsed theo mtime+size, tránh đọc+parse full JSONL lặp lại.
+  // Ledger hiện nhỏ (~35KB); cache đủ rẻ, chưa cần rotate file. Invalidate khi mtime/size đổi (ghi ngoài tiến trình) hoặc appendLedger.
+  private _ledgerCache: { mtimeMs: number; size: number; entries: LedgerEntry[] } | null = null
+
   readLedger(): LedgerEntry[] {
+    const file = path.join(this.dir, 'ledger.jsonl')
+    let stat: fs.Stats
+    try { stat = fs.statSync(file) } catch { return [] }
+    const c = this._ledgerCache
+    if (c && c.mtimeMs === stat.mtimeMs && c.size === stat.size) return c.entries
     try {
-      const raw = fs.readFileSync(path.join(this.dir, 'ledger.jsonl'), 'utf8')
+      const raw = fs.readFileSync(file, 'utf8')
       const lines = raw.trim().split('\n').filter(Boolean)
       const out: LedgerEntry[] = []
       for (const l of lines) {
@@ -95,6 +105,7 @@ export class Store {
           out.push(e)
         } catch { /* bỏ dòng hỏng */ }
       }
+      this._ledgerCache = { mtimeMs: stat.mtimeMs, size: stat.size, entries: out }
       return out
     } catch { return [] }
   }

@@ -2,6 +2,7 @@
 // Persist daily counter vào file để sống qua restart pm2.
 import fs from 'node:fs'
 import path from 'node:path'
+import { vnDay } from './tz'
 
 export const ENV_SOFT = 'AM_DAY_TOKEN_SOFT'
 export const ENV_HARD = 'AM_DAY_TOKEN_HARD'
@@ -10,7 +11,7 @@ const DEFAULT_SOFT = 500_000
 const DEFAULT_HARD = 1_000_000
 
 export type TokenDayRecord = {
-  date: string       // YYYY-MM-DD (UTC)
+  date: string       // YYYY-MM-DD (giờ VN, UTC+7 — DASH-FIX S5)
   inTok: number
   outTok: number
 }
@@ -41,8 +42,7 @@ export class TokenGuard {
   }
 
   private today(): string {
-    const d = new Date()
-    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+    return vnDay() // DASH-FIX S5: mốc ngày theo VN (UTC+7), khớp metrics/ledgerUsedToday
   }
 
   private load(): TokenDayRecord {
