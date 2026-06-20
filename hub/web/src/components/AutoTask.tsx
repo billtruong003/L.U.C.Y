@@ -212,14 +212,14 @@ type BuildStatus = {
   currentTask?: string; sprintEnd?: string
 }
 
-async function fetchBuildStatus(tool: 'autobuild' | 'autobuild-free'): Promise<BuildStatus> {
+async function fetchBuildStatus(tool: 'autobuild' | 'autobuild-free' | 'auto-task'): Promise<BuildStatus> {
   const r = await fetch(`/api/${tool}/status`)
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   return r.json()
 }
 
 function BuildStatusCard({ title, icon, tool, model }: {
-  title: string; icon: string; tool: 'autobuild' | 'autobuild-free'; model: string
+  title: string; icon: string; tool: 'autobuild' | 'autobuild-free' | 'auto-task'; model: string
 }) {
   const [st, setSt] = useState<BuildStatus | null>(null)
   const [err, setErr] = useState('')
@@ -330,6 +330,12 @@ export default function AutoTask() {
           icon="🆓"
           tool="autobuild-free"
           model="Sonnet plan → mimo execute → Sonnet escalate"
+        />
+        <BuildStatusCard
+          title="Auto-Task"
+          icon="🤖"
+          tool="auto-task"
+          model="queue loop · Sonnet/lane"
         />
       </div>
 

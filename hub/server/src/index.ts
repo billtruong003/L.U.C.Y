@@ -1208,6 +1208,25 @@ app.get('/api/autobuild-free/status', (req, res) => {
   res.json({ ...active, sprint2: s2, sprint1: s1 })
 })
 
+// auto-task queue thường (pm2 lucy-autotask) — pgrep auto-task.py tự khớp
+app.get('/api/auto-task/status', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  const base = buildToolStatus('auto-task.log')
+  const count = (sub: string) => {
+    try {
+      return fs.readdirSync(path.join(LUCY_REPO, 'tasks', sub))
+        .filter(f => f.endsWith('.md')).length
+    } catch { return 0 }
+  }
+  res.json({
+    ...base,
+    queue:  count('queue'),
+    doing:  count('doing'),
+    done:   count('done'),
+    failed: count('failed'),
+  })
+})
+
 // serve React build (đặt CUỐI để /api ưu tiên)
 if (fs.existsSync(DIST)) {
   app.use(express.static(DIST))
