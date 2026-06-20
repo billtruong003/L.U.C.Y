@@ -56,3 +56,6 @@ open-hub-lan.bat
 .opencode-zen-keys
 *.keys
 fitcity-admin-LOGIN.txt
+
+# vault → repo riêng lucy-vault-backup (private)
+lucy-vault/
