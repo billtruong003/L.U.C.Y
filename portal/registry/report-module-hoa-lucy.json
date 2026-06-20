@@ -1,0 +1,12 @@
+{
+  "id": "report-module-hoa-lucy",
+  "title": "Module hóa Lucy — proposal sản phẩm",
+  "zone": "report",
+  "url": "/reports/module-hoa-lucy-proposal.html",
+  "description": "Proposal self-host TUI, BYO API key, lộ trình P0→P4, rào cản OAuth Anthropic.",
+  "status": "wip",
+  "tags": ["lucy", "productize", "proposal"],
+  "thumbnail": null,
+  "createdAt": "2026-06-15",
+  "updatedAt": "2026-06-19"
+}

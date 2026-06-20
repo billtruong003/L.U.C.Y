@@ -17,9 +17,11 @@ export function resolveExecutionPersona(base: Persona, c: Card, proj: Project | 
   if (c.modelOverride === 'opus' || c.modelOverride === 'sonnet') persona = { ...persona, laneModel: undefined }
   if (proj?.skill) persona = { ...persona, systemPrompt: persona.systemPrompt + `\n\n--- SKILL DỰ ÁN "${proj.name}" ---\n${proj.skill}` }
   // TokenGuard: soft limit → ép EXECUTOR xuống lane rẻ nhất để tiết kiệm.
-  // GAP#3: CHỈ hạ executor (kind='executor' hoặc persona có laneModel) — KHÔNG hạ reviewer/architect (opus)
+  // GAP#3: CHỈ hạ executor (kind='executor') — KHÔNG hạ reviewer/architect (opus)
   // để giữ chất lượng gate ("coder rẻ không tự review chính mình").
-  const isExecutor = base.kind === 'executor' || !!persona.laneModel
+  // FIX 2026-06-18: KHÔNG hạ nếu Bill explicit request opus/sonnet (đã clear laneModel ở trên).
+  // Bug cũ: isExecutor dùng persona.laneModel (đã clear ở step 1) → true → soft guard ÉP LẠI → Opus bị chặn.
+  const isExecutor = base.kind === 'executor' && !c.modelOverride
   if (tokenGuard && isExecutor) {
     const ts = tokenGuard.check()
     if (ts.soft) {

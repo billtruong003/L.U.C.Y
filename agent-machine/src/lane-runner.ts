@@ -80,7 +80,7 @@ export class LaneRunner implements Runner {
 
   async run(card: Card, stage: Stage, persona: Persona, ws: string): Promise<RunResult> {
     const model = persona.laneModel || 'executor'
-    const sys = buildSystemPrompt(card, persona, LANE_NOTE)
+    const sys = buildSystemPrompt(card, persona, LANE_NOTE, model) // HQ-1: dẫn theo HỌ model lane THẬT (gpt/gemini/khác)
     const notes = card.reviewNotes?.length ? `\n\n⚠️ PHẢN HỒI cần SỬA:\n- ${card.reviewNotes.join('\n- ')}` : ''
     const prev = card.lastSummary ? `\n\n↪ Bước TRƯỚC: ${card.lastSummary}\n(đọc kết quả bước trước trong workspace, nối tiếp.)` : ''
     const user = `Card: ${card.title}\n\n${card.brief}\n\nStage hiện tại: ${stage.name}.${prev}${notes}`

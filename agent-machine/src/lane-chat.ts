@@ -1,6 +1,6 @@
 // lane-chat.ts — Phase M: vòng AGENTIC cho LANE model trong CHAT (không phải card pipeline).
 // Cho model rẻ "biết dùng máy/web" như Hermes: web_search · web_fetch · read_file · list_dir · bash · write_file · edit_file.
-// Sandbox trong workspace (safePath) · bash không thoát ws · onTool callback → stream tool-card lên UI (#3 minh bạch).
+// File tools KHÔNG sandbox workspace — model đọc/sửa bất kỳ path nào NGOẠI TRỪ blacklist nhạy cảm (.ssh, secrets...).
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -12,19 +12,36 @@ import { readAgentBrain } from './agent-brain'   // K2: nạp não nghề của 
 export const CHAT_TOOLS: ToolDef[] = [
   { type: 'function', function: { name: 'web_search', description: 'Tìm web (DuckDuckGo) → top kết quả {tiêu đề, URL}. Dùng để research/tra thông tin mới.', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } } },
   { type: 'function', function: { name: 'web_fetch', description: 'Lấy nội dung 1 URL (text). Dùng sau web_search để đọc trang cụ thể.', parameters: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } } },
-  { type: 'function', function: { name: 'read_file', description: 'Đọc 1 file trong workspace.', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } },
-  { type: 'function', function: { name: 'list_dir', description: 'Liệt kê thư mục trong workspace.', parameters: { type: 'object', properties: { path: { type: 'string' } } } } },
-  { type: 'function', function: { name: 'bash', description: 'Chạy lệnh shell trong workspace (đọc/khảo sát/chạy thử). KHÔNG git push, KHÔNG xoá/đụng ngoài workspace.', parameters: { type: 'object', properties: { cmd: { type: 'string' } }, required: ['cmd'] } } },
-  { type: 'function', function: { name: 'write_file', description: 'Ghi/đè 1 file trong workspace.', parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } } },
-  { type: 'function', function: { name: 'edit_file', description: 'Thay old_string → new_string trong 1 file.', parameters: { type: 'object', properties: { path: { type: 'string' }, old_string: { type: 'string' }, new_string: { type: 'string' } }, required: ['path', 'old_string', 'new_string'] } } },
+  { type: 'function', function: { name: 'read_file', description: 'Đọc file bất kỳ trên hệ thống (path tuyệt đối hoặc tương đối từ workspace). Ưu tiên path tuyệt đối khi biết chắc.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Path tuyệt đối (ví dụ /root/lucy/hub/server/src/index.ts) hoặc tương đối từ workspace' } }, required: ['path'] } } },
+  { type: 'function', function: { name: 'list_dir', description: 'Liệt kê thư mục (path tuyệt đối hoặc tương đối).', parameters: { type: 'object', properties: { path: { type: 'string', description: 'Path thư mục, mặc định = workspace' } } } } },
+  { type: 'function', function: { name: 'bash', description: 'Chạy lệnh shell (có thể dùng path tuyệt đối). KHÔNG git push, KHÔNG xoá hàng loạt, KHÔNG echo/cat secrets.', parameters: { type: 'object', properties: { cmd: { type: 'string' } }, required: ['cmd'] } } },
+  { type: 'function', function: { name: 'write_file', description: 'Ghi/tạo file (path tuyệt đối hoặc tương đối từ workspace).', parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } } },
+  { type: 'function', function: { name: 'edit_file', description: 'Thay old_string → new_string trong file (path tuyệt đối hoặc tương đối). Dùng khi chỉ cần sửa 1 đoạn nhỏ.', parameters: { type: 'object', properties: { path: { type: 'string' }, old_string: { type: 'string' }, new_string: { type: 'string' } }, required: ['path', 'old_string', 'new_string'] } } },
 ]
 
-function safePath(ws: string, p: string): string {
-  const base = path.resolve(ws)
-  const r = path.resolve(base, p || '.')
-  if (r !== base && !r.startsWith(base + path.sep)) throw new Error('path ngoài workspace bị chặn')
+// Blacklist path nhạy cảm — block đọc/ghi các file này dù dùng path tuyệt đối
+const SENSITIVE_PATTERNS = [
+  /\/\.ssh\//,
+  /\/\.gnupg\//,
+  /[/.]env$/,           // .env, *.env (chứa secrets)
+  /\.env\./,            // .env.local, .env.production
+  /private[_-]?key/i,
+  /secret[_-]?key/i,
+  /id_rsa/,
+  /id_ed25519/,
+  /credentials\.json/i,
+]
+function isSensitive(p: string): boolean {
+  return SENSITIVE_PATTERNS.some(rx => rx.test(p))
+}
+
+// Resolve path: absolute = dùng nguyên, relative = resolve từ ws
+function resolvePath(ws: string, p: string): string {
+  const r = path.isAbsolute(p) ? path.normalize(p) : path.resolve(ws, p || '.')
+  if (isSensitive(r)) throw new Error(`path nhạy cảm bị chặn: ${r}`)
   return r
 }
+
 function runBash(cmd: string, ws: string, timeoutMs = 60000): Promise<string> {
   return new Promise((resolve) => {
     const ch = spawn('bash', ['-lc', cmd], { cwd: ws, env: { ...process.env }, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -70,11 +87,11 @@ async function execChatTool(name: string, a: Record<string, unknown>, ws: string
     case 'consult_expert': return await consultExpert(S(a, 'persona'), S(a, 'question'), ws)
     case 'web_search': return await webSearch(S(a, 'query'))
     case 'web_fetch': return await webFetch(S(a, 'url'))
-    case 'read_file': { const c = fs.readFileSync(safePath(ws, S(a, 'path')), 'utf8'); return c.length > 20000 ? c.slice(0, 20000) + '\n…(cắt)' : c }
-    case 'list_dir': { const d = safePath(ws, S(a, 'path') || '.'); return fs.readdirSync(d, { withFileTypes: true }).map((e) => e.isDirectory() ? e.name + '/' : e.name).join('\n') || '(rỗng)' }
+    case 'read_file': { const p = resolvePath(ws, S(a, 'path')); const c = fs.readFileSync(p, 'utf8'); return c.length > 20000 ? c.slice(0, 20000) + '\n…(cắt)' : c }
+    case 'list_dir': { const d = resolvePath(ws, S(a, 'path') || '.'); return fs.readdirSync(d, { withFileTypes: true }).map((e) => e.isDirectory() ? e.name + '/' : e.name).join('\n') || '(rỗng)' }
     case 'bash': return await runBash(S(a, 'cmd'), ws)
-    case 'write_file': { const p = safePath(ws, S(a, 'path')); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, S(a, 'content')); return `đã ghi ${S(a, 'path')}` }
-    case 'edit_file': { const p = safePath(ws, S(a, 'path')); const cur = fs.readFileSync(p, 'utf8'); const o = S(a, 'old_string'); if (!cur.includes(o)) return `ERROR: không thấy old_string trong ${S(a, 'path')}`; fs.writeFileSync(p, cur.replace(o, S(a, 'new_string'))); return `đã sửa ${S(a, 'path')}` }
+    case 'write_file': { const p = resolvePath(ws, S(a, 'path')); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, S(a, 'content')); return `đã ghi ${p}` }
+    case 'edit_file': { const p = resolvePath(ws, S(a, 'path')); const cur = fs.readFileSync(p, 'utf8'); const o = S(a, 'old_string'); if (!cur.includes(o)) return `ERROR: không thấy old_string trong ${p}`; fs.writeFileSync(p, cur.replace(o, S(a, 'new_string'))); return `đã sửa ${p}` }
     default: return `ERROR: tool lạ "${name}"`
   }
 }
@@ -85,7 +102,7 @@ export const CHAT_LANE_NOTE = `
 BẠN CÓ TOOL THẬT: web_search · web_fetch · read_file · list_dir · bash · write_file · edit_file · consult_expert.
 - Cần thông tin mới/thực tế (giá, tin, tài liệu) → PHẢI web_search rồi web_fetch trang cụ thể, KHÔNG bịa.
 - Cần GÓC CHUYÊN SÂU ngoài thế mạnh → consult_expert(persona, question). Có 12 expert: finance, marketing, researcher, designer, data, architect, engineer, security, investigator, devops, tester, writer. Hỏi đúng người rồi DỆT ý họ vào câu trả lời (1 luồng, đừng chỉ chép).
-- Khảo sát/chạy thử bằng read_file/list_dir/bash trong workspace. AN TOÀN: không git push, không xoá/đụng ngoài workspace, không đọc/echo secret.
+- Đọc/sửa file: read_file/write_file/edit_file nhận PATH TUYỆT ĐỐI (ví dụ /root/lucy/hub/server/src/index.ts) hoặc tương đối từ workspace. Ưu tiên path tuyệt đối để tránh nhầm. KHÔNG đọc/echo secret (.env, .ssh, private key).
 - Khi đã đủ → trả lời CUỐI bằng văn (KHÔNG kèm tool call). Xưng em, gọi chủ nhân.`
 
 export type ToolTrace = { name: string; input: string; result: string }

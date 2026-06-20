@@ -1,0 +1,126 @@
+#!/usr/bin/env node
+// bin/portal — Lucy Portal CLI: register | remove | list
+// Ingest CLI cho automation — cron đẻ web-app mỗi ngày tự hấp thụ vào cổng.
+// Dùng: portal register <file.json | --field=key=val ...>
+//        portal remove <id>
+//        portal list
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { validate, fromFields } from '../src/schema.mjs';
+import { build } from '../src/builder.mjs';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(__dirname, '..');
+const REGISTRY = path.join(ROOT, 'registry');
+
+function usage() {
+  console.log('Dùng: portal <lệnh> [args]');
+  console.log('  register <file.json | --field=key=val ...>  Đăng ký project rồi build');
+  console.log('  remove <id>                                 Xoá project rồi build');
+  console.log('  list                                        Liệt kê tất cả project');
+  process.exit(1);
+}
+
+const [,, cmd, ...rest] = process.argv;
+if (!cmd) usage();
+
+// ── register ────────────────────────────────────────────────────────────────
+if (cmd === 'register') {
+  let manifest;
+
+  const fieldArgs = rest.filter((a) => a.startsWith('--'));
+  const fileArg   = rest.find((a) => !a.startsWith('--'));
+
+  if (fileArg) {
+    const fp = path.resolve(fileArg);
+    if (!fs.existsSync(fp)) { console.error(`Không tìm thấy file: ${fp}`); process.exit(1); }
+    try { manifest = JSON.parse(fs.readFileSync(fp, 'utf8')); }
+    catch (e) { console.error(`JSON lỗi: ${e.message}`); process.exit(1); }
+  } else if (fieldArgs.length) {
+    const fields = {};
+    for (const a of fieldArgs) {
+      const eq = a.indexOf('=', 2);
+      if (eq < 0) { console.error(`Không hiểu tham số: ${a} (dùng --key=val)`); process.exit(1); }
+      const k = a.slice(2, eq);
+      let v = a.slice(eq + 1);
+      if (v === 'true') v = true;
+      else if (v === 'false') v = false;
+      else if (v.startsWith('[') || v.startsWith('{')) {
+        try { v = JSON.parse(v); } catch (_) { /* giữ string */ }
+      }
+      fields[k] = v;
+    }
+    manifest = fromFields(fields);
+  } else {
+    console.error('Cần truyền <file.json> hoặc --field=key=val');
+    usage();
+  }
+
+  // validate + chuẩn hoá
+  let m;
+  try { m = validate(manifest); }
+  catch (e) { console.error(`Manifest lỗi: ${e.message}`); process.exit(1); }
+
+  const outFile = path.join(REGISTRY, `${m.id}.json`);
+  const existed = fs.existsSync(outFile);
+  fs.writeFileSync(outFile, JSON.stringify(m, null, 2) + '\n', 'utf8');
+  console.log(`${existed ? '♻️  cập nhật' : '✅ đăng ký'}: ${m.id} → ${outFile}`);
+
+  // build ngay
+  const r = build();
+  console.log(`🔨 build: ${r.count} dự án → ${r.out}`);
+  process.exit(r.errors.length ? 1 : 0);
+}
+
+// ── remove ────────────────────────────────────────────────────────────────
+if (cmd === 'remove') {
+  const id = rest[0];
+  if (!id) { console.error('Cần <id>'); usage(); }
+
+  const target = path.join(REGISTRY, `${id}.json`);
+  if (!fs.existsSync(target)) {
+    console.error(`Không tìm thấy: ${target}`);
+    process.exit(1);
+  }
+  fs.unlinkSync(target);
+  console.log(`🗑  đã xoá: ${id}`);
+
+  const r = build();
+  console.log(`🔨 build: ${r.count} dự án → ${r.out}`);
+  process.exit(r.errors.length ? 1 : 0);
+}
+
+// ── list ────────────────────────────────────────────────────────────────
+if (cmd === 'list') {
+  const files = fs.existsSync(REGISTRY)
+    ? fs.readdirSync(REGISTRY).filter((f) => f.endsWith('.json') && !f.startsWith('_')).sort()
+    : [];
+
+  if (!files.length) { console.log('Chưa có manifest nào.'); process.exit(0); }
+
+  const rows = files.map((f) => {
+    try {
+      const m = validate(JSON.parse(fs.readFileSync(path.join(REGISTRY, f), 'utf8')));
+      return { id: m.id, zone: m.zone, status: m.status, title: m.title };
+    } catch (e) {
+      return { id: f, zone: '?', status: '?', title: `(lỗi: ${e.message})` };
+    }
+  });
+
+  const colW = { id: 32, zone: 9, status: 9 };
+  console.log(
+    'ID'.padEnd(colW.id) + 'ZONE'.padEnd(colW.zone) + 'STATUS'.padEnd(colW.status) + 'TITLE'
+  );
+  console.log('─'.repeat(colW.id + colW.zone + colW.status + 30));
+  for (const r of rows) {
+    console.log(
+      r.id.padEnd(colW.id) + r.zone.padEnd(colW.zone) + r.status.padEnd(colW.status) + r.title
+    );
+  }
+  console.log(`\nTổng: ${rows.length} manifest`);
+  process.exit(0);
+}
+
+console.error(`Lệnh không hợp lệ: ${cmd}`);
+usage();

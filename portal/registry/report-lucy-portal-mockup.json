@@ -1,0 +1,12 @@
+{
+  "id": "report-lucy-portal-mockup",
+  "title": "Lucy Portal — mockup đã duyệt",
+  "zone": "report",
+  "url": "/reports/lucy-portal-mockup.html",
+  "description": "Mockup cockpit gold/cyan cho cổng dự án /lucy/ — tham chiếu thiết kế LP.",
+  "status": "live",
+  "tags": ["portal", "design", "mockup"],
+  "thumbnail": null,
+  "createdAt": "2026-06-19",
+  "updatedAt": "2026-06-19"
+}

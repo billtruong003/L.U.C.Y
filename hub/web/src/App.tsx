@@ -16,6 +16,7 @@ import Personas from './components/Personas'
 import Connect from './components/Connect'
 import Skills from './components/Skills'
 import Prompts from './components/Prompts'
+import AutoTask from './components/AutoTask'
 import ReactorHome from './components/ReactorHome'
 import HudRail from './components/HudRail'
 import CommandPalette, { type PaletteItem } from './components/CommandPalette'
@@ -39,6 +40,7 @@ const BASE_TABS = [
   { id: 'workspace', label: 'Dự án', icon: '🗂️', sub: 'Kanban · Lucy · Channels', group: 'Việc', kw: 'kanban channel note' },
   { id: 'projects', label: 'Mã nguồn', icon: '📁', sub: 'Cây mã nguồn', group: 'Việc', kw: 'code repo source ma nguon' },
   { id: 'tasks', label: 'Tasks', icon: '⚙️', sub: 'Việc đang chạy', group: 'Việc', kw: 'task job running' },
+  { id: 'autotask', label: 'Auto-Task', icon: '📦', sub: 'Project · sprint · research', group: 'Việc', kw: 'autotask project sprint research per-project' },
   { id: 'schedule', label: 'Schedule', icon: '🗓️', sub: 'Đặt lịch tự chạy', group: 'Việc', kw: 'cron lich schedule' },
   { id: 'connect', label: 'Kết nối', icon: '🔌', sub: 'MCP — tay của Lucy', group: 'Hệ thống', kw: 'mcp tool tay connect ket noi github notion' },
   { id: 'skills', label: 'Kỹ năng', icon: '🎯', sub: 'Thư viện skill · tự học', group: 'Hệ thống', kw: 'skill ky nang loader tu hoc proposed' },
@@ -327,6 +329,7 @@ export default function App() {
           {promptsOn && <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'prompts' ? '' : 'opacity-0 pointer-events-none')}><Prompts /></div>}
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'draw' ? '' : 'opacity-0 pointer-events-none')}><Draw /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'aki' ? '' : 'opacity-0 pointer-events-none')}><Aki /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'autotask' ? '' : 'opacity-0 pointer-events-none')}><AutoTask /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'logs' ? '' : 'opacity-0 pointer-events-none')}><Logs /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'settings' ? '' : 'opacity-0 pointer-events-none')}><Settings /></div>
         </section>

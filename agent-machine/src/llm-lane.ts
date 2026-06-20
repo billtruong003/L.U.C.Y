@@ -50,6 +50,9 @@ export const MODEL_CATALOG: ModelEntry[] = [
   { key: 'ds-chat',          label: 'DeepSeek Chat',            provider: 'openrouter',   model: 'deepseek/deepseek-chat',     role: 'fast', free: false, ctx: '64k', note: 'non-reasoning rẻ — structural/refine (Prompt Architect)' },
   { key: 'or-nemotron-super', label: 'Nemotron 3 Super 120B',   provider: 'openrouter',   model: 'nvidia/nemotron-3-super-120b-a12b:free', role: 'executor', free: true, ctx: '1M', note: 'free + tool-calling, nhanh (verify 2026-06-12)' },
   { key: 'or-gptoss-120b',   label: 'GPT-OSS 120B (OpenRouter free)', provider: 'openrouter', model: 'openai/gpt-oss-120b:free', role: 'executor', free: true, ctx: '131k', note: 'free + tool-calling' },
+  // ABF (auto-build-free) — executor free từ OpenCode Zen: code nhỏ + vision QA
+  { key: 'mimo-v2.5-free',   label: 'MiMo V2.5 Free',           provider: 'opencode-zen', model: 'mimo-v2.5-free',             role: 'executor', free: true, ctx: '256k', note: 'vision+code, xiaomi/mimo-v2.5 — OpenCode Zen free (live OK 2026-06-19)' },
+  { key: 'minimax-m3-free',  label: 'MiniMax M3 Free',          provider: 'opencode-zen', model: 'minimax-m3-free',            role: 'executor', free: false, ctx: '1M', note: '⛔ 401 "Free promotion ended" (verify live 2026-06-19, cần OpenCode Go) → ĐỪNG route; ABF fallback ds-v4-flash-free' },
   // reasoning
   { key: 'ds-v4-pro',        label: 'DeepSeek V4 Pro',          provider: 'openrouter',   model: 'deepseek/deepseek-v4-pro',   role: 'reasoning', free: false, ctx: '1M', note: 'S-tier reasoning+code' },
   // fast — nhanh, việc nhẹ
@@ -73,7 +76,7 @@ export const MODEL_CATALOG: ModelEntry[] = [
 
 // Chuỗi fallback theo role (chạy lần lượt tới khi 1 cái ra content). Chỉ model đã verify.
 export const FALLBACKS: Record<Role, string[]> = {
-  executor:  ['ds-v4-flash-free', 'or-nemotron-super', 'devstral-med', 'or-gptoss-120b', 'ds-v4-flash', 'codestral'],
+  executor:  ['mimo-v2.5-free', 'ds-v4-flash-free', 'or-nemotron-super', 'devstral-med', 'or-gptoss-120b', 'ds-v4-flash', 'codestral'],
   reasoning: ['ds-v4-pro', 'ds-v4-flash', 'groq-gptoss-120b'],
   fast:      ['groq-gptoss-120b', 'cerebras-glm-47', 'groq-llama-70b'],
   content:   ['gemini-flash', 'mistral-large', 'groq-gptoss-120b'],
@@ -117,7 +120,7 @@ function loadEnvFile(): void {
     if (eq < 0) continue
     const k = s.slice(0, eq).trim()
     const v = s.slice(eq + 1).trim()
-    if (k && !process.env[k]) process.env[k] = v
+    if (k) process.env[k] = v // .env.llm luôn thắng — file này chỉ chứa LLM API keys
   }
 }
 

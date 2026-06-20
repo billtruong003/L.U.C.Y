@@ -25,6 +25,7 @@ import { mcpRegistryOverview } from './mcp-registry'
 import { skillsOverview } from './skill-loader'
 import { runPromptArchitect, promptArchitectFlagOn } from './prompt-architect'
 import { usdFor } from './pricing'
+import { writeSessionSummary, sessionSummaryFlagOn } from './session-summary'
 import type { LedgerSource } from './types'
 
 function serializeJob(j: JobSpec) {
@@ -126,7 +127,7 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       if (req.method === 'POST' && url === '/spend') {
         const b = await readBody(req)
         const sane = (v: unknown): number => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : 0 }
-        const SOURCES: LedgerSource[] = ['worker', 'autobuild', 'bridge', 'hub', 'lane', 'cron', 'unknown']
+        const SOURCES: LedgerSource[] = ['worker', 'autobuild', 'bridge', 'hub', 'lane', 'cron', 'autotask', 'unknown']
         const source = SOURCES.includes(b.source) ? (b.source as LedgerSource) : 'unknown'
         const model = String(b.model || 'unknown')
         const inTok = sane(b.inTok), outTok = sane(b.outTok)
@@ -292,7 +293,7 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       // ── ERROR-STATS: phân loại lỗi agent từ turn-log.jsonl (đọc env AM_TURNS_LOG cục bộ) ──
       if (req.method === 'GET' && url === '/error-stats') return send(200, buildErrorStats(store))
       // ── BỘ NÃO (M1: recall + vault browse + dream). brainOn=false nếu chưa set LUCY_VAULT. ──
-      if (url.startsWith('/recall') || url.startsWith('/brain') || url.startsWith('/episodic')) {
+      if (url.startsWith('/recall') || url.startsWith('/brain') || url.startsWith('/episodic') || url.startsWith('/session-summary')) {
         if (!brainOn || !recall || !vaultDir) return send(200, { configured: false })
         // PHASE 2: ghi 1 turn hội thoại (bridge/hub gọi async non-blocking). Flag off → no-op nhẹ.
         // Bọc try/catch riêng: ghi turn hỏng KHÔNG được chặn chat (caller fire-and-forget bỏ qua lỗi).
@@ -309,6 +310,19 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
           const q = qs.get('q') || ''
           const hits = episodicOn && q ? recall.searchTurns(q, { limit: Number(qs.get('limit')) || 5, sinceDays: Number(qs.get('days')) || undefined }) : []
           return send(200, { configured: true, episodicOn, retentionDays, stats: recall.episodicStats(), hits })
+        }
+        // ── CM-1: đóng phiên → ghi 1 note episodic-summary (ký ức xuyên phiên) → reindex để Jina/FTS bắt ngay.
+        // body: {chat_id?, session_id?, summary, refs?:[{type,value,note?}]}. redact + valid_to trống (còn hiệu lực).
+        // Flag LUCY_SESSION_SUMMARY (mặc định tắt → an toàn live; chỉ trả off, không lỗi).
+        if (req.method === 'POST' && url === '/session-summary') {
+          if (!sessionSummaryFlagOn()) return send(200, { configured: true, ok: false, off: true })
+          try {
+            const b = await readBody(req)
+            const out = writeSessionSummary(vaultDir, { chatId: b.chat_id, sessionId: b.session_id, summary: b.summary, refs: Array.isArray(b.refs) ? b.refs : [], done: Array.isArray(b.done) ? b.done : [] })
+            if (!out) return send(400, { configured: true, ok: false, error: 'summary rỗng' })
+            // JSONL tuyến tính nằm ngoài tầm index recall (chỉ .md) → không reindex ở đây.
+            return send(200, { configured: true, ok: true, file: out.rel })
+          } catch (e) { return send(200, { configured: true, ok: false, error: String(e) }) }
         }
         if (req.method === 'GET' && url === '/recall') {
           freshIndex()

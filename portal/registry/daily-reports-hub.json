@@ -1,0 +1,12 @@
+{
+  "id": "daily-reports-hub",
+  "title": "Lucy Reports — kho báo cáo",
+  "zone": "daily",
+  "url": "http://14.225.255.73/reports/",
+  "description": "Trang chủ kho báo cáo Lucy — daily brief, phân tích thị trường, lịch sử sprint.",
+  "status": "live",
+  "tags": ["reports", "daily-brief"],
+  "thumbnail": null,
+  "createdAt": "2026-06-13",
+  "updatedAt": "2026-06-19"
+}

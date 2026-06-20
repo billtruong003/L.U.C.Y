@@ -49,3 +49,10 @@ lucy.config.cjs
 ecosystem.local.cjs
 open-hub-lan.bat
 .gcp-oauth.json
+
+# secret files (thêm 2026-06-20 trước khi push — KHÔNG commit)
+*LOGIN.txt
+*-keys
+.opencode-zen-keys
+*.keys
+fitcity-admin-LOGIN.txt

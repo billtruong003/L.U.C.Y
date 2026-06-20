@@ -1,0 +1,65 @@
+{
+  "tasks": [
+    {
+      "id": "YTM-12",
+      "title": "Tạo frontend/src/pages/History.tsx (missing — build break)",
+      "tier": "code-free",
+      "reason": "App.tsx lazy-import './pages/History' nhưng file không tồn tại → TypeScript compile fail. Pattern cực rõ: dùng useHistory() hook (trả data từ localStorage), hiển thị danh sách SongCard giống Liked.tsx. Zero decision cần thiết.",
+      "sub_steps": [
+        "Đọc store/history.ts — useHistoryStore.songs[] + clear()",
+        "Tạo History.tsx: header + empty state + SongCard list + Clear history button",
+        "Pattern copy từ Liked.tsx (skeleton, empty state, song list)"
+      ],
+      "estimated_tokens": 4000
+    },
+    {
+      "id": "YTM-13",
+      "title": "Thêm FTS5 content-sync triggers vào schema.sql + migrate.js",
+      "tier": "code-free",
+      "reason": "songs_fts dùng external content (content=songs) nhưng schema thiếu 3 trigger INSERT/UPDATE/DELETE để giữ FTS index đồng bộ khi insert bài qua db_writer.py → MATCH query trả rỗng. SQL boilerplate SQLite FTS5 docs.",
+      "sub_steps": [
+        "Thêm 3 trigger after_songs_insert / after_songs_delete / after_songs_update vào schema.sql",
+        "Thêm INSERT INTO songs_fts(songs_fts) VALUES ('rebuild') trong migrate.js sau exec schema để index data hiện có"
+      ],
+      "estimated_tokens": 3000
+    },
+    {
+      "id": "YTM-14",
+      "title": "TypeScript compile check frontend (npx tsc --noEmit) + fix errors",
+      "tier": "code-free",
+      "reason": "Nhiều file mới được viết nhưng chưa chạy tsc một lần nào. Lỗi thường gặp: missing History import (YTM-12 fix trước), Playlist.tsx dùng useQuery import trực tiếp, react-query v3 type quirks. Tất cả sửa cơ học theo error message.",
+      "sub_steps": [
+        "cd frontend && npx tsc --noEmit 2>&1 — ghi nhận toàn bộ lỗi",
+        "Fix từng lỗi theo error: missing import, wrong type, unused var",
+        "Chạy lại tsc đến sạch 0 errors"
+      ],
+      "estimated_tokens": 7000
+    },
+    {
+      "id": "YTM-15",
+      "title": "Frontend production build (npm run build) + verify dist hoạt động",
+      "tier": "code-free",
+      "reason": "Sau khi tsc clean, chạy vite build để generate dist/. Verify dist/index.html tồn tại + assets bundle. Server.js cần serve dist nếu muốn single-port deploy — thêm express.static('dist') nếu chưa có.",
+      "sub_steps": [
+        "cd frontend && npm run build — check output dist/assets/*.js",
+        "Xem backend/server.js: nếu thiếu express.static('../frontend/dist') thì thêm vào",
+        "Verify frontend/dist/index.html + bundle size hợp lý (<2MB)"
+      ],
+      "estimated_tokens": 4000
+    },
+    {
+      "id": "YTM-16",
+      "title": "Smoke test backend routes: kiểm tra 5 endpoint critical + in ra kết quả",
+      "tier": "code-free",
+      "reason": "Sau khi migrate + build xong, cần verify API trả đúng format. Script curl đơn giản: /api/songs, /api/trending, /api/history GET, /api/liked GET, /api/recommendations?songId=1. In status code + sample JSON. No logic phức tạp.",
+      "sub_steps": [
+        "Viết scripts/smoke_api.sh: curl 5 endpoint, print status + first 200 chars",
+        "Start backend (node backend/server.js &) → chạy smoke script",
+        "Ghi nhận bất kỳ endpoint nào trả 4xx/5xx → report lỗi"
+      ],
+      "estimated_tokens": 3000
+    }
+  ],
+  "sprint_note": "Phần lớn task trong danh sách 'CÒÒN THIẾU' đã được implement trước đó (bulk_runner, routes, pages, components — tất cả đều có file). Chỉ còn 5 gap thực sự: (1) History.tsx MISSING gây build break, (2) FTS5 search không đồng bộ do thiếu trigger, (3) tsc chưa được chạy lần nào, (4) dist chưa build, (5) API chưa smoke-test. Sprint này khép kín phần còn lại theo thứ tự: fix break → fix search → compile → build → test.",
+  "escalation_budget": 2
+}

@@ -20,6 +20,9 @@ const LIM = {
   AM_WEEKLY_CAP_USD: process.env.AM_WEEKLY_CAP_USD || '1000',
   // VPS yếu → trần đồng-thời thấp: tối đa 2 lane chạy 1 lúc (đè được qua env).
   AM_MAX_LANES: process.env.AM_MAX_LANES || '2',
+  // Token-guard/ngày (Bill expand 2026-06-18): soft 800M = đèn cảnh báo "đốt bao nhiêu", hard 1500M hiếm chạm (KHÔNG chặn gắt).
+  AM_DAY_TOKEN_SOFT: process.env.AM_DAY_TOKEN_SOFT || '800000000',
+  AM_DAY_TOKEN_HARD: process.env.AM_DAY_TOKEN_HARD || '1500000000',
 }
 
 module.exports = {

@@ -6,6 +6,8 @@
   "scripts": {
     "demo": "tsx src/demo.ts",
     "smoke": "tsx src/smoke.ts",
+    "smoke:hq": "tsx src/smoke-hq-quality.ts",
+    "smoke:cheap-wins": "tsx src/smoke-cheap-wins.ts",
     "smoke:remote": "tsx src/smoke-remote.ts",
     "smoke:fs": "tsx src/smoke-fs.ts",
     "smoke:conc": "tsx src/smoke-conc.ts",
@@ -16,6 +18,7 @@
     "smoke:memory": "tsx src/smoke-memory.ts",
     "smoke:vector": "tsx src/smoke-vector.ts",
     "smoke:episodic": "tsx src/smoke-episodic.ts",
+    "smoke:session-summary": "tsx src/smoke-session-summary.ts",
     "smoke:redact": "tsx src/smoke-redact.ts",
     "smoke:consolidate": "tsx src/smoke-consolidate.ts",
     "smoke:bitemporal": "tsx src/smoke-bitemporal.ts",

@@ -1,0 +1,12 @@
+{
+  "id": "daily-lucy-hub",
+  "title": "Lucy Hub — command center",
+  "zone": "daily",
+  "url": "http://14.225.255.73",
+  "description": "Lucy Hub web — chat, auto-task, token guard, skill engine, memory — trung tâm điều khiển.",
+  "status": "live",
+  "tags": ["hub", "chat", "command-center"],
+  "thumbnail": null,
+  "createdAt": "2026-06-13",
+  "updatedAt": "2026-06-19"
+}

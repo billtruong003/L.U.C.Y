@@ -1,0 +1,12 @@
+{
+  "id": "fitcity-preview",
+  "title": "FitCity — Landing 11 chi nhánh",
+  "zone": "preview",
+  "url": "/reports/fitcity-preview/",
+  "description": "Web landing gym FitCity — dark gold theme, Astro, 11 chi nhánh HCMC.",
+  "status": "live",
+  "tags": ["astro", "landing", "fitcity"],
+  "thumbnail": null,
+  "createdAt": "2026-06-17",
+  "updatedAt": "2026-06-19"
+}

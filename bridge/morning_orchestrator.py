@@ -88,7 +88,8 @@ def run_claude(prompt, timeout=TIMEOUT):
         proc = subprocess.run(
             [CLAUDE_BIN, "-p", prompt,
              "--model", "claude-opus-4-8",
-             "--permission-mode", "bypassPermissions",
+             # claude 2.1.173+ CẤM bypassPermissions khi chạy ROOT → dùng --allowedTools (như cron_brief.sh).
+             "--allowedTools", "Bash WebSearch WebFetch Read Glob Grep",
              "--output-format", "json",
              "--append-system-prompt-file", PERSONA_FILE],
             capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL

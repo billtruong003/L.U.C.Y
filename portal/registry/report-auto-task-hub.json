@@ -1,0 +1,12 @@
+{
+  "id": "report-auto-task-hub",
+  "title": "Auto-Task Hub — spec & API",
+  "zone": "report",
+  "url": "/reports/auto-task-hub.html",
+  "description": "ATH-1→ATH-6 — run_project_sprint, Hub API /api/autotask, tab Auto-Task.",
+  "status": "live",
+  "tags": ["auto-task", "hub", "architecture"],
+  "thumbnail": null,
+  "createdAt": "2026-06-17",
+  "updatedAt": "2026-06-19"
+}

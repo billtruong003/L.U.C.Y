@@ -9,6 +9,7 @@ Always-on: pm2 start lucy_bridge.py --name lucy-bridge --interpreter python3
 """
 import os
 import re
+import unicodedata
 import json
 import time
 import threading
@@ -58,7 +59,7 @@ TIMEOUT = int(os.environ.get("LUCY_CLAUDE_TIMEOUT", "900"))          # claude c�
 SESS    = os.path.expanduser("~/.lucy-bridge-sessions.json")
 PREFS     = os.path.expanduser("~/.lucy-bridge-prefs.json")   # Đợt A: model/persona/think theo chat_id
 LANE_HIST = os.path.expanduser("~/.lucy-lane-history.json")   # history lane per (chat_id, model_key)
-LANE_HIST_MAX = 20  # số messages giữ lại (10 turns)
+LANE_HIST_MAX = int(os.environ.get("LUCY_LANE_HIST_MAX", "60"))  # số messages giữ lại (30 turns) — tăng vì 20 ảo ngắn
 API     = f"https://api.telegram.org/bot{TOKEN}"
 OFFSET_FILE = os.path.expanduser("~/.lucy-bridge-offset.json")  # lưu getUpdates offset → /restart không tự nuốt loop
 # Bypass chặn ISP (VN chặn dải Bot API): nếu set, MỌI call Telegram đi qua proxy này (vd Cloudflare WARP socks5h://127.0.0.1:40000).
@@ -79,10 +80,23 @@ EPISODIC = str(os.environ.get("LUCY_EPISODIC", "1")).strip() not in ("0", "false
 # (coordinator NGUỒN DUY NHẤT, hết double-count) + đếm cục bộ theo ngày để xem qua /token. Tắt = đặt 0.
 TOKEN_REPORT = str(os.environ.get("LUCY_TOKEN_REPORT", "1")).strip() not in ("0", "false", "off", "")
 TG_TOKENS = os.path.expanduser(os.environ.get("LUCY_TG_TOKENS_FILE", "~/.lucy-bridge-tokens.json"))   # đếm token Telegram theo ngày (UTC)
+# CC (auto context-compression, CHỈ claude-path): theo dõi kích thước hội thoại per chat → auto-rollover khi dài
+# (tóm tắt → mở session claude MỚI seed bằng summary). Lane-path có L3 compressor riêng, KHÔNG đụng.
+AUTO_COMPRESS = str(os.environ.get("LUCY_AUTO_COMPRESS", "0")).strip() not in ("0", "false", "off", "")  # default OFF: claude-path để SDK gốc tự nén, tránh rollover 40-lượt ảo ngắn + double-layer
+CLAUDE_HIST = os.path.expanduser(os.environ.get("LUCY_CLAUDE_HIST_FILE", "~/.lucy-claude-history.json"))  # transcript buffer + counter per chat
+CLAUDE_HIST_MAX = int(os.environ.get("LUCY_CLAUDE_HIST_MAX", "80"))            # số message buffer giữ để tóm tắt (cap)
+COMPRESS_TURN_MAX = int(os.environ.get("LUCY_COMPRESS_TURN_MAX", "40"))        # ≥ ngần này lượt claude → nén
+COMPRESS_TOKEN_MAX = int(os.environ.get("LUCY_COMPRESS_TOKEN_MAX", "0"))       # 0 = AUTO (window−headroom); >0 = override cứng
+COMPRESS_HEADROOM = int(os.environ.get("LUCY_COMPRESS_HEADROOM", "25000"))     # chừa chỗ cho output + lượt mới trước khi nén
+# CM-2: tại MỌI điểm đóng phiên (/new + auto-rollover) → rolling-compact (seed_cũ ⊕ buffer) + persist note Brain/episodes/.
+# MẶC ĐỊNH TẮT: khi off, bridge chạy Y HỆT hiện tại (seed in-RAM, /new xoá sạch, không rolling, không persist).
+# Bật = LUCY_SESSION_SUMMARY=1 + restart bridge (đồng thời bật flag cùng tên ở coordinator để note ghi ra).
+SESSION_SUMMARY = str(os.environ.get("LUCY_SESSION_SUMMARY", "0")).strip() in ("1", "true", "on")
 
 os.makedirs(WORKDIR, exist_ok=True)
 
 LAST_MODEL = None                                       # model thật của lần claude gần nhất (từ modelUsage)
+LAST_TURN_TOK = 0                                        # CC-1: tổng token (in+out+cache) của lượt claude gần nhất
 try:
     CLAUDE_VER = subprocess.run([CLAUDE, "--version"], capture_output=True,
                                 text=True, timeout=15).stdout.strip()
@@ -158,6 +172,93 @@ def _clear_lane_hist(chat_id):
         _save_lane_hist(h)
 
 
+# ── CC: transcript buffer + counter per chat_id cho claude-path (auto context-compression) ──
+def _load_claude_hist():
+    try:
+        return json.load(open(CLAUDE_HIST))
+    except Exception:
+        return {}
+
+
+def _save_claude_hist(h):
+    try:
+        json.dump(h, open(CLAUDE_HIST, "w"))
+    except Exception:
+        pass
+
+
+def _claude_hist_entry(h, chat_id):
+    return h.setdefault(str(chat_id), {"buffer": [], "turns": 0, "tokens": 0, "seed": ""})
+
+
+def claude_hist_append(chat_id, user_text, answer, tokens=0):
+    """CC-1: append 1 lượt claude-path (user + assistant) vào buffer rolling.
+    turns = cộng dồn. tokens = OCCUPANCY lượt gần nhất (KHÔNG cộng dồn)."""
+    h = _load_claude_hist()
+    e = _claude_hist_entry(h, chat_id)
+    e["buffer"].append({"role": "user", "text": str(user_text or "")[:6000]})
+    e["buffer"].append({"role": "assistant", "text": str(answer or "")[:6000]})
+    if len(e["buffer"]) > CLAUDE_HIST_MAX:
+        e["buffer"] = e["buffer"][-CLAUDE_HIST_MAX:]
+    e["turns"] = int(e.get("turns", 0)) + 1
+    # CC-1 FIX (bug compact sớm): tokens lượt = input+output+cache_read+cache_creation ≈ ĐỘ ĐẦY context window
+    # hiện tại. cache_read lặp lại GẦN NGUYÊN context mỗi lượt → cộng dồn = đếm context đó N lần = rollover giả.
+    # Lưu occupancy lượt gần nhất, không cộng dồn. (Giữ giá trị cũ nếu lượt này báo 0 do lỗi/thiếu usage.)
+    t = max(0, int(tokens or 0))
+    if t > 0:
+        e["tokens"] = t
+    _save_claude_hist(h)
+    return e
+
+
+def _window_of(model):
+    """Context window THẬT của model (token). Map theo tên model-id từ modelUsage.
+    Mọi Claude 4.x hiện tại = 200k (Opus/Sonnet/Haiku). Sonnet bật beta 1M = 1,000,000."""
+    m = (model or "").lower()
+    if "sonnet" in m and "1m" in m:
+        return 1000000
+    return 200000  # mặc định an toàn cho mọi model Claude hiện hành
+
+
+def _compress_token_threshold():
+    """Ngưỡng occupancy động = window(model) − headroom (mặc định 25k chừa chỗ output+lượt mới).
+    LUCY_COMPRESS_TOKEN_MAX > 0 = override cứng (bỏ qua động)."""
+    if COMPRESS_TOKEN_MAX > 0:
+        return COMPRESS_TOKEN_MAX
+    return max(40000, _window_of(LAST_MODEL) - COMPRESS_HEADROOM)
+
+
+def should_compress(chat_id):
+    """CC-1: hội thoại claude-path của chat này đã đủ ĐẦY context để auto-rollover chưa?
+    True khi vượt ngưỡng lượt HOẶC occupancy (token lượt gần nhất) ≥ window−headroom
+    (chỉ khi LUCY_AUTO_COMPRESS bật)."""
+    if not AUTO_COMPRESS:
+        return False
+    e = _load_claude_hist().get(str(chat_id))
+    if not e:
+        return False
+    return int(e.get("turns", 0)) >= COMPRESS_TURN_MAX or int(e.get("tokens", 0)) >= _compress_token_threshold()
+
+
+def _take_claude_seed(chat_id):
+    """CC-2: lấy + xoá seed summary đang chờ (prepend vào prompt ĐẦU của session mới sau rollover)."""
+    h = _load_claude_hist()
+    e = h.get(str(chat_id))
+    if not e:
+        return ""
+    seed = e.get("seed") or ""
+    if seed:
+        e["seed"] = ""
+        _save_claude_hist(h)
+    return seed
+
+
+def _clear_claude_hist(chat_id):
+    """/new: xoá hẳn buffer + counter + seed claude-path của 1 chat."""
+    h = _load_claude_hist()
+    if str(chat_id) in h:
+        del h[str(chat_id)]
+        _save_claude_hist(h)
 
 
 def _coord(path, body=None):
@@ -204,27 +305,59 @@ def scrub_secrets(text):
     return s
 
 
+# ── Fix #3: gate + lọc lạc đề + dedupe cho recall (tránh chèn "context xàm lồn") ──
+_ACK_RE = re.compile(
+    r"^(ok|oke|okay|okie|uk|um|ờ|ừ|u|uh|uhm|rồi|roi|vâng|dạ|da|yep|yes|no|ko|"
+    r"đúng|dung|sai|hử|hả|haha|hihi|thôi|thoi|được|duoc|ơ|ờ|ừm)[\s\.!,]*$", re.I)
+
+
+def _norm_tokens(s):
+    """Bỏ dấu + lowercase → tập token nghĩa (≥4 ký tự) để so độ liên quan thô."""
+    s = unicodedata.normalize("NFD", str(s or "").lower())
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return set(re.findall(r"[a-z0-9]{4,}", s))
+
+
 def recall_prefetch(text):
     """PHASE 0: tra memory vault (coordinator POST /recall) → khối '🧠 Trí nhớ liên quan' chèn đầu prompt.
-    Cap ~5 hit / ~800 ký tự snippet. Lỗi/timeout/tắt flag → trả '' (chat vẫn chạy bình thường)."""
+    Fix #3: GATE (bỏ lệnh/tin quá ngắn/câu xác nhận trống nghĩa) + LỌC hit lạc đề (0 token chung với câu hỏi)
+    + DEDUPE theo title → không chèn rác. Cap 5 hit / ~800 ký tự. Lỗi/tắt flag → trả '' (chat vẫn chạy)."""
     if not RECALL_PREFETCH or not text or not text.strip():
+        return ""
+    t = text.strip()
+    # GATE: lệnh, câu xác nhận trống nghĩa, hoặc quá ngắn → không tra (đây là lúc recall hay lôi rác lạc đề)
+    if t.startswith("/") or _ACK_RE.match(t):
+        return ""
+    qtok = _norm_tokens(t)
+    if len(t) < 12 or len(qtok) < 2:
         return ""
     try:
         headers = {"x-worker-token": COORD_TOK} if COORD_TOK else {}
-        r = requests.post(f"{COORD_URL}/recall", json={"q": text[:500], "limit": 5},
+        r = requests.post(f"{COORD_URL}/recall", json={"q": text[:500], "limit": 8},
                           headers=headers, timeout=4)
         hits = (r.json() or {}).get("hits") or []
     except Exception:
         return ""
-    lines, budget = [], 800
-    for h in hits[:5]:
+    lines, budget, seen = [], 800, set()
+    for h in hits:
         title = (h.get("title") or h.get("file_path") or "").strip()
+        if not title:
+            continue
+        key = re.sub(r"\s+", " ", title.lower())[:60]
+        if key in seen:                              # DEDUPE: title trùng (vd "💬 Phiên ..." lặp)
+            continue
         snip = " ".join((h.get("snippet") or "").split())[:200]
+        # LỌC LẠC ĐỀ: hit phải chia sẻ ≥1 token nghĩa với câu hỏi, không thì coi như off-topic → bỏ
+        if qtok.isdisjoint(_norm_tokens(title + " " + snip)):
+            continue
         item = f"- {title}: {snip}" if snip else f"- {title}"
         if budget - len(item) < 0:
             break
         budget -= len(item)
+        seen.add(key)
         lines.append(item)
+        if len(lines) >= 5:
+            break
     if not lines:
         return ""
     return ("🧠 Trí nhớ liên quan (tra tự động từ vault — dùng nếu hữu ích, bỏ qua nếu lạc đề):\n"
@@ -316,6 +449,10 @@ def report_tokens(usage, cost_usd=0.0, model=None):
     if not usage:
         return
     u = usage or {}
+    global LAST_TURN_TOK   # CC-1: lưu tổng token lượt này để counter hội thoại cộng dồn
+    LAST_TURN_TOK = (int(u.get("input_tokens", 0) or 0) + int(u.get("output_tokens", 0) or 0)
+                     + int(u.get("cache_read_input_tokens", 0) or 0)
+                     + int(u.get("cache_creation_input_tokens", 0) or 0))
     _report_tok(int(u.get("input_tokens", 0) or 0), int(u.get("output_tokens", 0) or 0), cost_usd,
                 cache_read=int(u.get("cache_read_input_tokens", 0) or 0),
                 cache_write=int(u.get("cache_creation_input_tokens", 0) or 0),
@@ -519,6 +656,198 @@ def reply(chat_id, text):
     teaser = "\n".join(l for l in text.splitlines() if not l.strip().startswith("|")).strip()[:600]
     send(chat_id, "📄 Nội dung dài em gửi file kèm ạ. Tóm tắt:\n\n" + teaser)
     send_document(chat_id, path, caption="Lucy")
+
+
+# ── GD: Graceful degradation — Claude hết cửa → tụt xuống lane free TỐT NHẤT còn quota (Hermes-style) ──
+# Mẫu lỗi HẾT-CỬA từ claude (usage/rate limit, 429, "extra usage", quota). Chỉ kích fallback khi claude THẬT SỰ lỗi.
+_EXHAUST_RE = re.compile(r'usage.?limit|rate.?limit|\b429\b|extra usage|quota', re.I)
+
+
+def pick_fallback_brain():
+    """GD-1: trả KEY model lane TỐT NHẤT còn cửa (provider còn key) làm NÃO dự phòng khi Claude hết token.
+    Deterministic: ưu tiên routeTable agentic-code → reasoning → router → mọi model free còn lại (thứ tự catalog).
+    Đọc /llm/models (live, có providers.hasKey). Hết sạch / coordinator offline → None (không lane nào chạy được)."""
+    d = _coord("/llm/models")
+    catalog = d.get("catalog") or []
+    if not catalog:
+        return None
+    have = {p.get("provider") for p in (d.get("providers") or []) if p.get("hasKey")}
+    if not have:
+        return None
+    by_key = {m.get("key"): m for m in catalog if m.get("key")}
+    rt = d.get("routeTable") or {}
+    order, seen = [], set()
+    cands = list(rt.get("agentic-code") or []) + list(rt.get("reasoning") or [])
+    if d.get("router"):
+        cands.append(d["router"])
+    for k in cands:
+        if k and k not in seen:
+            seen.add(k); order.append(k)
+    for m in catalog:                       # cuối: mọi model free còn lại theo thứ tự catalog
+        k = m.get("key")
+        if k and m.get("free") and k not in seen:
+            seen.add(k); order.append(k)
+    for k in order:
+        e = by_key.get(k)
+        if e and e.get("provider") in have:
+            return k
+    return None
+
+
+def _claude_exhausted(text):
+    """GD-2: nhận diện result string của claude là lỗi HẾT-CỬA (usage/rate limit, 429, quota, extra usage)."""
+    return bool(text) and bool(_EXHAUST_RE.search(str(text)))
+
+
+def _token_guard_hard():
+    """GD-2: token-guard CHUNG (coordinator NGUỒN DUY NHẤT) đã chạm hard-limit? Lỗi/chưa cấu hình → False."""
+    g = _coord("/token-guard")
+    try:
+        return bool(g.get("configured") and (g.get("status") or {}).get("hard"))
+    except Exception:
+        return False
+
+
+def _run_lane_fallback(chat_id, prompt_with_mem, model_key, persona_id=None, pthink=False, reason="", mid=None):
+    """GD-2: Claude hết cửa → chạy tạm bằng lane model free, kèm banner báo chủ nhân (không trả lỗi trống)."""
+    banner = (f"⚠️ Claude hết token, em chạy tạm bằng `{model_key}`"
+              + (f" ({reason})" if reason else "") + ".")
+    if mid:
+        edit(chat_id, mid, banner)
+    else:
+        send(chat_id, banner)
+    real, answer, thinking = run_lane(prompt_with_mem, model_key, chat_id=chat_id, persona_id=persona_id)
+    if pthink and thinking:
+        send(chat_id, "💭 (suy nghĩ)\n" + thinking[:1500])
+    episodic_log("assistant", answer, chat_id)
+    reply(chat_id, answer)
+
+
+# ── CM-2: rút REFS nguyên văn (KHÔNG bịa) + persist ký ức xuyên phiên ──
+_REF_URL = re.compile(r'https?://[^\s)>\]"\'`]+')
+# path tuyệt đối/~ : chỉ nhận nếu nằm dưới root quen thuộc → tránh bắt nhầm prose "/url/lệnh".
+_REF_ABS = re.compile(r'(?:~/|/)[\w.\-/]+')
+# path tương đối CÓ đuôi file (vd bridge/lucy_bridge.py) → đủ đặc trưng để không phải prose.
+_REF_REL = re.compile(r'\b[\w.\-]+(?:/[\w.\-]+)+\.\w{1,8}\b')
+_REF_ROOTS = ('/root', '/home', '/etc', '/usr', '/var', '/tmp', '/opt', '~/')
+_REF_EXT = re.compile(r'\.\w{1,8}$')
+
+
+def _extract_refs(buffer):
+    """CM-2: trích REFS (link/path) NGUYÊN VĂN từ transcript THẬT — chỉ lấy cái ĐÃ xuất hiện, KHÔNG bịa.
+    Chỉ quét buffer (không quét seed prose đã tóm tắt → tránh dương tính giả). Path tuyệt đối phải nằm
+    dưới root quen thuộc HOẶC có đuôi file; path tương đối phải có đuôi file. Trả list {type,value} dedupe, cap 30."""
+    text = "\n".join(str(m.get("text", "")) for m in (buffer or []))
+    out, seen = [], set()
+
+    def _add(t, v):
+        v = v.strip().rstrip('.,);:>"\'`')
+        if len(v) >= 3 and v not in seen:
+            seen.add(v); out.append({"type": t, "value": v})
+    for m in _REF_URL.findall(text):
+        _add("link", m)
+    for m in _REF_ABS.findall(text):
+        if m.startswith(_REF_ROOTS) or _REF_EXT.search(m):
+            _add("file", m)
+    for m in _REF_REL.findall(text):
+        _add("file", m)
+    # bỏ ref là chuỗi con của ref khác (mảnh path bắt thừa do regex overlap) → giữ bản dài/đầy đủ nhất
+    vals = [r["value"] for r in out]
+    out = [r for r in out if not any(r["value"] != o and r["value"] in o for o in vals)]
+    return out[:30]
+
+
+def _persist_session_summary(chat_id, session_id, summary, refs, done=None):
+    """CM-2: đẩy block phiên đóng về coordinator POST /session-summary → append JSONL tuyến tính Brain/episodes/sessions-<chat>.jsonl.
+    Fire-and-forget, không bao giờ chặn chat. Chỉ chạy khi LUCY_SESSION_SUMMARY bật (coordinator cũng phải bật)."""
+    if not SESSION_SUMMARY or not summary or not str(summary).strip():
+        return
+    body = {"chat_id": str(chat_id), "session_id": session_id or "",
+            "summary": scrub_secrets(str(summary)), "refs": refs or [],
+            "done": [scrub_secrets(str(d)) for d in (done or [])]}
+
+    def _send():
+        try:
+            headers = {"x-worker-token": COORD_TOK} if COORD_TOK else {}
+            requests.post(f"{COORD_URL}/session-summary", json=body, headers=headers, timeout=8)
+        except Exception:
+            pass
+    threading.Thread(target=_send, daemon=True).start()
+
+
+def _parse_summary_json(text):
+    """CM-2: parse khoan dung output LLM thành (summary_prose, done_list). Lỗi/không phải JSON → coi cả text là summary."""
+    s = str(text or "").strip()
+    if not s:
+        return "", []
+    # gỡ rào ```json … ``` nếu có
+    s = re.sub(r'^```(?:json)?\s*|\s*```$', '', s).strip()
+    try:
+        i, j = s.find("{"), s.rfind("}")
+        if i != -1 and j != -1 and j > i:
+            obj = json.loads(s[i:j + 1])
+            summ = str(obj.get("summary") or "").strip()
+            done = [str(x).strip() for x in (obj.get("done") or []) if str(x).strip()]
+            if summ:
+                return summ, done[:20]
+    except Exception:
+        pass
+    return s, []   # fallback: text thô làm summary, done rỗng (không bịa)
+
+
+def _summarize_transcript(buffer, seed_prev=""):
+    """CC-2/CM-2: sinh (summary_prose, done_list) từ transcript buffer. Ưu tiên lane model rẻ, fallback claude (no session).
+    Trả tuple: summary = ghi chú prose giữ mạch (dùng làm seed phiên mới); done = list việc đã làm (LLM rút từ transcript).
+    seed_prev (CM-2 rolling): ký ức phiên TRƯỚC → gộp nối tiếp thành 1 mạch liên tục (chỉ truyền khi flag bật)."""
+    convo = "\n".join(
+        f"{'Chủ nhân' if m.get('role') == 'user' else 'Lucy'}: {m.get('text', '')}" for m in buffer
+    )[-12000:]
+    prior = ""
+    if seed_prev and str(seed_prev).strip():
+        prior = ("=== KÝ ỨC PHIÊN TRƯỚC (đã tóm tắt — GỘP NỐI TIẾP, đừng đánh rơi mạch cũ) ===\n"
+                 + str(seed_prev)[:4000] + "\n\n")
+    prompt = (
+        "Tóm tắt hội thoại để Lucy giữ mạch khi mở phiên mới. CHỈ trả về MỘT object JSON, không thêm chữ nào ngoài JSON:\n"
+        '{"summary": "<ghi chú prose TIẾNG VIỆT, gạch đầu dòng, ≤250 từ>", "done": ["<việc đã làm xong/đã chốt 1>", "..."]}\n'
+        "- summary: nếu có 'KÝ ỨC PHIÊN TRƯỚC' thì GỘP với hội thoại hiện tại thành MỘT mạch liên tục (không lặp, không bỏ sót việc cũ còn treo); "
+        "giữ chủ đề đang bàn, dữ kiện/quyết định/con số quan trọng, việc đang làm dở, sở thích/ràng buộc chủ nhân nêu. Bỏ chào hỏi rườm rà.\n"
+        "- done: liệt kê NGẮN từng việc ĐÃ làm xong / đã chốt trong phiên (rút từ hội thoại THẬT, KHÔNG bịa). Không có → để [].\n\n"
+        + prior + "=== HỘI THOẠI HIỆN TẠI ===\n" + convo
+    )
+    fb = pick_fallback_brain()        # ưu tiên lane model rẻ còn cửa
+    if fb:
+        try:
+            _real, ans, _think = run_lane(prompt, fb)
+            if ans and not str(ans).startswith("❌"):
+                return _parse_summary_json(ans)
+        except Exception:
+            pass
+    try:                              # fallback: claude no-session (KHÔNG resume)
+        _sid, ans = run_claude(prompt, None, model="sonnet")
+        return _parse_summary_json(ans or "")
+    except Exception:
+        return "", []
+
+
+def _compress_conversation(chat_id, sessions):
+    """CC-2 auto-rollover: tóm tắt buffer → BỎ session cũ (lần sau claude tự sinh session_id mới) →
+    seed summary chờ prepend vào prompt đầu phiên mới → reset counter+buffer → báo chủ nhân nhẹ."""
+    h = _load_claude_hist()
+    e = h.get(str(chat_id))
+    if not e or not e.get("buffer"):
+        return
+    buf = e.get("buffer", [])
+    seed_old = e.get("seed", "") if SESSION_SUMMARY else ""   # CM-2 #3: rolling — gộp seed phiên trước
+    old_sid = sessions.get(str(chat_id), "")                  # giữ session_id TRƯỚC khi pop để persist
+    summary, done = _summarize_transcript(buf, seed_prev=seed_old)
+    # CM-2 #1: append block phiên vào JSONL tuyến tính Brain/episodes/ (no-op khi flag off)
+    _persist_session_summary(chat_id, old_sid, summary, _extract_refs(buf), done)
+    # BỎ --resume cũ → lần claude kế tiếp KHÔNG resume → claude tự sinh session_id mới
+    sessions.pop(str(chat_id), None); _save(sessions)
+    # reset buffer + counter, giữ summary làm seed cho prompt đầu phiên mới
+    h[str(chat_id)] = {"buffer": [], "turns": 0, "tokens": 0, "seed": summary or ""}
+    _save_claude_hist(h)
+    send(chat_id, "🗜️ em gói gọn lại hội thoại, vẫn nhớ mạch nhé.")
 
 
 def _run_claude_spawn(prompt, session_id, model="sonnet", persona_text=None, thinking_sink=None):
@@ -867,6 +1196,7 @@ def handle(msg, sessions):
         return
     # ── B4: ẢNH → tải về WORKDIR, ép claude-path (vision), bake hướng dẫn Read vào prompt ──
     image_path = None
+    doc_path = None
     if msg.get("photo") or msg.get("document"):
         if msg.get("photo") or str(msg.get("document", {}).get("mime_type", "")).startswith("image/"):
             mid_dl = send_id(chat_id, "🖼️ Em đang tải ảnh xuống ạ…")
@@ -878,11 +1208,40 @@ def handle(msg, sessions):
             cap = (msg.get("caption") or "").strip()
             text = ((cap + "\n\n") if cap else "") + \
                 f"[Chủ nhân vừa gửi 1 ẢNH. Dùng Read tool mở file ảnh này để xem rồi trả lời: {image_path}]"
+        else:
+            # ── B5: DOCUMENT (không phải ảnh) → tải về WORKDIR, ép claude-path, bake hướng dẫn đọc theo loại ──
+            doc = msg.get("document", {})
+            fname = (doc.get("file_name") or "").strip()
+            mid_dl = send_id(chat_id, f"📎 Em đang tải file <{fname or 'document'}> xuống ạ…")
+            doc_path = tg_download(doc.get("file_id"), "doc")
+            if not doc_path:
+                edit(chat_id, mid_dl, "❌ Không tải được file (Telegram getFile lỗi). Thử gửi lại giúp em ạ.")
+                return
+            edit(chat_id, mid_dl, f"📎 Có file <{fname or os.path.basename(doc_path)}> rồi — em mở xem nhé…")
+            cap = (msg.get("caption") or "").strip()
+            text = ((cap + "\n\n") if cap else "") + (
+                f"[Chủ nhân vừa gửi FILE: «{fname or os.path.basename(doc_path)}» lưu tại: {doc_path}\n"
+                "Hãy MỞ và xử lý theo loại file (dùng tool, KHÔNG bịa nội dung):\n"
+                "• .txt/.md/.csv/.json/.log → Read trực tiếp.\n"
+                "• .pdf → Read trực tiếp (Read xem được cả chữ lẫn ẢNH trong từng trang).\n"
+                "• .xlsx/.xls → Bash chạy python `openpyxl` (load_workbook, duyệt sheet→rows) để đọc dữ liệu.\n"
+                "• .docx → Bash chạy python `docx` (Document(path), duyệt paragraphs+tables) để lấy text.\n"
+                "• Nếu PDF/DOCX có ẢNH nhúng và chủ nhân hỏi về ảnh → giải nén/trích ảnh ra file rồi Read ảnh đó.\n"
+                "Đọc xong, trả lời đúng yêu cầu của chủ nhân (nếu chỉ gửi file không kèm câu hỏi → tóm tắt nội dung gọn).]"
+            )
     if not text:
         return
     if text == "/new":
+        # CM-2 #2: TRƯỚC khi xoá → gộp (seed_cũ ⊕ buffer) thành 1 ký ức + persist note (no-op khi flag off → xoá thẳng như cũ).
+        if SESSION_SUMMARY:
+            _e = _load_claude_hist().get(str(chat_id))
+            if _e and _e.get("buffer"):
+                _buf = _e.get("buffer", [])
+                _summary, _done = _summarize_transcript(_buf, seed_prev=_e.get("seed", ""))
+                _persist_session_summary(chat_id, sessions.get(str(chat_id), ""), _summary, _extract_refs(_buf), _done)
         sessions.pop(str(chat_id), None); _save(sessions)
         _clear_lane_hist(chat_id)
+        _clear_claude_hist(chat_id)   # CC: xoá luôn buffer + counter + seed claude-path
         send(chat_id, "✨ Phiên mới — em quên ngữ cảnh cũ ạ.")
         return
     if text == "/id":
@@ -1047,8 +1406,8 @@ def handle(msg, sessions):
         text = text.split(" ", 1)[1].strip() if " " in text else ""
     if not text:
         return
-    # ── B4: ảnh cần não thật (Read vision) — lane free không xem được ảnh → ép claude ──
-    if image_path and not pmodel.startswith("claude"):
+    # ── B4/B5: ảnh + file cần não thật (Read vision / tool đọc file) — lane free không làm được → ép claude ──
+    if (image_path or doc_path) and not pmodel.startswith("claude"):
         pmodel = "claude:sonnet"
 
     # PHASE 0: tra memory liên quan 1 lần → chèn vào prompt của đường được chọn (lane hoặc claude).
@@ -1084,6 +1443,15 @@ def handle(msg, sessions):
         reply(chat_id, answer)
         return
 
+    # ── GD: token-guard CHUNG chạm hard-limit → Claude coi như hết cửa, tụt thẳng xuống lane (khỏi gọi claude phí) ──
+    if _token_guard_hard():
+        fb = pick_fallback_brain()
+        if fb:
+            _run_lane_fallback(chat_id, mem + text, fb, persona_id=ppersona, pthink=pthink,
+                               reason="token-guard chạm hard-limit")
+            return
+        # không lane nào còn cửa → vẫn thử claude (đường thường) như cũ
+
     # ── CLAUDE-PATH: não thật (tool+vault) — Đường A: STREAMING (chữ chạy realtime trên Telegram) ──
     model = "opus" if force_opus else pmodel.split(":")[-1]
     mid = send_id(chat_id, f"🤔 Em xử lý ạ… ({model})")
@@ -1094,8 +1462,14 @@ def handle(msg, sessions):
         if now - st["last"] >= 0.9 and preview and preview != st["shown"]:
             st["last"] = now; st["shown"] = preview
             edit(chat_id, mid, preview)
+    # CC-2: nếu vừa rollover, prepend seed summary vào prompt ĐẦU của session mới (giữ mạch hội thoại)
+    seed = _take_claude_seed(chat_id)
+    seed_prefix = ""
+    if seed:
+        seed_prefix = ("[NGỮ CẢNH HỘI THOẠI TRƯỚC — em đã gói gọn để khỏi tràn bộ nhớ, vẫn giữ mạch]\n"
+                       + seed + "\n[HẾT NGỮ CẢNH — tiếp tục trả lời tin nhắn mới của chủ nhân bên dưới]\n\n")
     new_sid, result, thinking = run_claude_stream(
-        mem + text, sessions.get(str(chat_id)), model, resolve_persona_text(ppersona), _on_delta)
+        seed_prefix + mem + text, sessions.get(str(chat_id)), model, resolve_persona_text(ppersona), _on_delta)
     if new_sid:
         sessions[str(chat_id)] = new_sid; _save(sessions)
     if pthink and thinking:
@@ -1103,6 +1477,14 @@ def handle(msg, sessions):
     # Chốt: bảng / CỰC dài (>7600) → file đẹp. Còn lại (kể cả vừa-dài) → hiện THẲNG trong chat, chia nhiều tin,
     # KHÔNG cắt cụt (trước đây >1600 đã quăng file + teaser 600 → người dùng tưởng "cụt").
     res = result or "(rỗng)"
+    # ── GD: claude trả lỗi HẾT-CỬA (usage/rate-limit/429/quota) → tụt xuống lane free + banner, không trả lỗi trống ──
+    if not new_sid and _claude_exhausted(res):
+        fb = pick_fallback_brain()
+        if fb:
+            _run_lane_fallback(chat_id, mem + text, fb, persona_id=ppersona, pthink=pthink,
+                               reason="Claude báo hết token/usage-limit", mid=mid)
+            return
+        # hết sạch lane còn cửa → để nguyên lỗi claude hiển thị (đường thường)
     episodic_log("assistant", res, chat_id, sessions.get(str(chat_id), ""))   # PHASE 2: ghi trả lời claude
     if res.count("|") >= 6 or res.count("\n#") >= 2 or len(res) > 7600:
         edit(chat_id, mid, f"✅ Xong ({model}) — nội dung dài/bảng, em gửi file ạ.")
@@ -1111,6 +1493,12 @@ def handle(msg, sessions):
         edit(chat_id, mid, res[:3900])
         if len(res) > 3900:
             send(chat_id, res[3900:])   # phần dư → send() tự chunk 3800/tin, đọc đủ trong chat
+
+    # ── CC: theo dõi kích thước hội thoại claude-path + auto-rollover khi quá dài ──
+    if new_sid:   # chỉ tính lượt claude THÀNH CÔNG (lỗi/fallback đã return sớm)
+        claude_hist_append(chat_id, text, res, tokens=LAST_TURN_TOK)
+        if AUTO_COMPRESS and should_compress(chat_id):
+            _compress_conversation(chat_id, sessions)
 
 
 import queue as _queue

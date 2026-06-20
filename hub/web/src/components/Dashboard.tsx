@@ -29,7 +29,8 @@ function TokBreakdown({ inTok, outTok, cacheTok }: { inTok?: number; outTok?: nu
 // Nhãn nguồn đốt (LedgerSource) → tiếng Việt + icon.
 const SOURCE_LABEL: Record<string, string> = {
   worker: '🤖 Worker (agent)', autobuild: '🏗️ Auto-build', bridge: '✈️ Telegram',
-  hub: '🖥️ Hub chat', lane: '🛤️ Lane (model rẻ)', cron: '⏰ Cron', unknown: '❔ Khác (chưa gắn nguồn)',
+  hub: '🖥️ Hub chat', lane: '🛤️ Lane (model rẻ)', cron: '⏰ Cron',
+  autotask: '📋 Auto-task', unknown: '❔ Khác (chưa gắn nguồn)',
 }
 
 // ── M5 sparkline (SVG thuần, không cần lib charting) ──────────────────────────

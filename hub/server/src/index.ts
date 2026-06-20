@@ -1032,6 +1032,182 @@ app.post('/api/prompts/edit', (req, res) => {
   res.json({ ok })
 })
 
+// ─── ATH-4: Auto-Task Hub API (read-only) ────────────────────────────────────
+const AUTOTASK_PROJECTS_DIR = path.join(os.homedir(), 'lucy', 'tasks', 'projects')
+
+function atCountDir(d: string): number {
+  try { return fs.readdirSync(d).filter(f => f.endsWith('.md')).length } catch { return 0 }
+}
+
+function atParseFrontmatter(content: string): Record<string, string> {
+  const meta: Record<string, string> = {}
+  const m = content.match(/^---\s*\n(.*?)\n---\s*\n/s)
+  if (!m) return meta
+  for (const line of m[1].split('\n')) {
+    const kv = line.match(/^(\w+):\s*(.+)$/)
+    if (kv) meta[kv[1]] = kv[2].trim().replace(/^["']|["']$/g, '')
+  }
+  return meta
+}
+
+function atReadState(slug: string): Record<string, unknown> {
+  try {
+    const p = path.join(AUTOTASK_PROJECTS_DIR, slug, 'state.json')
+    return JSON.parse(fs.readFileSync(p, 'utf-8'))
+  } catch { return {} }
+}
+
+function atLatestResearchDate(slug: string): string | null {
+  try {
+    const resDir = path.join(AUTOTASK_PROJECTS_DIR, slug, 'research')
+    const dates = fs.readdirSync(resDir)
+      .filter(f => /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
+      .map(f => f.slice(0, 10))
+      .sort()
+    return dates.length ? dates[dates.length - 1] : null
+  } catch { return null }
+}
+
+function atListProjects(): unknown[] {
+  const list: unknown[] = []
+  if (!fs.existsSync(AUTOTASK_PROJECTS_DIR)) return list
+  for (const slug of fs.readdirSync(AUTOTASK_PROJECTS_DIR).sort()) {
+    const projMd = path.join(AUTOTASK_PROJECTS_DIR, slug, 'project.md')
+    if (!fs.existsSync(projMd)) continue
+    const content = fs.readFileSync(projMd, 'utf-8')
+    const fm = atParseFrontmatter(content)
+    const state = atReadState(slug)
+    const base = path.join(AUTOTASK_PROJECTS_DIR, slug)
+    list.push({
+      slug,
+      title:               fm.title || slug,
+      status:              fm.status || 'active',
+      sprint_count:        (state.sprint_count as number) || 0,
+      queued:              atCountDir(path.join(base, 'queue')),
+      done:                atCountDir(path.join(base, 'done')),
+      failed:              atCountDir(path.join(base, 'failed')),
+      total_usd:           (state.total_usd as number) || 0,
+      last_run:            (state.last_run as string) || null,
+      latest_research_date: atLatestResearchDate(slug),
+    })
+  }
+  return list
+}
+
+app.get('/api/autotask/projects', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  try {
+    res.json({ projects: atListProjects() })
+  } catch (e) { res.status(500).json({ error: String(e) }) }
+})
+
+app.get('/api/autotask/projects/:slug', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  const slug = req.params.slug.replace(/[^a-z0-9_-]/gi, '')
+  const base = path.join(AUTOTASK_PROJECTS_DIR, slug)
+  if (!fs.existsSync(path.join(base, 'project.md'))) return res.status(404).json({ error: 'not found' })
+  try {
+    const projContent = fs.readFileSync(path.join(base, 'project.md'), 'utf-8')
+    const fm  = atParseFrontmatter(projContent)
+    const state = atReadState(slug)
+
+    // Research history (date + excerpt 200 chars)
+    const research: unknown[] = []
+    const resDir = path.join(base, 'research')
+    if (fs.existsSync(resDir)) {
+      for (const f of fs.readdirSync(resDir).filter(f => /^\d{4}-\d{2}-\d{2}\.md$/.test(f)).sort().reverse().slice(0, 10)) {
+        const txt = fs.readFileSync(path.join(resDir, f), 'utf-8')
+        research.push({ date: f.slice(0, 10), excerpt: txt.slice(0, 200) })
+      }
+    }
+
+    // Task lists (id + title from frontmatter)
+    const readTaskList = (subdir: string) => {
+      const d = path.join(base, subdir)
+      if (!fs.existsSync(d)) return []
+      return fs.readdirSync(d).filter(f => f.endsWith('.md')).map(f => {
+        const c = fs.readFileSync(path.join(d, f), 'utf-8')
+        const m = atParseFrontmatter(c)
+        return { id: m.id || f.slice(0, -3), title: m.title || f.slice(0, -3) }
+      })
+    }
+
+    // Sprint list (n, date from filename + first line summary)
+    const sprints: unknown[] = []
+    const spDir = path.join(base, 'sprints')
+    if (fs.existsSync(spDir)) {
+      for (const f of fs.readdirSync(spDir).filter(f => /^\d+\.md$/.test(f)).sort((a, b) => Number(b.slice(0, -3)) - Number(a.slice(0, -3)))) {
+        const txt = fs.readFileSync(path.join(spDir, f), 'utf-8')
+        const lines = txt.split('\n').filter(l => l.trim())
+        const usdMatch = txt.match(/Est\. cost: \$([0-9.]+)/)
+        sprints.push({
+          n:       Number(f.slice(0, -3)),
+          summary: lines.slice(0, 4).join(' | ').slice(0, 200),
+          usd:     usdMatch ? parseFloat(usdMatch[1]) : 0,
+        })
+      }
+    }
+
+    res.json({
+      project: { ...fm, slug },
+      state,
+      research,
+      tasks: {
+        queue:  readTaskList('queue'),
+        doing:  readTaskList('doing'),
+        done:   readTaskList('done'),
+        failed: readTaskList('failed'),
+      },
+      sprints,
+    })
+  } catch (e) { res.status(500).json({ error: String(e) }) }
+})
+
+// ─── Build Hub: auto-build + auto-build-free status ─────────────────────────
+const LUCY_REPO = process.env.LUCY_REPO || path.join(os.homedir(), 'lucy')
+
+function buildToolStatus(logFile: string, pidFile?: string) {
+  const logPath = path.join(LUCY_REPO, logFile)
+  let logTail: string[] = []
+  let lastTs = ''
+  try {
+    const lines = fs.readFileSync(logPath, 'utf-8').split('\n').filter(Boolean)
+    logTail = lines.slice(-20)
+    const last = lines[lines.length - 1] || ''
+    const m = last.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/)
+    if (m) lastTs = m[1]
+  } catch { /* no log yet */ }
+
+  // detect running: check PID from nohup/pgrep
+  let running = false
+  try {
+    const r = require('child_process').execSync(
+      `pgrep -f "${logFile.replace('.log', '.py')}" 2>/dev/null || true`, { timeout: 2000 }
+    ).toString().trim()
+    running = r.length > 0
+  } catch { running = false }
+
+  // parse current task from log
+  const currentTask = logTail.slice().reverse().find(l => l.includes('--- task '))
+  const sprintEnd = logTail.find(l => l.includes('SPRINT END'))
+
+  return { running, lastTs, logTail: logTail.slice(-10), currentTask, sprintEnd }
+}
+
+app.get('/api/autobuild/status', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  res.json(buildToolStatus('auto-build.log'))
+})
+
+app.get('/api/autobuild-free/status', (req, res) => {
+  if (!authed(req)) return res.status(401).json({ error: 'unauth' })
+  // check cả sprint 1 và sprint 2 log
+  const s1 = buildToolStatus('auto-build-free.log')
+  const s2 = buildToolStatus('auto-build-free-s2.log')
+  const active = s2.running ? s2 : s1.running ? s1 : (s2.lastTs > s1.lastTs ? s2 : s1)
+  res.json({ ...active, sprint2: s2, sprint1: s1 })
+})
+
 // serve React build (đặt CUỐI để /api ưu tiên)
 if (fs.existsSync(DIST)) {
   app.use(express.static(DIST))

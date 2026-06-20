@@ -15,7 +15,7 @@ console.log('🧪 smoke:cheap-wins — cache-parity + aux + curator')
 
 // ── C1: buildSystemPrompt — prefix TĨNH (house+contract+persona+skill) byte-identical khi brain/digest ĐỔI ──
 {
-  const { buildSystemPrompt, HOUSE_SKILL, OUTCOME_CONTRACT } = await import('./runner')
+  const { buildSystemPrompt, HOUSE_SKILL, OUTCOME_CONTRACT, modelGuidance, modelFamily } = await import('./runner')
   const { appendAgentLesson } = await import('./agent-brain')
   const persona: any = { id: 'builder', name: 'B', model: 'sonnet', systemPrompt: 'PERSONA_BODY', kind: 'executor', maxTurns: 5, allowedTools: [] }
   const card: any = { id: 'c1', title: 't', brief: 'b', projectId: 'default' }
@@ -23,7 +23,11 @@ console.log('🧪 smoke:cheap-wins — cache-parity + aux + curator')
   // brain đổi (học 1 bài) → phần ĐỘNG cuối đổi, prefix tĩnh phải GIỮ NGUYÊN
   appendAgentLesson('builder', 'bài học mới làm brain đổi', 'miss')
   const p2 = buildSystemPrompt(card, persona)
-  const staticPrefix = HOUSE_SKILL + OUTCOME_CONTRACT + 'PERSONA_BODY'
+  // HQ-1: modelGuidance(model) nằm trong khối TĨNH-theo-persona (sau OUTCOME_CONTRACT, trước persona body)
+  const staticPrefix = HOUSE_SKILL + OUTCOME_CONTRACT + modelGuidance('sonnet') + 'PERSONA_BODY'
+  check('HQ-1: modelFamily phân họ đúng (sonnet→claude, gpt-4o→gpt, gemini→gemini, nemotron→other)',
+    modelFamily('sonnet') === 'claude' && modelFamily('gpt-4o') === 'gpt' && modelFamily('gemini-1.5') === 'gemini' && modelFamily('or-nemotron-super') === 'other')
+  check('HQ-1: modelGuidance(claude) ≠ modelGuidance(lane rẻ)', modelGuidance('sonnet') !== modelGuidance('or-nemotron-super'))
   check('C1: prompt bắt đầu bằng khối TĨNH (house+contract+persona)', p1.startsWith(staticPrefix), p1.slice(0, 40))
   check('C1: prefix tĩnh GIỮ byte-identical khi brain đổi', p1.slice(0, staticPrefix.length) === p2.slice(0, staticPrefix.length))
   check('C1: brain (động) nằm CUỐI → p2 ≠ p1 ở đuôi', p1 !== p2 && p2.includes('bài học mới'))

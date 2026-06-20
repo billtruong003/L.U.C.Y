@@ -7,8 +7,11 @@ import { vnDay } from './tz'
 export const ENV_SOFT = 'AM_DAY_TOKEN_SOFT'
 export const ENV_HARD = 'AM_DAY_TOKEN_HARD'
 
-const DEFAULT_SOFT = 500_000
-const DEFAULT_HARD = 1_000_000
+// Bill 2026-06-19: default phải SÁT thực tế dùng (auto-build/free + chat 1 ngày dễ 30-50M).
+// 500K/1M cũ là mức smoke-test → coordinator pm2 (không nạp env ecosystem) chạm hard tức thì,
+// ép MỌI tin Telegram tụt lane "Claude hết token". Đặt default cao = chống chịu kể cả khi pm2 không truyền env.
+const DEFAULT_SOFT = 800_000_000   // 800M
+const DEFAULT_HARD = 1_500_000_000 // 1.5B
 
 export type TokenDayRecord = {
   date: string       // YYYY-MM-DD (giờ VN, UTC+7 — DASH-FIX S5)

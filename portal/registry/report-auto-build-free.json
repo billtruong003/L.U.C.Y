@@ -1,0 +1,12 @@
+{
+  "id": "report-auto-build-free",
+  "title": "Auto-Build Free — pipeline ABF",
+  "zone": "report",
+  "url": "/reports/auto-build-free-arch.html",
+  "description": "Kiến trúc ABF-1→ABF-8 — build pipeline dùng model free (Zen/OpenCode), pm2 lucy-autobuild-free.",
+  "status": "live",
+  "tags": ["auto-build", "free", "pipeline"],
+  "thumbnail": null,
+  "createdAt": "2026-06-18",
+  "updatedAt": "2026-06-19"
+}

@@ -11,7 +11,7 @@
 | Gemini | 56 | ✅ free (1500 RPD) | gemini-3-pro/flash, 3.1-pro, 2.5-pro/flash — frontier |
 | Cerebras | 2 | ✅ free (⚠️ ctx 8K) | gpt-oss-120b, zai-glm-4.7 — cực nhanh |
 | Mistral | 69 | ✅ free (1B tok/th) | codestral, devstral (agentic coding), mistral-large |
-| OpenCode Zen | 48 | ⚠️ CHỈ `deepseek-v4-flash-free` | còn lại cần payment method |
+| OpenCode Zen | 48 | ✅ 4 model `*-free` (NO-AUTH) | ds-v4-flash · mimo-v2.5 · nemotron-3-ultra · north-mini-code; còn lại cần payment |
 | Z.ai | 7 | ✗ cần nạp tiền | glm-4.5→5.1 — key hiện "insufficient balance" |
 
 ## Đã SMOKE-TEST (chạy thật)
@@ -19,6 +19,15 @@
   `openai/gpt-oss-120b` + `llama-3.3-70b-versatile` (groq) · `gpt-oss-120b` + `zai-glm-4.7` (cerebras) ·
   `gemini-3-flash-preview` (gemini) · `deepseek/deepseek-v4-flash` + `deepseek/deepseek-v4-pro` (openrouter)
 ✗ `glm-4.7` (z.ai → no balance) · `qwen3.6-plus-free` (zen → free promo ended) · `kimi-k2.6` (zen → cần payment)
+
+### OpenCode Zen `*-free` — re-verify 2026-06-19 (POST /zen/v1/chat/completions, NO-AUTH)
+> ⚠️ Mấy model `-free` của Zen gọi KHÔNG kèm `Authorization` header. Truyền key vào = `AuthError: Invalid API key`. Endpoint no-auth.
+- ✅ `deepseek-v4-flash-free` → `deepseek-v4-flash`
+- ✅ `mimo-v2.5-free` → `xiaomi/mimo-v2.5-20260422` (ABF MODEL_CODE)
+- ✅ `nemotron-3-ultra-free` → `nvidia/nemotron-3-ultra-550b-a55b-20260604:free`
+- ✅ `north-mini-code-free` → reasoning model, trả content OK
+- ❌ `minimax-m3-free` → 401 `ModelError: Free promotion has ended for MiniMax M3 Free` (còn trong /models nhưng gọi vào là chặn)
+- ❌ `qwen3.6-plus-free` → 401 `Free promotion has ended`
 
 ## Catalog dùng trong lát giữa (theo role, chỉ model đã verify)
 - **executor** (coding): `deepseek-v4-flash-free` → `devstral-medium` → `deepseek-v4-flash` → `codestral`

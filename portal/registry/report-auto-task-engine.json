@@ -1,0 +1,12 @@
+{
+  "id": "report-auto-task-engine",
+  "title": "Auto-Task Engine — kiến trúc & roadmap",
+  "zone": "report",
+  "url": "/reports/auto-task-engine.html",
+  "description": "Tài liệu kiến trúc AT-1→AT-8 — inbox watcher, sprint loop, HTML report, pm2.",
+  "status": "live",
+  "tags": ["auto-task", "architecture"],
+  "thumbnail": null,
+  "createdAt": "2026-06-17",
+  "updatedAt": "2026-06-19"
+}

@@ -38,7 +38,9 @@ BƯỚC HIỆN TẠI thì kết thúc câu trả lời bằng ĐÚNG MỘT khố
 \`\`\`
 - "advance" = xong việc bước này, CHUYỂN sang bước kế (DÙNG mặc định khi hoàn thành tốt — KHÔNG tự kết thúc cả quy trình).
 - "rework" = (review/test) PHÁT HIỆN LỖI / CHƯA ĐẠT → TRẢ LẠI bước trước sửa. BẮT BUỘC liệt kê vấn đề cụ thể (file:dòng + cách sửa) trong summary.
-- "needs_decision" = cần người quyết · "delegate" = nhờ persona khác · "fail" = hỏng nặng không cứu được.`
+- "needs_decision" = cần người quyết · "delegate" = nhờ persona khác · "fail" = hỏng nặng không cứu được.
+
+VERIFY-TRƯỚC-KHI-XONG (BẮT BUỘC cho "advance"): chỉ báo "advance" SAU KHI đã CHỨNG MINH việc chạy được — tự chạy tsc/test/build/curl hoặc ĐỌC LẠI output/file vừa tạo bằng tool, rồi nêu BẰNG CHỨNG cụ thể trong summary (lệnh đã chạy + kết quả thật, vd "tsc 0 lỗi", "smoke 12/12", "curl 200"). CẤM "mô tả suông"/khai xong khi CHƯA chạy verify. Verify fail mà không sửa nổi → "rework" hoặc "fail", KHÔNG "advance".`
 
 // HOUSE_SKILL — kỷ luật kỹ sư UNIVERSAL gắn cho MỌI persona (chắt từ bộ SKILL.md chuẩn
 // của Bill: arena-server/arena-unity + SOUL Hermes). Phần identity/domain riêng nằm ở persona.
@@ -65,6 +67,11 @@ AN TOÀN (cứng):
 
 GIAO TIẾP: gọn, thẳng việc. Báo cuối = 2-3 câu (làm gì + verify ra sao), không tự tâng. Kẹt -> nêu blocker + 2 lựa chọn + đề xuất.
 
+GHI GÌ vs KHÔNG GHI (phân biệt trước khi lưu):
+- MEMORY = sự thật BỀN về Bill / môi trường / sở thích lặp lại (vd "Bill là game dev Unity", "VPS chặn IP Telegram", "Bill muốn báo cáo gọn") → đáng ghi.
+- SKILL = cách-làm TÁI DÙNG được cho việc sau (quy trình/pattern/checklist) → đáng ghi.
+- KHÔNG GHI: trạng thái tạm / tiến độ task / số PR / tên branch / lỗi nhất thời / kết quả 1-lần. Những thứ này hết phiên là vô nghĩa — ghi vào = nhiễu recall. Nghi ngờ → KHÔNG ghi.
+
 TRÍ NHỚ (nếu thấy thư mục lucy-vault/ trong dir được phép):
 - TRƯỚC khi làm: đọc lucy-vault/Context/ (Bill là ai) + lucy-vault/Projects/<dự án liên quan> để bám bối cảnh — ĐỪNG hỏi lại cái đã ghi.
 - Học được điều đáng nhớ (sở thích Bill / quyết định / pattern lặp lại) -> tạo file lucy-vault/Brain/inbox/sig-<YYYY-MM-DD>-<slug>.md ĐÚNG khung sau (sai format = hệ bỏ qua im lặng):
@@ -81,13 +88,39 @@ evidenced_by: [<cardId nếu biết>]
   topic phần sau "/" = PATTERN CHUNG card khác cũng dính được (vd "hardcode-config") — KHÔNG phải tên card. KHÔNG ghi lỗi môi trường/transient/chuyện 1 lần.
 - KHÔNG sửa lucy-vault/Brain/preferences/ hay active.md (máy quản). CẤM ghi trí nhớ vào auto-memory built-in của Claude Code (~/.claude/**/memory/) — vault là não DUY NHẤT, ghi chỗ khác = lạc trôi khỏi recall/dream.`
 
+// HQ-1 — Dẫn theo HỌ MODEL. Pure fn (model→string), deterministic → cache-stable (model ổn định theo persona).
+// Phân họ theo chuỗi model: claude (sonnet/opus/haiku) vs lane rẻ (gpt/gemini/khác).
+export function modelFamily(model: string): 'claude' | 'gpt' | 'gemini' | 'other' {
+  const m = (model || '').toLowerCase()
+  if (/sonnet|opus|haiku|claude/.test(m)) return 'claude'
+  if (/gpt|\bo1\b|\bo3\b|\bo4\b/.test(m)) return 'gpt'
+  if (/gemini/.test(m)) return 'gemini'
+  return 'other'
+}
+
+// Khối dẫn ngắn theo họ model — chỉ thêm chuỗi TĨNH, không nhúng biến động (giữ prompt-cache parity).
+export function modelGuidance(model: string): string {
+  if (modelFamily(model) === 'claude') return `
+
+---
+CÁCH LÀM (lane Claude): FINISH-THE-JOB — làm tới khi việc THỰC SỰ xong, không dừng nửa chừng. Verify bằng kết quả THẬT (chạy tsc/test/build/curl, đọc lại file vừa sửa), KHÔNG mô tả suông. Đọc kỹ trước, sửa đúng GỐC (không vá tạm/workaround che lỗi). Việc nhiều bước → tự bám tới cùng, đừng đẩy lại người.`
+  const fam = modelFamily(model)
+  const tag = fam === 'gpt' ? 'GPT' : fam === 'gemini' ? 'Gemini' : 'model rẻ'
+  return `
+
+---
+CÁCH LÀM (lane ${tag}): súc tích, đi thẳng việc. Thao tác file PHẢI dùng ĐƯỜNG DẪN TUYỆT ĐỐI (không tương đối mơ hồ). BẮT BUỘC gọi tool để đọc/sửa/verify — đừng ĐOÁN nội dung file hay kết quả. Mỗi lượt làm 1 bước rõ ràng, không ôm đồm nhiều việc cùng lúc.`
+}
+
 // Ráp system prompt agent. 1 NGUỒN DUY NHẤT cho ClaudeRunner & LaneRunner.
 // C1 (Đợt C) PROMPT-CACHE PARITY: nối theo độ-BIẾN-ĐỘNG tăng dần → prefix dài ổn định = trúng prefix-cache (~25% rẻ).
 //   TĨNH-toàn-cục (HOUSE_SKILL, OUTCOME_CONTRACT) → TĨNH-theo-persona (systemPrompt) → ổn-định-theo-card (skill)
 //   → ĐỘNG (digest dream đổi ~ngày, brain nghề đổi mỗi lần học). Phần đổi nằm CUỐI → chỉ tail bị tính lại, đầu vẫn cache.
 //   (Trước đây để digest+brain Ở ĐẦU → đổi xoành xoạch = cache MISS mỗi stage. Đảo lại = ROI cao, gần free.)
-export function buildSystemPrompt(card: Card, persona: Persona, extra = ''): string {
-  return HOUSE_SKILL + OUTCOME_CONTRACT + persona.systemPrompt + loadSkillBlock(card) + readActiveDigest() + readAgentBrain(persona.id) + extra
+// effModel: model THẬT của lượt chạy (claude-path = persona.model tier; lane-path = persona.laneModel).
+// modelGuidance đặt SAU OUTCOME_CONTRACT, TRƯỚC persona body → vẫn nằm trong khối TĨNH-theo-persona (cache-stable).
+export function buildSystemPrompt(card: Card, persona: Persona, extra = '', effModel: string = persona.model): string {
+  return HOUSE_SKILL + OUTCOME_CONTRACT + modelGuidance(effModel) + persona.systemPrompt + loadSkillBlock(card) + readActiveDigest() + readAgentBrain(persona.id) + extra
 }
 
 export class ClaudeRunner implements Runner {

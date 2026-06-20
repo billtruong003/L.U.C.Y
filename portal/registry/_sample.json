@@ -1,0 +1,12 @@
+{
+  "id": "_sample-fitcity-preview",
+  "title": "FitCity — preview web",
+  "zone": "preview",
+  "url": "/reports/fitcity-preview/",
+  "description": "Landing 11 chi nhánh, dark gold — manifest mẫu minh hoạ schema.",
+  "status": "live",
+  "tags": ["astro", "landing"],
+  "thumbnail": null,
+  "createdAt": "2026-06-17",
+  "updatedAt": "2026-06-19"
+}

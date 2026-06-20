@@ -1,0 +1,16 @@
+{
+  "name": "lucy-portal",
+  "version": "0.1.0",
+  "description": "Cổng dự án Lucy — portal data-driven 3 lớp (registry → builder → ingest CLI). Serve tĩnh ở /lucy/.",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "portal": "bin/portal"
+  },
+  "scripts": {
+    "build": "node src/builder.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
