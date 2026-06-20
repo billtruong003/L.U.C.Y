@@ -5,6 +5,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk'  // Đường B: thực t
 import { loadSkillBlock } from './skill-loader'
 import { mcpConfigFor, mcpAllowedTools } from './mcp-registry'
 import { readAgentBrain } from './agent-brain'
+import { buildHookOptions } from './tool-hooks'  // CL-1: guard + telemetry hooks (flag LUCY_HOOKS, default OFF)
 import { NoopTurnLogger, type TurnLogger } from './turn-log'
 import type { Card, Stage, Persona, RunResult, Outcome, Cost } from './types'
 
@@ -158,7 +159,9 @@ export class ClaudeRunner implements Runner {
     // CACHE: cùng (card, persona, stage) chạy lại (rework) → resume session cũ để agent NHỚ đã đọc/sửa gì, KHỎI quét lại project (đỡ token).
     // Key kèm stageIndex: cùng persona ở stage khác nhau KHÔNG resume nhầm session (C3.3).
     const resumeId = card.sessions?.[`${persona.id}:${card.stageIndex}`]
-    const sdkOpts = { prompt, ws, timeoutSec, model: persona.model, appendSystem: systemPrompt, allowedTools, maxTurns, vault, mcpServers }
+    // CL-1: nhãn cho telemetry hooks (chỉ dùng khi LUCY_HOOKS=1; flag OFF → buildHookOptions bỏ qua hết).
+    const hookCtx = { task: card.id, agent: persona.id, stage: stage.id }
+    const sdkOpts = { prompt, ws, timeoutSec, model: persona.model, appendSystem: systemPrompt, allowedTools, maxTurns, vault, mcpServers, hookCtx }
     let r = await this.runSdk({ ...sdkOpts, resumeId })
     if (resumeId && r.code !== 0) r = await this.runSdk(sdkOpts) // resume hỏng (session ở máy khác / đã xoá) → chạy mới
     const res = parseClaude(r.out)
@@ -177,7 +180,7 @@ export class ClaudeRunner implements Runner {
 
   // Đường B: query() in-process. Gom message → đóng gói envelope JSON y hệt CLI (result/total_cost_usd/usage/session_id)
   // để parseClaude giữ nguyên. code=0 nếu có result, 1 nếu lỗi/rỗng (giữ logic resume-retry ở run()).
-  private async runSdk(o: { prompt: string; ws: string; timeoutSec: number; model: string; appendSystem: string; allowedTools: string[]; maxTurns: number; vault?: string; resumeId?: string; mcpServers?: Record<string, unknown> }): Promise<{ out: string; code: number }> {
+  private async runSdk(o: { prompt: string; ws: string; timeoutSec: number; model: string; appendSystem: string; allowedTools: string[]; maxTurns: number; vault?: string; resumeId?: string; mcpServers?: Record<string, unknown>; hookCtx?: { task?: string; agent?: string; stage?: string } }): Promise<{ out: string; code: number }> {
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(), o.timeoutSec * 1000)
     let result = '', sid: string | undefined, usd = 0, inTok = 0, outTok = 0
@@ -188,6 +191,7 @@ export class ClaudeRunner implements Runner {
           model: o.model, permissionMode: 'bypassPermissions', cwd: o.ws,
           appendSystemPrompt: o.appendSystem, allowedTools: o.allowedTools, maxTurns: o.maxTurns,
           ...(o.mcpServers && Object.keys(o.mcpServers).length ? { mcpServers: o.mcpServers } : {}),
+          ...buildHookOptions(o.hookCtx),  // CL-1: {} khi LUCY_HOOKS≠1 (path cũ y nguyên); else hooks+canUseTool
           ...(o.vault ? { additionalDirectories: [o.vault] } : {}),
           ...(o.resumeId ? { resume: o.resumeId } : {}),
           env: { ...process.env, IS_SANDBOX: '1' }, abortController: ac,
