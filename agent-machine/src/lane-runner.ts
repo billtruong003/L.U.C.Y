@@ -9,6 +9,9 @@ import { buildSystemPrompt, cleanReport, salvageOutcome } from './runner'
 import { callLLMRaw, RateLimitError, type RawMsg, type ToolDef } from './llm-lane'
 import type { Card, Stage, Persona, RunResult, Outcome, Cost } from './types'
 import { NoopTurnLogger, type TurnLogger } from './turn-log'
+// CL-2: tool registry thống nhất (flag LUCY_TOOL_REGISTRY, default OFF → vẫn dùng ALL_TOOLS/execTool cũ).
+import { toolRegistryEnabled, getLaneToolDefs, dispatchTool } from './tools/registry'
+import { registerLaneTools } from './tools/lane-tools'
 
 // Tool → quyền cần (map persona.allowedTools kiểu claude → tool lane). Least-privilege giữ nguyên.
 const TOOL_PERM: Record<string, string> = { read_file: 'Read', list_dir: 'Read', write_file: 'Write', edit_file: 'Edit', bash: 'Bash' }
@@ -85,7 +88,10 @@ export class LaneRunner implements Runner {
     const prev = card.lastSummary ? `\n\n↪ Bước TRƯỚC: ${card.lastSummary}\n(đọc kết quả bước trước trong workspace, nối tiếp.)` : ''
     const user = `Card: ${card.title}\n\n${card.brief}\n\nStage hiện tại: ${stage.name}.${prev}${notes}`
     const allowed = new Set(persona.allowedTools ?? ['Read', 'Write', 'Edit', 'Bash'])
-    const tools = ALL_TOOLS.filter((t) => allowed.has(TOOL_PERM[t.function.name]))
+    // CL-2: flag ON → ToolDef từ registry (1 nguồn), lọc theo quyền persona y như cũ; OFF → ALL_TOOLS hard-code.
+    const useRegistry = toolRegistryEnabled()
+    if (useRegistry) registerLaneTools()
+    const tools = (useRegistry ? getLaneToolDefs('lucy-runner') : ALL_TOOLS).filter((t) => allowed.has(TOOL_PERM[t.function.name]))
     const messages: RawMsg[] = [{ role: 'system', content: sys }, { role: 'user', content: user }]
     const cost: Cost = { usd: 0, inTok: 0, outTok: 0 } // model lane free → $0; vẫn đếm token
     const maxTurns = persona.maxTurns ?? 16
@@ -112,7 +118,11 @@ export class LaneRunner implements Runner {
         this.turnLogger.log({ agent: persona.id, model, task: card.id, stage: stage.id, motive: `dùng ${firstTool}`, action: 'tool_call', outcome: '', turnCount: i, token: inTok + outTok })
         for (const tc of msg.tool_calls) {
           let out: string
-          try { const a = JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>; out = await execTool(tc.function.name, a, ws, allowed) }
+          // CL-2: dispatch qua registry khi flag ON (gate quyền + sandbox theo ctx.mode='runner'); OFF → execTool cũ.
+          try {
+            const a = JSON.parse(tc.function.arguments || '{}') as Record<string, unknown>
+            out = useRegistry ? await dispatchTool(tc.function.name, a, { ws, mode: 'runner', allowed }) : await execTool(tc.function.name, a, ws, allowed)
+          }
           catch (e) { out = `ERROR: ${String(e instanceof Error ? e.message : e)}` }
           messages.push({ role: 'tool', tool_call_id: tc.id, content: out.slice(0, 8000) })
         }

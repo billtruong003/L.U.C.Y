@@ -10,6 +10,7 @@
     "smoke:cheap-wins": "tsx src/smoke-cheap-wins.ts",
     "smoke:remote": "tsx src/smoke-remote.ts",
     "smoke:fs": "tsx src/smoke-fs.ts",
+    "smoke:tool-registry": "tsx src/smoke-tool-registry.ts",
     "smoke:conc": "tsx src/smoke-conc.ts",
     "smoke:turn-log": "tsx src/smoke-turn-log.ts",
     "smoke:turn-log-wire": "tsx src/smoke-turn-log-wire.ts",

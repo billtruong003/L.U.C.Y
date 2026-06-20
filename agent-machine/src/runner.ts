@@ -6,6 +6,8 @@ import { loadSkillBlock } from './skill-loader'
 import { mcpConfigFor, mcpAllowedTools } from './mcp-registry'
 import { readAgentBrain } from './agent-brain'
 import { buildHookOptions } from './tool-hooks'  // CL-1: guard + telemetry hooks (flag LUCY_HOOKS, default OFF)
+import { toolRegistryEnabled, getToolManifest } from './tools/registry'  // CL-2: manifest self-awareness (flag LUCY_TOOL_REGISTRY, default OFF)
+import { registerLaneTools } from './tools/lane-tools'
 import { NoopTurnLogger, type TurnLogger } from './turn-log'
 import type { Card, Stage, Persona, RunResult, Outcome, Cost } from './types'
 
@@ -121,7 +123,11 @@ CÁCH LÀM (lane ${tag}): súc tích, đi thẳng việc. Thao tác file PHẢI 
 // effModel: model THẬT của lượt chạy (claude-path = persona.model tier; lane-path = persona.laneModel).
 // modelGuidance đặt SAU OUTCOME_CONTRACT, TRƯỚC persona body → vẫn nằm trong khối TĨNH-theo-persona (cache-stable).
 export function buildSystemPrompt(card: Card, persona: Persona, extra = '', effModel: string = persona.model): string {
-  return HOUSE_SKILL + OUTCOME_CONTRACT + modelGuidance(effModel) + persona.systemPrompt + loadSkillBlock(card) + readActiveDigest() + readAgentBrain(persona.id) + extra
+  // CL-2: manifest "Lucy biết mình có tool gì" — STATIC (đặt trong prefix theo-persona, TRƯỚC digest/brain động → giữ prompt-cache).
+  //        flag LUCY_TOOL_REGISTRY OFF → '' → prompt y hệt cũ (forward-only).
+  let manifest = ''
+  if (toolRegistryEnabled()) { registerLaneTools(); manifest = getToolManifest() }
+  return HOUSE_SKILL + OUTCOME_CONTRACT + modelGuidance(effModel) + persona.systemPrompt + manifest + loadSkillBlock(card) + readActiveDigest() + readAgentBrain(persona.id) + extra
 }
 
 export class ClaudeRunner implements Runner {

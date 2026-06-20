@@ -8,6 +8,9 @@ import { spawn } from 'node:child_process'
 import { callLLMRaw, RateLimitError, type ToolDef, type RawMsg } from './llm-lane'
 import { webFetch, webSearch } from './web-tools'
 import { readAgentBrain } from './agent-brain'   // K2: nạp não nghề của expert khi consult
+// CL-2: tool registry thống nhất (flag LUCY_TOOL_REGISTRY, default OFF → vẫn dùng CHAT_TOOLS/execChatTool cũ).
+import { registry, toolRegistryEnabled, getLaneToolDefs, dispatchTool } from './tools/registry'
+import { registerLaneTools } from './tools/lane-tools'
 
 export const CHAT_TOOLS: ToolDef[] = [
   { type: 'function', function: { name: 'web_search', description: 'Tìm web (DuckDuckGo) → top kết quả {tiêu đề, URL}. Dùng để research/tra thông tin mới.', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } } },
@@ -82,6 +85,20 @@ export async function consultExpert(personaId: string, question: string, ws: str
   return `[Expert ${p.name}]\n${sub.answer}`
 }
 
+// CL-2: nạp tool lane vào registry + đăng ký consult_expert (handler ở đây để tránh import vòng lane-tools↔lane-chat).
+let chatRegistered = false
+function ensureChatRegistered(): void {
+  if (chatRegistered) return
+  chatRegistered = true
+  registerLaneTools()
+  registry.register({
+    name: 'consult_expert', toolset: 'consult', emoji: '🧑‍🔬',
+    description: CONSULT_TOOL.function.description,
+    schema: CONSULT_TOOL.function.parameters,
+    handler: (a, ctx) => consultExpert(S(a, 'persona'), S(a, 'question'), ctx.ws),
+  })
+}
+
 async function execChatTool(name: string, a: Record<string, unknown>, ws: string): Promise<string> {
   switch (name) {
     case 'consult_expert': return await consultExpert(S(a, 'persona'), S(a, 'question'), ws)
@@ -116,7 +133,12 @@ export async function chatLaneAgentic(
   const maxTurns = opts.maxTurns ?? 16
   // K2: phiên chính được consult_expert; sub-agent (allowConsult=false) thì KHÔNG (chặn đệ quy).
   const isMain = opts.allowConsult !== false
-  const tools = isMain ? [...CHAT_TOOLS, CONSULT_TOOL] : CHAT_TOOLS
+  // CL-2: flag ON → đọc ToolDef từ registry (1 nguồn); OFF → CHAT_TOOLS hard-code cũ. Hành vi tool giữ nguyên.
+  const useRegistry = toolRegistryEnabled()
+  if (useRegistry) ensureChatRegistered()
+  const baseDefs = useRegistry ? getLaneToolDefs('lucy-lane') : CHAT_TOOLS
+  const consultDef = useRegistry ? registry.toolDef('consult_expert')! : CONSULT_TOOL
+  const tools = isMain ? [...baseDefs, consultDef] : baseDefs
   // nhắc tool cho agent chính (sub-agent đã có system riêng của expert)
   if (isMain && messages[0]?.role === 'system') messages = [{ role: 'system', content: (messages[0].content || '') + CHAT_LANE_NOTE }, ...messages.slice(1)]
   const trace: ToolTrace[] = []
@@ -147,7 +169,9 @@ export async function chatLaneAgentic(
           // đã gọi y hệt rồi → không chạy lại, nhắc model dùng kết quả cũ & trả lời (tránh vòng lặp cháy lượt)
           out = '⚠️ Bạn đã gọi tool này với THAM SỐ Y HỆT ở trên rồi. Kết quả trước:\n' + seenTools.get(sig) + '\n→ ĐỪNG gọi lại; hãy TRẢ LỜI bằng thông tin đã có.'
         } else {
-          try { out = await execChatTool(tc.function.name, args, ws) } catch (e) { out = 'ERROR: ' + String(e instanceof Error ? e.message : e).slice(0, 200) }
+          // CL-2: dispatch qua registry khi flag ON (đã try/catch + sanitize bên trong); OFF → execChatTool cũ.
+          try { out = useRegistry ? await dispatchTool(tc.function.name, args, { ws, mode: 'chat' }) : await execChatTool(tc.function.name, args, ws) }
+          catch (e) { out = 'ERROR: ' + String(e instanceof Error ? e.message : e).slice(0, 200) }
           seenTools.set(sig, out.slice(0, 800))
         }
         trace.push({ name: tc.function.name, input: inputStr, result: out.slice(0, 800) })
