@@ -9,6 +9,7 @@ import { webFetch, webSearch } from './web-tools'
 import { binanceTicker24h, binanceKlines } from './market-tools'
 import { googleServer, googleConfigured } from './google-mcp'
 import { openRecallFromEnv, episodicFlagOn } from './recall'
+import { registryMcpServer, REGISTRY_MCP_DEFAULT_TOOLSETS } from './tools/registry-mcp'
 import type { Persona } from './types'
 
 // SDK chấp nhận record server config — giữ lỏng kiểu (stdio | sdk in-process) để khỏi phụ thuộc internal type.
@@ -158,6 +159,15 @@ export const MCP_REGISTRY: McpSpec[] = [
     id: 'memory', title: 'Trí nhớ (vault + hội thoại)', scopes: ['memory'], status: 'live',
     doc: 'memory_recall (vault) + memory_episodic (turn hội thoại). Nối M1. Cần LUCY_VAULT.',
     build: () => (process.env.LUCY_VAULT ? memoryServer() : null),
+  },
+  // ─────────── CL-3 — Cầu Registry → MCP: tool khai báo 1 lần ở CL-2 registry, expose qua MCP in-process. ───────────
+  // status='scaffold' (KHÔNG creds) → mặc định TẮT kể cả khi LUCY_MCP=1; bật thử nghiệm: LUCY_MCP=1 + LUCY_MCP_REGISTRY=on.
+  // Trùng tool với server web/fs sẵn có là CỐ Ý (đây là đường thử adapter); chỉ bật khi muốn so/đổi sang registry path.
+  {
+    id: 'registry', title: 'Tool Registry (CL-2 → MCP)', scopes: ['web', 'fs'], status: 'scaffold',
+    scopeLabel: 'mọi persona (thử nghiệm)',
+    doc: 'Cầu CL-3: tool lane (web_search/web_fetch/read_file/list_dir/write_file/edit_file) khai báo 1 lần ở CL-2 registry, chạy qua MCP in-process — CÙNG handler. Mặc định TẮT. BẬT: LUCY_MCP=1 + LUCY_MCP_REGISTRY=on. fs bó trong workspace (mode runner).',
+    build: (ctx) => registryMcpServer(REGISTRY_MCP_DEFAULT_TOOLSETS, { ws: ctx.workspace, mode: 'runner' }, { name: 'registry' }),
   },
   // ─────────── T5 — CONNECTORS cần creds (SCAFFOLD): chỉ mount khi đủ env + flag. Đêm tự động KHÔNG tự auth. ───────────
   {
