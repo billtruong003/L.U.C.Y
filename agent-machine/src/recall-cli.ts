@@ -18,6 +18,12 @@ try {
   } else if (args[0] === '--embed') {
     if (!r.vectorReady()) console.log('⚠️ vector OFF (thiếu JINA_API_KEY / LUCY_VECTOR=0 / extension không nạp được)')
     else { r.reindex(); const e = await r.embedIndex({ max: 5000 }); console.log(`🧬 vector: +${e.embedded} embed, còn ${e.pending} pending`) }
+  } else if (args[0] === 'stats' || args[0] === '--stats') {
+    // Heartbeat việc học — cron_dream đọc dòng này gửi Telegram mỗi đêm.
+    r.reindex()
+    const s = r.learningStats()
+    const vec = s.vectorReady ? (s.embedPending === 0 ? 'OK' : `còn ${s.embedPending} pending`) : 'OFF'
+    console.log(`🧠 học: ${s.turnsToday} lượt hôm nay (${s.turnsTotal} tổng) · ${s.notesTotal} note · vector ${vec} (${s.embedTotal}/${s.notesTotal})`)
   } else if (args[0] === '--recent') {
     const rows = r.recent({ timeframe: args[1], limit: 20 })
     console.log(`🕒 ${rows.length} note gần đây${args[1] ? ` (${args[1]})` : ''}:`)

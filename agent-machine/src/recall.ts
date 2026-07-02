@@ -123,6 +123,19 @@ export class Recall {
     this.db.prepare("INSERT INTO meta(key,value) VALUES('schema',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(Recall.SCHEMA)
   }
 
+  // Heartbeat việc học: đếm nhanh để cron_dream báo mỗi đêm — tránh trường hợp học TẮT im lặng
+  // (coordinator lỗi / vector 429 / episodic ngừng ghi) mà không ai biết. Ngày = giờ VN (UTC+7).
+  learningStats(): { turnsToday: number; turnsTotal: number; notesTotal: number; embedPending: number; embedTotal: number; vectorReady: boolean } {
+    // turns.ts lưu bằng Date.now() (ms). Ngày = giờ VN (UTC+7): lùi về nửa đêm VN theo ms.
+    const nowMs = Date.now()
+    const dayStartMs = nowMs - ((nowMs + 7 * 3600e3) % 86400e3)
+    const turnsToday = (this.db.prepare('SELECT COUNT(*) c FROM turns WHERE ts >= ?').get(dayStartMs) as { c: number }).c
+    const turnsTotal = (this.db.prepare('SELECT COUNT(*) c FROM turns').get() as { c: number }).c
+    const notesTotal = (this.db.prepare('SELECT COUNT(*) c FROM note').get() as { c: number }).c
+    const embedPending = (this.db.prepare('SELECT COUNT(*) c FROM note WHERE embed_checksum IS NULL OR embed_checksum != checksum').get() as { c: number }).c
+    return { turnsToday, turnsTotal, notesTotal, embedPending, embedTotal: notesTotal - embedPending, vectorReady: this.vectorReady() }
+  }
+
   close() { this.db.close() }
 
   // ── REINDEX: so mtime+sha256 với row note; đổi → re-parse → upsert. Xoá note mất file. ──
@@ -262,9 +275,26 @@ export class Recall {
         const obs = (getObs.all(r.id) as { content: string }[]).map((o) => o.content)
         return [fts?.title ?? '', ...obs, fts?.body ?? ''].join('\n').replace(/\s+/g, ' ').trim()
       })
-      let vecs: number[][]
-      try { vecs = await this.embedder(texts, 'retrieval.passage') }
-      catch (e) { this.vectorOn = false; console.warn(`[recall] embed lỗi → tắt vector phiên này: ${String(e).slice(0, 160)}`); break }
+      let vecs: number[][] | undefined
+      // Jina có rate-limit ~100k token/phút → reindex nhiều note dễ dính 429. Trước đây 1 lỗi = tắt vector
+      // cả phiên + bỏ dở note pending. Giờ: 429 thì lùi (backoff) rồi thử lại chunk, chỉ tắt khi lỗi khác/hết lượt.
+      for (let attempt = 0; attempt < 4 && vecs === undefined; attempt++) {
+        try { vecs = await this.embedder(texts, 'retrieval.passage') }
+        catch (e) {
+          const msg = String(e)
+          if (/\b429\b|rate limit/i.test(msg) && attempt < 3) {
+            const waitMs = 20000 * (attempt + 1)  // 20s, 40s, 60s — qua cửa sổ 1 phút của Jina
+            console.warn(`[recall] Jina 429 → chờ ${waitMs / 1000}s rồi thử lại (lần ${attempt + 1}/3)`)
+            await new Promise((r) => setTimeout(r, waitMs))
+          } else {
+            this.vectorOn = false; console.warn(`[recall] embed lỗi → tắt vector phiên này: ${msg.slice(0, 160)}`); break
+          }
+        }
+      }
+      if (vecs === undefined) break
+      // Nghỉ nhẹ giữa các batch để không dồn token vượt trần Jina/phút (chỉ khi còn batch sau).
+      const throttleMs = Number(process.env.LUCY_EMBED_THROTTLE_MS ?? 1200)
+      if (throttleMs > 0 && i + batch < todo.length) await new Promise((r) => setTimeout(r, throttleMs))
       const write = this.db.transaction(() => {
         for (let j = 0; j < chunk.length; j++) {
           const id = BigInt(chunk[j].id)
