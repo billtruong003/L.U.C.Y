@@ -1,3 +1,5 @@
+// ⚠️ 4 FILE "lane" tên gần giống — ĐỪNG sửa nhầm: chat-lane=routing+chat primitive (file này) ·
+//    lane-chat=vòng agentic tool cho chat · lane-runner=chạy 1 stage card · llm-lane=lát API provider.
 // chat-lane — Đợt A: chat qua model FREE (llm-lane) + smart-routing + tách thinking.
 // claude-path (tool+vault) KHÔNG đi qua đây — đây là lane chat thuần cho /model, /persona, auto-route.
 // Bảng route bám docs/MODEL-BENCHMARK.md §4 (con nào xịn việc gì). Router model đổi qua LUCY_ROUTER_MODEL.

@@ -1,3 +1,5 @@
+// ⚠️ 4 FILE "lane" tên gần giống — ĐỪNG sửa nhầm: lane-runner=chạy 1 stage card (file này) ·
+//    chat-lane=routing+chat primitive · lane-chat=vòng agentic tool cho chat · llm-lane=lát API provider.
 // LaneRunner — chạy 1 stage bằng MODEL RẺ (OpenRouter/OpenCode-Zen…) qua lát API in-house.
 // Cho model rẻ "tay" (read/write/edit/bash trong workspace) bằng OpenAI tool-calling → agentic
 // như claude -p nhưng tốn ít token tiền. claude -p giữ cho orchestrator/critic (opus).

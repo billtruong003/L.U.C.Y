@@ -1,3 +1,5 @@
+// ⚠️ 4 FILE "lane" tên gần giống — ĐỪNG sửa nhầm: lane-chat=vòng agentic tool cho chat (file này) ·
+//    chat-lane=routing+chat primitive · lane-runner=chạy 1 stage card · llm-lane=lát API provider.
 // lane-chat.ts — Phase M: vòng AGENTIC cho LANE model trong CHAT (không phải card pipeline).
 // Cho model rẻ "biết dùng máy/web" như Hermes: web_search · web_fetch · read_file · list_dir · bash · write_file · edit_file.
 // File tools KHÔNG sandbox workspace — model đọc/sửa bất kỳ path nào NGOẠI TRỪ blacklist nhạy cảm (.ssh, secrets...).

@@ -1,3 +1,5 @@
+// ⚠️ 4 FILE "lane" tên gần giống — ĐỪNG sửa nhầm: llm-lane=lát API provider + catalog (file này) ·
+//    chat-lane=routing+chat primitive · lane-chat=vòng agentic tool cho chat · lane-runner=chạy 1 stage card.
 // llm-lane.ts — "lát API" nhẹ in-house: gọi thẳng provider OpenAI-compat + fallback.
 // Thay OmniRoute (Next.js nặng) trên VPS 2GB. Không dep mới (Node 20 fetch). Key từ .env.llm.
 // claude -p (não) KHÔNG đi qua đây — đây là lane MODEL-RẺ (executor/bulk).
