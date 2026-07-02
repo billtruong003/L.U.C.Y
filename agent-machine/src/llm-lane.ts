@@ -65,7 +65,10 @@ export const MODEL_CATALOG: ModelEntry[] = [
   { key: 'mistral-large',    label: 'Mistral Large',            provider: 'mistral',      model: 'mistral-large-latest',       role: 'content', free: true },
   // ── Nous Portal (aggregator, credits-pool của Nous) — Claude/Nemotron/Hermes/DeepSeek qua 1 key ──
   { key: 'nous-opus-fast',   label: 'Claude Opus 4.8 Fast (Nous)', provider: 'nous',      model: 'anthropic/claude-opus-4.8-fast', role: 'reasoning', free: false, note: 'orchestrator: Claude xịn + streaming, rẻ hơn claude -p' },
+  { key: 'nous-opus',        label: 'Claude Opus 4.8 (Nous)',   provider: 'nous',         model: 'anthropic/claude-opus-4.8',   role: 'reasoning', free: false, note: 'Opus mạnh nhất, không fast' },
   { key: 'nous-sonnet',      label: 'Claude Sonnet 4.6 (Nous)', provider: 'nous',         model: 'anthropic/claude-sonnet-4.6', role: 'reasoning', free: false, note: 'chat nhanh' },
+  { key: 'nous-fable',       label: 'Claude Fable 5 (Nous)',    provider: 'nous',         model: 'anthropic/claude-fable-5',    role: 'reasoning', free: false, note: 'model "5" mạnh nhất — đắt ($10/$50), chưa verify Nous phục vụ' },
+  { key: 'nous-haiku',       label: 'Claude Haiku 4.5 (Nous)',  provider: 'nous',         model: 'anthropic/claude-haiku-4.5',  role: 'fast', free: false, note: 'nhanh/rẻ cho task đơn giản' },
   { key: 'nous-nemotron-ultra', label: 'Nemotron 3 Ultra 550B (Nous)', provider: 'nous', model: 'nvidia/nemotron-3-ultra-550b-a55b', role: 'reasoning', free: false, ctx: '1M', note: 'router xịn nhất' },
   { key: 'nous-nemotron-free', label: 'Nemotron 3 Ultra (Nous free)', provider: 'nous',  model: 'nvidia/nemotron-3-ultra:free', role: 'reasoning', free: true, ctx: '1M', note: 'router free' },
   { key: 'nous-hermes-405b', label: 'Hermes 4 405B (Nous)',     provider: 'nous',         model: 'nousresearch/hermes-4-405b', role: 'reasoning', free: false, note: 'model nhà Nous' },

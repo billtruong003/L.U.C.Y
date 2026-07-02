@@ -116,7 +116,7 @@
 ### 📦 yuanbao (1)
 - **yuanbao** — Yuanbao (元宝) groups: @mention users, query info/members. · [`skills/bundled/yuanbao/SKILL.md`](skills/bundled/yuanbao/SKILL.md)
 
-## OPTIONAL — opt-in theo dự án (95)
+## OPTIONAL — opt-in theo dự án (103)
 
 ### 🎯 autonomous-ai-agents (5)
 - **antigravity-cli** — Operate the Antigravity CLI (agy): plugins, auth, sandbox. · [`skills/optional/autonomous-ai-agents/antigravity-cli/SKILL.md`](skills/optional/autonomous-ai-agents/antigravity-cli/SKILL.md)
@@ -248,6 +248,16 @@
 
 ### 🎯 web-development (1)
 - **page-agent** — Embed alibaba/page-agent into your own web application — a pure-JavaScript in-page GUI agent that ships as a single <script> tag or npm package and lets end-users of your site drive the UI with natural language ("click login, fill username as John"). No Python, no headless browser, no extension required. Use this skill when the user is a web developer who wants to add an AI copilot to their SaaS / admin panel / B2B tool, make a legacy web app accessible via natural language, or evaluate page-agent against a local (Ollama) or cloud (Qwen / OpenAI / OpenRouter) LLM. NOT for server-side browser automation — point those users to Hermes' built-in browser tool instead. · [`skills/optional/web-development/page-agent/SKILL.md`](skills/optional/web-development/page-agent/SKILL.md)
+
+### 🎯 design (8) — taste-skill (leonxlnx, MIT)
+- **design-taste-frontend** — Anti-slop frontend skill for landing pages, portfolios, and redesigns. The agent reads the brief, infers the right design direction, and ships interfaces that do not look templated. Real design systems when applicable, audit-first on redesigns, strict pre-flight check. · [`skills/optional/design/taste-skill/SKILL.md`](skills/optional/design/taste-skill/SKILL.md)
+- **gpt-taste** — Elite UX/UI and advanced GSAP motion engineer for frontend landing pages. Python-driven layout randomization, strict AIDA structure, wide editorial typography, gapless bento grids, strict GSAP ScrollTriggers (pinning, stacking, scrubbing), inline micro-images, massive section spacing. · [`skills/optional/design/gpt-taste/SKILL.md`](skills/optional/design/gpt-taste/SKILL.md)
+- **full-output-enforcement** — Overrides default LLM truncation behavior. Enforces complete code generation, bans placeholder patterns, and handles token-limit splits cleanly. Apply to any task requiring exhaustive, unabridged output. · [`skills/optional/design/output-skill/SKILL.md`](skills/optional/design/output-skill/SKILL.md)
+- **minimalist-ui** — Clean minimalist editorial-style frontend ui. Warm monochrome palette, typographic contrast, flat bento grids, muted pastels. No gradients, no heavy shadows. · [`skills/optional/design/minimalist-skill/SKILL.md`](skills/optional/design/minimalist-skill/SKILL.md)
+- **industrial-brutalist-ui** — Raw mechanical brutalist ui fusing Swiss typographic print with military terminal aesthetics. Rigid grids, extreme type scale contrast, utilitarian color, analog degradation effects, for data-heavy dashboards, portfolios, or editorial sites. · [`skills/optional/design/brutalist-skill/SKILL.md`](skills/optional/design/brutalist-skill/SKILL.md)
+- **high-end-visual-design** — Design frontend ui like a high-end agency. Defines exact fonts, spacing, shadows, card structures, and motion that make a website feel expensive, and blocks the common defaults that make AI designs look cheap or generic. · [`skills/optional/design/soft-skill/SKILL.md`](skills/optional/design/soft-skill/SKILL.md)
+- **redesign-existing-projects** — Redesign and upgrade existing websites and apps to premium quality. Audits current design, identifies generic AI patterns, and applies high-end standards without breaking functionality. Any CSS framework or vanilla CSS. · [`skills/optional/design/redesign-skill/SKILL.md`](skills/optional/design/redesign-skill/SKILL.md)
+- **stitch-design-taste** — Semantic design system skill for Google Stitch frontend ui. Generates agent-friendly DESIGN.md enforcing premium anti-generic standards — strict typography, calibrated color, asymmetric layouts, perpetual micro-motion, hardware-accelerated performance. · [`skills/optional/design/stitch-skill/SKILL.md`](skills/optional/design/stitch-skill/SKILL.md)
 
 ## LUCY — skill nội bộ (seed từ pattern THẬT của repo) (4)
 
