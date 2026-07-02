@@ -45,7 +45,7 @@ SUMM_FILE="$(mktemp)"
 DATA_LINE="$(mktemp)"
 
 # 1. Gọi Claude sinh báo cáo — chi tiết, nguồn là LINK click được
-"${CLAUDE_BIN:-claude}" -p --model claude-opus-4-8 \
+"${CLAUDE_BIN:-claude}" -p --model claude-sonnet-4-6 \
   "Làm BÁO CÁO THỊ TRƯỜNG hôm nay, CHI TIẾT, CHUYÊN NGHIỆP, GÓC TRADER. LỌC NHIỄU MẠNH TAY — \
 ưu tiên thứ thực sự tác động giá/danh mục, BỎ tin shill/PR. Số liệu THẬT từ web/API (ghi rõ nguồn + giờ lấy). \
 $SESS_NOTE\
@@ -74,6 +74,14 @@ Chứng khoán Mỹ: [Investing.com](https://www.investing.com), [Yahoo Finance]
 - Mỗi mục kèm LÝ DO 'tại sao đáng chú ý', không chỉ con số. \
 - Nếu một mảng hôm nay KHÔNG có gì nổi bật → nói thẳng, ĐỪNG cố nhồi. \
 \
+=== VIẾT NHƯ NGƯỜI, KHÔNG GIỌNG AI === \
+- Phân tích phải CỤ THỂ: nêu số + lý do nhân-quả thật, đừng gắn đuôi rỗng 'góp phần/thể hiện/phản ánh/qua đó tạo nên/mang lại'. \
+- Cấm sáo rỗng: vô cùng, đáng chú ý (rỗng), không thể phủ nhận, trong bối cảnh, bức tranh tổng thể, đầy biến động, tâm điểm. \
+- Cấm bộ ba nhồi cho đủ và cấm 'không chỉ... mà còn...'. Cắt danh từ hóa thừa (sự/việc/tính/một cách) khi câu vẫn rõ. \
+- Cấm gạch ngang dài (— và –) trong văn; thay bằng dấu phẩy, chấm hoặc ngoặc. Đừng rào đón chồng chất 'có lẽ phần nào có thể'. \
+- Câu dài ngắn xen kẽ. 'Góc nhìn Lucy' phải có chính kiến rõ + rủi ro thật, đừng kết kiểu 'triển vọng tươi sáng' chung chung. \
+- In đậm CHỈ cho số/mức giá quan trọng, đừng bôi tràn lan. Emoji chỉ ở header mục, đừng rải trong câu. \
+\
 === ĐỊNH DẠNG FILE (markdown, cho web) === \
 - Mở đầu mục '### 🔥 TOP 3 (chú ý nhất hôm nay)' — 3 thứ tác động danh mục nhất. \
 - Heading ### cho từng mảng; **bảng markdown** cho số liệu so sánh; **đậm** cho số quan trọng; nguồn = link markdown. \
@@ -100,7 +108,7 @@ Xưng em, gọi chủ nhân. TUYỆT ĐỐI KHÔNG bịa số — không lấy �
   < /dev/null > "$RES" 2>/dev/null || true
 
 # B1: cộng token vòng claude -p vào token-guard CHUNG (fire-and-forget, không gãy cron)
-python3 "$(dirname "$0")/report_tok.py" "$RES" "brief" opus 2>/dev/null || true
+python3 "$(dirname "$0")/report_tok.py" "$RES" "brief" sonnet 2>/dev/null || true
 
 # 2. Tách full report (ghi MD) + bản gọn Telegram (bỏ bảng) — KHÔNG phụ thuộc model tự ghi file
 python3 -c "

@@ -43,8 +43,24 @@ CLAUDE_BIN   = os.environ.get("CLAUDE_BIN", "/root/.local/bin/claude")
 PERSONA_FILE = os.environ.get("LUCY_PERSONA", str(BRIDGE_DIR / "persona.md"))
 TG_TOKEN     = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TG_CHAT      = os.environ.get("LUCY_ALLOWED_USER_ID", "")
-TIMEOUT      = int(os.environ.get("LUCY_CLAUDE_TIMEOUT", "420"))   # 7 phút/stage cho opus + websearch
+TIMEOUT      = int(os.environ.get("LUCY_CLAUDE_TIMEOUT", "420"))   # 7 phút/stage cho sonnet + websearch
 MAX_RETRIES  = 2
+
+# Nhúng vào mọi stage để báo cáo đọc tự nhiên, không lộ giọng AI (skill humanizer-vi).
+HUMANIZER = (
+    "\n\n=== VIẾT NHƯ NGƯỜI, KHÔNG GIỌNG AI ===\n"
+    "- Phân tích phải CỤ THỂ: nêu số + lý do nhân-quả thật, đừng gắn đuôi rỗng "
+    "'góp phần/thể hiện/phản ánh/qua đó tạo nên/mang lại'.\n"
+    "- Cấm sáo rỗng: vô cùng, đáng chú ý (rỗng), không thể phủ nhận, trong bối cảnh, "
+    "bức tranh tổng thể, đầy biến động, tâm điểm.\n"
+    "- Cấm bộ ba nhồi cho đủ và cấm 'không chỉ... mà còn...'. Cắt danh từ hóa thừa "
+    "(sự/việc/tính/một cách) khi câu vẫn rõ.\n"
+    "- Cấm gạch ngang dài (— và –) trong văn; thay bằng dấu phẩy, chấm hoặc ngoặc. "
+    "Đừng rào đón chồng chất 'có lẽ phần nào có thể'.\n"
+    "- Câu dài ngắn xen kẽ. Nhận định phải có chính kiến rõ + rủi ro thật, đừng kết "
+    "kiểu 'triển vọng tươi sáng' chung chung.\n"
+    "- In đậm CHỈ cho số/mức giá quan trọng, đừng bôi tràn lan. Emoji chỉ ở header mục.\n"
+)
 
 SESSION = (sys.argv[1] if len(sys.argv) > 1 else "morning").lower()
 IS_PM   = SESSION in ("afternoon", "chieu", "pm")
@@ -83,11 +99,11 @@ def wait_claude_free(max_wait=600):
 
 
 def run_claude(prompt, timeout=TIMEOUT):
-    """1 lần gọi claude opus. Trả (ok, text)."""
+    """1 lần gọi claude sonnet. Trả (ok, text)."""
     try:
         proc = subprocess.run(
-            [CLAUDE_BIN, "-p", prompt,
-             "--model", "claude-opus-4-8",
+            [CLAUDE_BIN, "-p", prompt + HUMANIZER,
+             "--model", "claude-sonnet-4-6",
              # claude 2.1.173+ CẤM bypassPermissions khi chạy ROOT → dùng --allowedTools (như cron_brief.sh).
              "--allowedTools", "Bash WebSearch WebFetch Read Glob Grep",
              "--output-format", "json",
@@ -114,7 +130,7 @@ def run_claude(prompt, timeout=TIMEOUT):
 
 def run_claude_retry(prompt, label):
     for attempt in range(1, MAX_RETRIES + 1):
-        log(f"    🧠 [{label}] lần {attempt}/{MAX_RETRIES} (opus)...")
+        log(f"    🧠 [{label}] lần {attempt}/{MAX_RETRIES} (sonnet)...")
         ok, out = run_claude(prompt)
         if ok and len(out) > 80:
             log(f"    ✅ [{label}] {len(out)} chars")

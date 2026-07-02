@@ -44,7 +44,7 @@ SUMM_FILE="$(mktemp)"
 DATA_LINE="$(mktemp)"
 
 # 1. Gọi Claude sinh báo cáo
-"${CLAUDE_BIN:-claude}" -p --model claude-opus-4-8 \
+"${CLAUDE_BIN:-claude}" -p --model claude-sonnet-4-6 \
   "Làm BÁO CÁO THỊ TRƯỜNG VIỆT NAM + TIN TỨC KINH TẾ VN trong 24h qua. \
 CHI TIẾT, CHUYÊN NGHIỆP, GÓC NHÀ ĐẦU TƯ CÁ NHÂN. LỌC NHIỄU MẠNH TAY — \
 ưu tiên thứ thực sự tác động thị trường/danh mục, BỎ tin PR/giật tít. Số liệu THẬT từ web (ghi rõ nguồn + giờ lấy). \
@@ -92,6 +92,14 @@ Dữ liệu VN-Index/VN30: Cafef, Vietstock, FireAnt \
 - Nếu hôm đó KHÔNG có gì nổi bật → nói thẳng, ĐỪNG cố nhồi. \
 - Link viết dạng markdown [Tên](URL). \
 \
+=== VIẾT NHƯ NGƯỜI, KHÔNG GIỌNG AI === \
+- Phân tích phải CỤ THỂ: nêu số + lý do nhân-quả thật, đừng gắn đuôi rỗng 'góp phần/thể hiện/phản ánh/qua đó tạo nên/mang lại'. \
+- Cấm sáo rỗng: vô cùng, đáng chú ý (rỗng), không thể phủ nhận, trong bối cảnh, bức tranh tổng thể, đầy biến động, tâm điểm dòng tiền. \
+- Cấm bộ ba nhồi cho đủ và cấm 'không chỉ... mà còn...'. Cắt danh từ hóa thừa (sự/việc/tính/một cách) khi câu vẫn rõ. \
+- Cấm gạch ngang dài (— và –) trong văn; thay bằng dấu phẩy, chấm hoặc ngoặc. Đừng rào đón chồng chất 'có lẽ phần nào có thể'. \
+- Câu dài ngắn xen kẽ. Phần nhận định phải có chính kiến rõ + rủi ro thật, đừng kết kiểu 'triển vọng tươi sáng' chung chung. \
+- In đậm CHỈ cho số quan trọng, đừng bôi tràn lan. Emoji chỉ ở header mục, đừng rải trong câu. \
+\
 === ĐỊNH DẠNG === \
 - Dùng emoji header (📍 cho tin VN, 📊 cho chứng khoán, 🔮 cho nhận định). \
 - **bảng markdown** cho số liệu so sánh (nếu cần). \
@@ -111,7 +119,7 @@ Ví dụ: @@DATA VNINDEX=1281 VN30=1357 HNX=234 DXY=105.5 DONG=25450" \
   < /dev/null > "$RES" 2>/dev/null || true
 
 # B1: cộng token vòng claude -p vào token-guard CHUNG (fire-and-forget, không gãy cron)
-python3 "$(dirname "$0")/report_tok.py" "$RES" "vn" opus 2>/dev/null || true
+python3 "$(dirname "$0")/report_tok.py" "$RES" "vn" sonnet 2>/dev/null || true
 
 # 2. Tách full report + bản gọn Telegram
 python3 -c "

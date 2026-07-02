@@ -213,8 +213,10 @@ def claude_hist_append(chat_id, user_text, answer, tokens=0):
 
 def _window_of(model):
     """Context window THẬT của model (token). Map theo tên model-id từ modelUsage.
-    Mọi Claude 4.x hiện tại = 200k (Opus/Sonnet/Haiku). Sonnet bật beta 1M = 1,000,000."""
+    Sonnet 5 / Opus 4.6+ = 1M. Sonnet bật beta 1M = 1,000,000. Còn lại 200k an toàn."""
     m = (model or "").lower()
+    if "sonnet-5" in m:
+        return 1000000                     # Sonnet 5 = 1M context (mặc định)
     if "sonnet" in m and "1m" in m:
         return 1000000
     return 200000  # mặc định an toàn cho mọi model Claude hiện hành
@@ -1082,12 +1084,22 @@ def _run_claude_stream_sdk(prompt, session_id, model, persona_text, on_delta):
 _ENGINE = os.environ.get("LUCY_BRIDGE_ENGINE", "sdk").lower()
 _USE_SDK = _HAS_SDK and _ENGINE != "spawn"
 
+def _resolve_model(model):
+    """Alias ngắn → full model-id chuẩn. 'sonnet' → 'claude-sonnet-5' (mới nhất, ra 30/06/2026).
+    Giữ nguyên 'opus', lane-key, hoặc full-id đã cho. 1 choke point cho MỌI path (chat/fan/auto/orch)."""
+    m = (model or "").strip()
+    if m in ("sonnet", "claude:sonnet"):
+        return "claude-sonnet-5"
+    return m
+
 def run_claude(prompt, session_id, model="sonnet", persona_text=None, thinking_sink=None):
+    model = _resolve_model(model)
     if _USE_SDK:
         return _run_claude_sdk(prompt, session_id, model, persona_text, thinking_sink)
     return _run_claude_spawn(prompt, session_id, model, persona_text, thinking_sink)
 
 def run_claude_stream(prompt, session_id, model, persona_text, on_delta):
+    model = _resolve_model(model)
     if _USE_SDK:
         return _run_claude_stream_sdk(prompt, session_id, model, persona_text, on_delta)
     return _run_claude_stream_spawn(prompt, session_id, model, persona_text, on_delta)

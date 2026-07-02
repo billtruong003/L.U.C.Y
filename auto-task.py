@@ -10,7 +10,7 @@ An toàn: kế thừa nguyên guard DANGER của auto-build (chặn git push / r
 Chạy:  pm2 start /root/lucy/auto-task.py --name lucy-autotask --interpreter python3 --no-autorestart
 Dừng:  touch /root/lucy/.autotask-stop   (êm, sau task đang chạy)  ·  hoặc  pm2 delete lucy-autotask
 Log:   /root/lucy/auto-task.log
-Env:   AUTOTASK_MODEL(sonnet) · AUTOTASK_MAX_ITERS(6) · AUTOTASK_TIMEOUT(2400)
+Env:   AUTOTASK_MODEL(claude-sonnet-5) · AUTOTASK_MAX_ITERS(6) · AUTOTASK_TIMEOUT(2400)
        LUCY_LANEMODEL · AM_COORD_URL · AM_TOKEN · LUCY_TOKEN_REPORT(1)
 """
 import os, re, sys, shutil, asyncio, datetime, json as _json
@@ -20,7 +20,7 @@ REPO      = "/root/lucy"
 TASKS_DIR = f"{REPO}/tasks"
 VAULT     = os.environ.get("LUCY_VAULT", "/root/lucy/lucy-vault")
 PERSONA   = os.environ.get("LUCY_PERSONA", "/root/lucy/bridge/persona.md")
-MODEL     = os.environ.get("AUTOTASK_MODEL", "sonnet")
+MODEL     = os.environ.get("AUTOTASK_MODEL", "claude-sonnet-5")
 LANEMODEL = os.environ.get("LUCY_LANEMODEL", "")
 MAX_ITERS = int(os.environ.get("AUTOTASK_MAX_ITERS", "6"))
 TIMEOUT   = int(os.environ.get("AUTOTASK_TIMEOUT", "5400"))
@@ -710,9 +710,18 @@ async def run_project_sprint(slug):
     now_iso  = now_dt.isoformat()
 
     log(f"=== run_project_sprint [{slug}] START ===")
+    try:
+        _qn0 = len(load_project_queue(slug))
+        tg(f"📦 [autotask] sprint [{slug}] BẮT ĐẦU — {_qn0} task trong queue. Báo từng task khi xong.")
+    except Exception:
+        pass
 
-    # Pha 1: RESEARCH
-    research_path = run_research(project)
+    # Pha 1: RESEARCH (có thể skip qua env AUTOTASK_SKIP_RESEARCH=1)
+    if os.environ.get("AUTOTASK_SKIP_RESEARCH", "").strip().lower() in ("1", "true", "on"):
+        research_path = None
+        log(f"[{slug}] research SKIP (AUTOTASK_SKIP_RESEARCH)")
+    else:
+        research_path = run_research(project)
     research_note = f"research → {research_path}" if research_path else "research skipped"
     research_ctx  = ""
     if research_path and os.path.isfile(research_path):
@@ -816,6 +825,12 @@ async def run_project_sprint(slug):
             "summary": res_summary, "in_tok": res_in,
             "out_tok": res_out, "cost_usd": res_cost,
         })
+        try:
+            _ic = "✅" if res_status == "done" else ("⏸️" if res_status == "reject" else "❌")
+            tg(f"{_ic} [autotask/{slug}] [{i}] {task.get('title','')[:70]}\n"
+               f"{res_status} · {res_executor}/{res_model} · ${res_cost:.4f}")
+        except Exception:
+            pass
 
     # Pha 3: REPORT
     state         = _load_project_state(slug)

@@ -33,7 +33,7 @@ RES="$(mktemp)"
 SUMM_FILE="$(mktemp)"
 
 # 1. Gọi Claude sinh báo cáo trending
-"${CLAUDE_BIN:-claude}" -p --model claude-opus-4-8 \
+"${CLAUDE_BIN:-claude}" -p --model claude-sonnet-4-6 \
   "Làm BÁO CÁO RADAR TRENDING VIỆT NAM trong 24h qua. Mục tiêu KÉP: \
 (A) FEED nội dung cho kênh tin/blog (biết VIẾT GÌ để ăn traffic), \
 (B) bắt TÍN HIỆU NHU CẦU để làm AI tool/service (biết LÀM GÌ người ta đang cần trả tiền). \
@@ -74,6 +74,13 @@ X/Twitter trends VN: tìm 'trending Vietnam today' \
 - Nếu hôm đó không có gì đáng kể ở 1 mục → nói thẳng, ĐỪNG nhồi. \
 - Link dạng markdown [Tên](URL). \
 \
+=== VIẾT NHƯ NGƯỜI, KHÔNG GIỌNG AI === \
+- Phân tích phải CỤ THỂ: nêu cái gì hot + lý do nhân-quả thật, đừng gắn đuôi rỗng 'góp phần/thể hiện/phản ánh/qua đó tạo nên'. \
+- Cấm sáo rỗng: vô cùng, đa dạng và phong phú, ấn tượng, bùng nổ, gây sốt, không thể bỏ qua, trong bối cảnh, bức tranh tổng thể. \
+- Cấm bộ ba nhồi cho đủ và cấm 'không chỉ... mà còn...'. Cắt danh từ hóa thừa (sự/việc/tính/một cách) khi câu vẫn rõ. \
+- Cấm gạch ngang dài (— và –) trong văn; thay bằng dấu phẩy, chấm hoặc ngoặc. Đừng rào đón 'có lẽ phần nào có thể'. \
+- Câu dài ngắn xen kẽ. In đậm CHỈ cho số/từ khóa quan trọng, đừng bôi tràn lan. Emoji chỉ ở header mục, đừng rải trong câu. \
+\
 === ĐỊNH DẠNG === \
 - Emoji header như cấu trúc trên. **đậm** cho chủ đề/số quan trọng. \
 - KHÔNG dùng bảng markdown (để hiển thị tốt). \
@@ -84,7 +91,7 @@ X/Twitter trends VN: tìm 'trending Vietnam today' \
   < /dev/null > "$RES" 2>/dev/null || true
 
 # B1: cộng token vòng claude -p vào token-guard CHUNG (fire-and-forget, không gãy cron)
-python3 "$(dirname "$0")/report_tok.py" "$RES" "trend" opus 2>/dev/null || true
+python3 "$(dirname "$0")/report_tok.py" "$RES" "trend" sonnet 2>/dev/null || true
 
 # 2. Tách full report + bản gọn Telegram
 python3 -c "

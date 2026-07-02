@@ -9,7 +9,7 @@ Mỗi vòng: 1 query() làm ĐÚNG 1 task auto-able → smoke/fix/deploy → c�
 
 Chạy:  pm2 start /root/lucy/auto-build.py --name lucy-autobuild --interpreter python3 --no-autorestart
 Dừng:  touch /root/lucy/.autobuild-stop   (êm, sau task đang chạy)  ·  hoặc  pm2 delete lucy-autobuild
-Log:   /root/lucy/auto-build.log   ·  Env: AUTOBUILD_MODEL(sonnet|opus) · AUTOBUILD_MAX_ITERS(8) · AUTOBUILD_TIMEOUT(2400)
+Log:   /root/lucy/auto-build.log   ·  Env: AUTOBUILD_MODEL(claude-sonnet-5|opus) · AUTOBUILD_MAX_ITERS(8) · AUTOBUILD_TIMEOUT(2400)
 """
 import os, re, asyncio, datetime
 from claude_agent_sdk import query, ClaudeAgentOptions, PermissionResultAllow, PermissionResultDeny
@@ -17,7 +17,7 @@ from claude_agent_sdk import query, ClaudeAgentOptions, PermissionResultAllow, P
 REPO    = "/root/lucy"
 VAULT   = os.environ.get("LUCY_VAULT", "/root/lucy/lucy-vault")
 PERSONA = os.environ.get("LUCY_PERSONA", "/root/lucy/bridge/persona.md")
-MODEL   = os.environ.get("AUTOBUILD_MODEL", "sonnet")
+MODEL   = os.environ.get("AUTOBUILD_MODEL", "claude-sonnet-5")
 MAX_ITERS = int(os.environ.get("AUTOBUILD_MAX_ITERS", "8"))
 TIMEOUT = int(os.environ.get("AUTOBUILD_TIMEOUT", "2400"))   # 40 phút/task
 STOP_FILE = f"{REPO}/.autobuild-stop"

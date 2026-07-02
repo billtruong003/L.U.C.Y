@@ -12,8 +12,8 @@ Chạy:  pm2 start /root/lucy/auto-build-free.py --name lucy-autobuild-free --in
 Dừng:  touch /root/lucy/.autobuild-free-stop   ·  hoặc  pm2 delete lucy-autobuild-free
 Log:   /root/lucy/auto-build-free.log
 CLI:   --self-test (banner+config, no LLM) · --plan-only (chỉ Sonnet plan) · --dry-execute (log routing, no LLM) · --dry
-Env:   AUTOBUILD_FREE_MODEL_PLAN(sonnet) · _MODEL_CODE(mimo-v2.5-free) · _MODEL_CODE_FB(ds-v4-flash-free) ·
-       _MODEL_HARD(sonnet) · _MODEL_LANE(or-nemotron-super) · _MAX_ITERS(12) · _MAX_QA_ROUNDS(3) ·
+Env:   AUTOBUILD_FREE_MODEL_PLAN(claude-sonnet-5) · _MODEL_CODE(mimo-v2.5-free) · _MODEL_CODE_FB(ds-v4-flash-free) ·
+       _MODEL_HARD(claude-sonnet-5) · _MODEL_LANE(or-nemotron-super) · _MAX_ITERS(12) · _MAX_QA_ROUNDS(3) ·
        _QA_URL · _FOCUS · AM_COORD_URL · AM_TOKEN · LUCY_TOKEN_REPORT(1)
 """
 import os, re, sys, asyncio, datetime, json as _json
@@ -28,10 +28,10 @@ STOP_FILE = f"{REPO}/.autobuild-free-stop"
 LOG       = f"{REPO}/auto-build-free.log"
 
 # Model tiers (ABF-1 config). mimo-v2.5-free verified LIVE 2026-06-18 (coordinator restarted).
-MODEL_PLAN    = os.environ.get("AUTOBUILD_FREE_MODEL_PLAN", "sonnet")
+MODEL_PLAN    = os.environ.get("AUTOBUILD_FREE_MODEL_PLAN", "claude-sonnet-5")
 MODEL_CODE    = os.environ.get("AUTOBUILD_FREE_MODEL_CODE", "mimo-v2.5-free")
 MODEL_CODE_FB = os.environ.get("AUTOBUILD_FREE_MODEL_CODE_FB", "or-nemotron-super")
-MODEL_HARD    = os.environ.get("AUTOBUILD_FREE_MODEL_HARD", "sonnet")
+MODEL_HARD    = os.environ.get("AUTOBUILD_FREE_MODEL_HARD", "claude-sonnet-5")
 MODEL_LANE    = os.environ.get("AUTOBUILD_FREE_MODEL_LANE", "or-nemotron-super")
 MAX_ITERS     = int(os.environ.get("AUTOBUILD_FREE_MAX_ITERS", "12"))
 MAX_QA_ROUNDS = int(os.environ.get("AUTOBUILD_FREE_MAX_QA_ROUNDS", "3"))
