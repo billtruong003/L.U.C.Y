@@ -221,6 +221,12 @@ async function streamClaude(prompt: string, sessionId: string | null, model: str
 }
 
 const app = express()
+// Chặn path-traversal probe (%c0%af...): decodeURIComponent throw URIError trong serve-static → sập process.
+// Bắt sớm URL không decode được → 400, khỏi rơi vào static handler.
+app.use((req, res, next) => {
+  try { decodeURIComponent(req.path) } catch { return res.status(400).send('bad request') }
+  next()
+})
 app.use(express.json())
 app.use(cookieParser())
 const authed = (req: Request) => tokens.has(req.cookies?.lucy_token)

@@ -124,7 +124,9 @@ def _coord_post(path, body, timeout=300):
         return _json.loads(r.read().decode())
 
 # Guard — copy nguyên từ auto-build.py, KHÔNG nới lỏng
-DANGER = [r"rm\s+-rf\s+(/|~|\$HOME|\*)", r"\bgit\s+push",
+DANGER = [r"rm\s+-rf\s+(/|~|\$HOME|\*)",
+          # git push kể cả qua global flag: git -C <dir> push / --git-dir=... push / -c k=v push
+          r"\bgit\b(?:\s+(?:-C\s+\S+|--git-dir=\S+|--work-tree=\S+|-c\s+\S+))*\s+push\b",
           r"pm2\s+(restart|stop|delete|reload)\s+\S*bridge",
           r"\bmkfs", r"\bdd\s+if=", r":\(\)\s*\{", r">\s*/dev/sd",
           r"chmod\s+-R?\s*777\s+/", r"\b(shutdown|reboot|halt)\b",

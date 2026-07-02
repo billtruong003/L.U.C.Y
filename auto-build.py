@@ -86,7 +86,10 @@ def report_tok(usage):
     threading.Thread(target=_send, daemon=True).start()
 
 # can_use_tool: chặn lệnh nguy hiểm khi chạy KHÔNG NGƯỜI (defense cho unattended). Còn lại auto-allow.
-DANGER = [r"rm\s+-rf\s+(/|~|\$HOME|\*)", r"\bgit\s+push", r"pm2\s+(restart|stop|delete|reload)\s+\S*bridge",
+DANGER = [r"rm\s+-rf\s+(/|~|\$HOME|\*)",
+          # git push kể cả qua global flag: git -C <dir> push / --git-dir=... push / -c k=v push
+          r"\bgit\b(?:\s+(?:-C\s+\S+|--git-dir=\S+|--work-tree=\S+|-c\s+\S+))*\s+push\b",
+          r"pm2\s+(restart|stop|delete|reload)\s+\S*bridge",
           r"\bmkfs", r"\bdd\s+if=", r":\(\)\s*\{", r">\s*/dev/sd", r"chmod\s+-R?\s*777\s+/", r"\b(shutdown|reboot|halt)\b",
           r"rm\s+-rf\s+/root/lucy\b", r"\bcurl[^|]*\|\s*(ba)?sh"]
 async def can_use(tool_name, tool_input, ctx):

@@ -115,7 +115,9 @@ def _estimate_usd(model, in_tok, out_tok, cache_read=0, cache_write=0):
     return (in_tok * p_in + out_tok * p_out + cache_read * p_cr + cache_write * p_cw) / M
 
 # Guard — copy nguyên từ auto-build.py, KHÔNG nới lỏng
-DANGER = [r"rm\s+-rf\s+(/|~|\$HOME|\*)", r"\bgit\s+push",
+DANGER = [r"rm\s+-rf\s+(/|~|\$HOME|\*)",
+          # git push kể cả qua global flag: git -C <dir> push / --git-dir=... push / -c k=v push
+          r"\bgit\b(?:\s+(?:-C\s+\S+|--git-dir=\S+|--work-tree=\S+|-c\s+\S+))*\s+push\b",
           r"pm2\s+(restart|stop|delete|reload)\s+\S*bridge",
           r"\bmkfs", r"\bdd\s+if=", r":\(\)\s*\{", r">\s*/dev/sd",
           r"chmod\s+-R?\s*777\s+/", r"\b(shutdown|reboot|halt)\b",

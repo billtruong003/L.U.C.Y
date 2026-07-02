@@ -61,6 +61,10 @@ PREFS     = os.path.expanduser("~/.lucy-bridge-prefs.json")   # Đợt A: model/
 LANE_HIST = os.path.expanduser("~/.lucy-lane-history.json")   # history lane per (chat_id, model_key)
 LANE_HIST_MAX = int(os.environ.get("LUCY_LANE_HIST_MAX", "60"))  # số messages giữ lại (30 turns) — tăng vì 20 ảo ngắn
 API     = f"https://api.telegram.org/bot{TOKEN}"
+
+def _scrub_tok(x):
+    """Che bot token khỏi log — exception của requests in nguyên URL /bot<token>/... ra pm2 logs."""
+    return str(x).replace(TOKEN, "<bot-token>")
 OFFSET_FILE = os.path.expanduser("~/.lucy-bridge-offset.json")  # lưu getUpdates offset → /restart không tự nuốt loop
 # Bypass chặn ISP (VN chặn dải Bot API): nếu set, MỌI call Telegram đi qua proxy này (vd Cloudflare WARP socks5h://127.0.0.1:40000).
 # KHÔNG áp cho coordinator (localhost) hay claude (spawn riêng) → an toàn, surgical.
@@ -560,7 +564,7 @@ def send(chat_id, text):
                 requests.post(f"{API}/sendMessage",
                               json={"chat_id": chat_id, "text": text[i:i + 3800]}, timeout=30, proxies=_TG_PROXIES)
         except Exception as e:
-            print("send err:", e)
+            print("send err:", _scrub_tok(e))
 
 
 def send_id(chat_id, text):
@@ -598,7 +602,7 @@ def send_document(chat_id, path, caption=""):
                           data={"chat_id": chat_id, "caption": caption[:1000]},
                           files={"document": f}, timeout=90, proxies=_TG_PROXIES)
     except Exception as e:
-        print("doc err:", e)
+        print("doc err:", _scrub_tok(e))
 
 
 # ── B4: bridge nhận ẢNH — tải file Telegram về WORKDIR để claude Read (vision native) ──
@@ -621,7 +625,7 @@ def tg_download(file_id, prefix="img"):
             f.write(dl.content)
         return local
     except Exception as e:
-        print("tg_download err:", e)
+        print("tg_download err:", _scrub_tok(e))
         return None
 
 
@@ -1528,7 +1532,7 @@ def _worker(chat_id, sessions):
             if msg is not None:
                 handle(msg, sessions)
         except Exception as e:
-            print("handle err:", e)
+            print("handle err:", _scrub_tok(e))
         finally:
             q.task_done()
 
@@ -1583,7 +1587,7 @@ def main():
                     threading.Thread(target=_worker, args=(cid, sessions), daemon=True).start()
                 CHAT_Q[cid].put(m)
         except Exception as e:
-            print("loop err:", e)
+            print("loop err:", _scrub_tok(e))
             time.sleep(3)
 
 
