@@ -265,19 +265,21 @@ a:focus-visible,
   .hud-ring-rev { animation: hud-spin-rev 26s linear infinite; }
   .hud-ring-gold { border-color: rgba(var(--gold-rgb),0.30); box-shadow: 0 0 12px rgba(var(--gold-rgb),0.12); }
 
-  /* Card */
+  /* Card — 1 primitive nội dung: surface-2 đặc, radius-md, shadow-sm, border-default */
   .card {
-    background: linear-gradient(180deg, var(--surface-card-hi), var(--surface-card-lo));
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    box-shadow: 0 8px 28px var(--shadow-card);
+    background: var(--surface-2);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
   }
+  .card-raise { transition: border-color .16s, box-shadow .16s, background .16s; }
+  .card-raise:hover { border-color: var(--border-strong); background: var(--surface-3); box-shadow: var(--shadow-md); }
 
   /* Button */
   .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
-    padding: 0.5rem 0.9rem; border-radius: 10px; font-weight: 600; font-size: 0.85rem;
-    border: 1px solid var(--line); color: var(--ink-subtle); background: rgba(var(--white-rgb),0.02);
+    padding: 0.5rem 0.9rem; border-radius: var(--radius-sm); font-weight: 600; font-size: 0.8125rem;
+    border: 1px solid var(--border-default); color: var(--text-secondary); background: var(--surface-3);
     transition: all 0.15s ease, transform 0.15s ease; cursor: pointer; user-select: none;
   }
   .btn:hover {
@@ -289,10 +291,10 @@ a:focus-visible,
   .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
   .btn-primary {
-    color: var(--ink-dark); font-weight: 700;
+    color: var(--on-accent); font-weight: 700;
     background: linear-gradient(180deg, var(--cyan-hi), var(--cyan-lo));
     border: 1px solid rgba(var(--cyan-rgb),0.60);
-    box-shadow: 0 0 18px rgba(var(--cyan-rgb),0.30);
+    box-shadow: var(--glow-accent);
   }
   .btn-primary:hover {
     background: linear-gradient(180deg, var(--cyan-hover-hi), var(--cyan-hover-lo));
@@ -302,8 +304,8 @@ a:focus-visible,
 
   /* Form */
   .input {
-    width: 100%; background: var(--surface-input); border: 1px solid var(--line);
-    border-radius: 10px; padding: 0.6rem 0.8rem; color: var(--ink); outline: none;
+    width: 100%; background: var(--surface-3); border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm); padding: 0.6rem 0.8rem; color: var(--text-primary); outline: none;
     transition: border-color 0.15s, box-shadow 0.15s; font-family: Inter, sans-serif;
   }
   .input:focus {
@@ -312,11 +314,28 @@ a:focus-visible,
   }
   .input::placeholder { color: var(--inkfaint); }
 
-  /* Chip / badge */
+  /* Chip / badge — base + biến thể semantic (tint bg + border + text cùng vai) */
   .chip {
-    display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.2rem 0.6rem;
-    border-radius: 999px; font-size: 0.72rem; border: 1px solid var(--line); color: var(--inkdim);
+    display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.15rem 0.55rem;
+    border-radius: 999px; font-size: 0.6875rem; font-weight: 500; line-height: 1.4;
+    border: 1px solid var(--border-default); color: var(--text-secondary);
   }
+  .chip-accent  { background: rgb(var(--cyan-ch)/0.12);  border-color: rgb(var(--cyan-ch)/0.35);  color: var(--accent); }
+  .chip-value   { background: rgb(var(--gold-ch)/0.12);  border-color: rgb(var(--gold-ch)/0.35);  color: var(--value); }
+  .chip-success { background: rgb(var(--grn-ch)/0.12);   border-color: rgb(var(--grn-ch)/0.35);   color: var(--success); }
+  .chip-warning { background: rgb(var(--amber-ch)/0.12); border-color: rgb(var(--amber-ch)/0.35); color: var(--warning); }
+  .chip-danger  { background: rgb(var(--rose-ch)/0.12);  border-color: rgb(var(--rose-ch)/0.35);  color: var(--danger); }
+
+  /* Nhãn eyebrow (uppercase tracked) — chuẩn hoá section label */
+  .eyebrow { font-family: "Space Grotesk", sans-serif; font-size: 0.6875rem; font-weight: 600;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); }
+
+  /* Skeleton shimmer (loading) */
+  .skeleton { position: relative; overflow: hidden; background: var(--surface-3); border-radius: var(--radius-sm); }
+  .skeleton::after { content:""; position:absolute; inset:0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.05), transparent);
+    animation: skeleton-shimmer 1.4s infinite; }
+  @keyframes skeleton-shimmer { to { transform: translateX(100%); } }
 
   /* Tabs */
   .tabs {

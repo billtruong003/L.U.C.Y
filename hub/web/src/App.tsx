@@ -18,6 +18,7 @@ import Skills from './components/Skills'
 import Prompts from './components/Prompts'
 import AutoTask from './components/AutoTask'
 import ReactorHome from './components/ReactorHome'
+import Design from './components/Design'
 import HudRail from './components/HudRail'
 import CommandPalette, { type PaletteItem } from './components/CommandPalette'
 import { me, amState, amTrashProject, amCreateProject, promptArchStatus, type AmProject } from './api'
@@ -48,6 +49,7 @@ const BASE_TABS = [
   { id: 'aki', label: 'Aki', icon: '📣', sub: 'Đẩy báo cáo Discord', group: 'Hệ thống', kw: 'discord report bao cao' },
   { id: 'logs', label: 'Logs', icon: '📜', sub: 'Nhật ký hệ thống', group: 'Hệ thống', kw: 'log nhat ky' },
   { id: 'settings', label: 'Settings', icon: '🔐', sub: 'Bảo mật 2FA', group: 'Hệ thống', kw: 'setting 2fa bao mat' },
+  { id: 'design', label: 'Design', icon: '🎨', sub: 'Design-system Cockpit v2', group: 'Hệ thống', kw: 'design system token primitive kitchen sink theme' },
 ]
 
 const reactorOn = () => localStorage.getItem('lucy.reactorHome') === '1'
@@ -332,6 +334,7 @@ export default function App() {
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'autotask' ? '' : 'opacity-0 pointer-events-none')}><AutoTask /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'logs' ? '' : 'opacity-0 pointer-events-none')}><Logs /></div>
           <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'settings' ? '' : 'opacity-0 pointer-events-none')}><Settings /></div>
+          <div className={'absolute inset-0 transition-opacity duration-150 ' + (tab === 'design' ? '' : 'opacity-0 pointer-events-none')}><Design /></div>
         </section>
 
         {/* S2/E1.5: bottom bar — chỉ mobile (md:hidden), 4 Space chính + Menu */}
