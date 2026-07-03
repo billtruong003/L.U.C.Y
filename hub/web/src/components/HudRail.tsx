@@ -68,6 +68,22 @@ export default function HudRail({ tabId, label, sub, icon, mobileOpen, onMobileC
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-3">
+        {/* Voice orb — visualizer JARVIS (slot sẵn, wire audio sau) */}
+        <div className="card hud-frame p-3 flex flex-col items-center">
+          <div className="hud-lbl self-start mb-1">Voice · JARVIS</div>
+          <svg width="96" height="96" viewBox="0 0 120 120" className="my-1">
+            <circle cx="60" cy="60" r="50" fill="none" stroke="rgb(var(--cyan-ch)/0.14)" strokeWidth="1" />
+            <circle cx="60" cy="60" r="40" fill="none" stroke="rgb(var(--cyan-ch)/0.22)" strokeWidth="1" strokeDasharray="4 6">
+              <animateTransform attributeName="transform" type="rotate" from="0 60 60" to="360 60 60" dur="22s" repeatCount="indefinite" />
+            </circle>
+            <circle cx="60" cy="60" r="26" fill="none" stroke="var(--accent)" strokeWidth="2" style={{ filter: 'drop-shadow(0 0 6px var(--accent))' }} />
+            <circle cx="60" cy="60" r="11" fill="rgb(var(--cyan-ch)/0.55)" style={{ filter: 'drop-shadow(0 0 12px var(--accent))' }}>
+              <animate attributeName="r" values="9;14;9" dur="2.6s" repeatCount="indefinite" />
+            </circle>
+          </svg>
+          <div className="hud-lbl text-cyan">◐ chờ voice</div>
+        </div>
+
         {/* Đang chạy — số THẬT từ coordinator */}
         <div className="glass rounded-xl p-3">
           <div className="text-[9px] text-inkfaint uppercase tracking-widest mb-2">Đang chạy</div>

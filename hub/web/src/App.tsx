@@ -183,10 +183,10 @@ export default function App() {
 
         {/* header */}
         <div className="px-5 pt-5 pb-4 border-b border-line flex items-center gap-2.5">
-          <img src="/lucy.jpg" alt="Lucy" className="h-9 w-9 rounded-full object-cover shrink-0" style={{ border: '1px solid rgba(63,211,255,0.5)', boxShadow: '0 0 12px rgba(63,211,255,.45)' }} />
+          <img src="/lucy.jpg" alt="Lucy" className="h-9 w-9 rounded-full object-cover shrink-0" style={{ border: '1px solid rgba(56,208,255,0.5)', boxShadow: '0 0 12px rgba(56,208,255,.45)' }} />
           <div className="flex-1 min-w-0">
-            <div className="display text-cyan text-lg tracking-[0.32em] leading-none" style={{ textShadow: '0 0 12px rgba(63,211,255,.45)' }}>LUCY</div>
-            <div className="text-[10px] text-inkfaint mt-1 tracking-wide">personal AI hub</div>
+            <div className="mono text-cyan text-lg tracking-[0.42em] leading-none" style={{ textShadow: '0 0 12px rgba(56,208,255,.45)' }}>LUCY</div>
+            <div className="hud-lbl mt-1">personal AI hub</div>
           </div>
           {/* close button — mobile only */}
           <button onClick={() => setOpen(false)} className="md:hidden text-inkfaint hover:text-ink transition text-lg !w-11 !h-11 flex items-center justify-center rounded" aria-label="Đóng sidebar">✕</button>
@@ -216,7 +216,7 @@ export default function App() {
                     <button key={t.id} onClick={() => pick(t.id)}
                       className={'group relative flex items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors duration-100 ' +
                         (on ? 'bg-cyan/10 text-ink' : 'text-inkdim hover:text-ink hover:bg-white/[0.05]')}>
-                      {on && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r bg-cyan" style={{ boxShadow: '0 0 10px rgba(63,211,255,.8)' }} />}
+                      {on && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[3px] rounded-r bg-cyan" style={{ boxShadow: '0 0 10px rgba(56,208,255,.8)' }} />}
                       <span className={'text-base transition-transform ' + (on ? 'scale-110' : 'opacity-70 group-hover:opacity-100')}>{t.icon}</span>
                       <span className="flex-1 min-w-0">
                         <span className={'block text-[13px] font-semibold truncate ' + (on ? 'text-cyan' : '')}>{t.label}</span>
@@ -283,7 +283,7 @@ export default function App() {
                     style={{ animationDelay: `${idx * 30}ms` }}
                     className={'note-item group relative flex items-center gap-2 rounded-lg px-2 py-1.5 min-h-[44px] cursor-pointer transition-colors duration-100 select-none ' +
                       (isActive ? 'bg-cyan/10' : 'hover:bg-white/[0.05]')}>
-                    {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-r bg-cyan" style={{ boxShadow: '0 0 8px rgba(63,211,255,.7)' }} />}
+                    {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-r bg-cyan" style={{ boxShadow: '0 0 8px rgba(56,208,255,.7)' }} />}
                     <span className="text-sm shrink-0 opacity-80">📁</span>
                     <span className={'text-[12px] truncate flex-1 ' + (isActive ? 'text-cyan font-medium' : 'text-inkdim group-hover:text-ink')}>{p.name}</span>
                     {p.repoUrl && <span className="chip !py-0 !px-1 !text-[9px] text-cyan shrink-0 opacity-70 group-hover:opacity-100">repo</span>}
