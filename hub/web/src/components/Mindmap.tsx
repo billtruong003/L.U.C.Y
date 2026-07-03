@@ -16,7 +16,7 @@ const NODE_H = 44
 const PORT_R = 5
 
 const PALETTE = {
-  cyan:  { fill: 'rgba(63,211,255,0.10)',  stroke: '#3fd3ff', text: '#3fd3ff' },
+  cyan:  { fill: 'rgba(56,208,255,0.10)',  stroke: '#3fd3ff', text: '#3fd3ff' },
   grn:   { fill: 'rgba(95,227,154,0.10)',  stroke: '#5fe39a', text: '#5fe39a' },
   pink:  { fill: 'rgba(255,93,158,0.10)',  stroke: '#ff5d9e', text: '#ff5d9e' },
   amber: { fill: 'rgba(255,157,92,0.10)',  stroke: '#ff9d5c', text: '#ff9d5c' },
@@ -193,7 +193,7 @@ export default function Mindmap({ projectId }: { projectId: string }) {
         <span className="display text-[11px] tracking-[0.18em]" style={{ color: INKFAINT }}>MINDMAP</span>
 
         {/* Add Node — accent outline */}
-        <button className="btn" style={{ color: ACCENT, borderColor: 'rgba(63,211,255,0.4)', gap: 5 }} onClick={addNode}>
+        <button className="btn" style={{ color: ACCENT, borderColor: 'rgba(56,208,255,0.4)', gap: 5 }} onClick={addNode}>
           <IconPlus /> Node
         </button>
 
@@ -301,7 +301,7 @@ export default function Mindmap({ projectId }: { projectId: string }) {
             const borderColor = isSel ? ACCENT : ih ? ACCENT : LINE
             const borderWidth = isSel ? 2 : 1.5
             const boxShadow   = isSel
-              ? `0 0 0 3px rgba(63,211,255,0.30), 0 1px 3px rgba(0,0,0,0.40)`
+              ? `0 0 0 3px rgba(56,208,255,0.30), 0 1px 3px rgba(0,0,0,0.40)`
               : `0 1px 3px rgba(0,0,0,0.40)`
 
             return (
@@ -369,7 +369,7 @@ export default function Mindmap({ projectId }: { projectId: string }) {
 
                 {/* ● connect port — visual indicator only; Shift+click node to connect */}
                 <circle cx={NODE_W} cy={NODE_H / 2} r={PORT_R}
-                  fill={connecting?.fromId === n.id ? CYAN : (ih ? 'rgba(63,211,255,0.18)' : 'transparent')}
+                  fill={connecting?.fromId === n.id ? CYAN : (ih ? 'rgba(56,208,255,0.18)' : 'transparent')}
                   stroke={ih ? CYAN : 'transparent'}
                   strokeWidth="1.5"
                   style={{ pointerEvents: 'none' }} />

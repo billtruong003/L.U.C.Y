@@ -109,7 +109,7 @@ export default function LucyChat({ project, pipes, onCreated }: { project: strin
             <div key={i} className="self-end max-w-[85%] rounded-2xl rounded-br-sm px-3.5 py-2 text-[13px] leading-snug whitespace-pre-wrap break-words bg-cyan/15 text-ink">{m.text}</div>
           ) : (
             <div key={i} className="self-start max-w-[92%] flex gap-2.5">
-              <img src="/lucy.jpg" alt="Lucy" className="mt-1 h-7 w-7 shrink-0 rounded-full object-cover" style={{ border: '1px solid rgba(63,211,255,0.45)' }} />
+              <img src="/lucy.jpg" alt="Lucy" className="mt-1 h-7 w-7 shrink-0 rounded-full object-cover" style={{ border: '1px solid rgba(56,208,255,0.45)' }} />
               <div className="min-w-0 flex-1">
                 <div className="card px-3.5 py-2.5 min-w-0">
                   <div className="display text-[10px] tracking-[0.2em] text-cyan/80 mb-1">LUCY</div>

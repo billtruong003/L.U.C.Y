@@ -377,7 +377,7 @@ export default function Dashboard() {
                 <div key={s.label} className="card px-4 py-3.5">
                   <div className="text-[10px] text-inkfaint uppercase tracking-widest mb-1.5">{s.label}</div>
                   <div className={'display text-2xl font-bold leading-none ' + (s.accent ? 'text-pink' : 'text-cyan')}
-                    style={s.accent ? { textShadow: '0 0 20px rgba(255,93,158,.5)' } : { textShadow: '0 0 20px rgba(63,211,255,.35)' }}>
+                    style={s.accent ? { textShadow: '0 0 20px rgba(255,93,158,.5)' } : { textShadow: '0 0 20px rgba(56,208,255,.35)' }}>
                     {s.value}
                   </div>
                   <div className="text-[10px] text-inkfaint mt-1.5">{s.sub}</div>

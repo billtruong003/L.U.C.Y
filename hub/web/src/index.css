@@ -274,13 +274,24 @@ a:focus-visible,
   .hud-ring-rev { animation: hud-spin-rev 26s linear infinite; }
   .hud-ring-gold { border-color: rgba(var(--gold-rgb),0.30); box-shadow: 0 0 12px rgba(var(--gold-rgb),0.12); }
 
-  /* Card — 1 primitive nội dung: surface-2 đặc, radius-md, shadow-sm, border-default */
+  /* Card — 1 primitive nội dung HUD: surface-2, viền mảnh, radius nhỏ (HUD ít bo), + góc bracket cyan */
   .card {
+    position: relative;
     background: var(--surface-2);
     border: 1px solid var(--border-default);
-    border-radius: var(--radius-md);
+    border-radius: 4px;
     box-shadow: var(--shadow-sm);
   }
+  /* corner brackets HUD ở 2 góc chéo — mảnh, không noise; tắt khi reduce-fx cho nhẹ */
+  .card::before, .card::after {
+    content:""; position:absolute; width:9px; height:9px; pointer-events:none;
+    border-color: rgb(var(--cyan-ch) / 0.55);
+  }
+  .card::before { top:-1px; left:-1px; border-top:1.5px solid; border-left:1.5px solid; border-color: inherit; }
+  .card::after  { bottom:-1px; right:-1px; border-bottom:1.5px solid; border-right:1.5px solid; }
+  .card::before { border-top:1.5px solid rgb(var(--cyan-ch)/0.5); border-left:1.5px solid rgb(var(--cyan-ch)/0.5); }
+  .card::after  { border-bottom:1.5px solid rgb(var(--cyan-ch)/0.5); border-right:1.5px solid rgb(var(--cyan-ch)/0.5); }
+  html.reduce-fx .card::before, html.reduce-fx .card::after { display:none; }
   .card-raise { transition: border-color .16s, box-shadow .16s, background .16s; }
   .card-raise:hover { border-color: var(--border-strong); background: var(--surface-3); box-shadow: var(--shadow-md); }
 

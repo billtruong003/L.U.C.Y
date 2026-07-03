@@ -52,7 +52,7 @@ export default function Tasks() {
       <div className={'glass overflow-hidden ' + (run ? 'border-grn/25' : '')}>
         <button className="w-full px-3.5 py-3 flex items-center gap-3 text-left" onClick={() => toggle(j)}>
           <span className={'grid place-items-center h-7 w-7 rounded-full text-xs shrink-0 ' + (run ? 'text-grn' : 'text-cyan')}
-            style={{ background: run ? 'rgba(95,227,154,0.12)' : 'rgba(63,211,255,0.10)', animation: run ? 'lucy-pulse 1.4s infinite' : undefined }}>
+            style={{ background: run ? 'rgba(95,227,154,0.12)' : 'rgba(56,208,255,0.10)', animation: run ? 'lucy-pulse 1.4s infinite' : undefined }}>
             {run ? '⏳' : '✓'}
           </span>
           <span className="flex-1 min-w-0">

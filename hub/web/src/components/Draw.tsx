@@ -180,7 +180,7 @@ export default function Draw({ projectId }: { projectId?: string }) {
           onClick={() => setEraser((v) => !v)}
           style={{
             padding: '3px 10px', fontSize: 12, height: 28, flexShrink: 0,
-            ...(eraser ? { background: 'rgba(63,211,255,0.14)', borderColor: '#3fd3ff', color: '#3fd3ff' } : {}),
+            ...(eraser ? { background: 'rgba(56,208,255,0.14)', borderColor: '#3fd3ff', color: '#3fd3ff' } : {}),
           }}
         >
           ◻ Tẩy

@@ -187,8 +187,8 @@ export default function RichTextEditor({
     <div
       className={'rounded-xl overflow-hidden ' + className}
       style={{
-        border: `1px solid ${focused ? 'rgba(63,211,255,0.55)' : 'var(--line)'}`,
-        boxShadow: focused ? '0 0 0 3px rgba(63,211,255,0.10)' : 'none',
+        border: `1px solid ${focused ? 'rgba(56,208,255,0.55)' : 'var(--line)'}`,
+        boxShadow: focused ? '0 0 0 3px rgba(56,208,255,0.10)' : 'none',
         background: 'rgba(3,7,16,0.7)',
         transition: 'border-color 0.15s, box-shadow 0.15s',
       }}
@@ -226,8 +226,8 @@ export default function RichTextEditor({
                     height: 26,
                     padding: '0 5px',
                     borderRadius: 6,
-                    border: active ? '1px solid rgba(63,211,255,0.55)' : '1px solid transparent',
-                    background: active ? 'rgba(63,211,255,0.12)' : 'transparent',
+                    border: active ? '1px solid rgba(56,208,255,0.55)' : '1px solid transparent',
+                    background: active ? 'rgba(56,208,255,0.12)' : 'transparent',
                     color: active ? '#3fd3ff' : '#9fb4c9',
                     cursor: 'pointer',
                     fontSize: 11,

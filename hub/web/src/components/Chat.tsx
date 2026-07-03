@@ -190,18 +190,18 @@ export default function Chat() {
             if (m.role === 'sys') return <div key={i} className="self-center chip text-inkfaint">{m.text}</div>
             if (m.role === 'me') return (
               <div key={i} className="self-end max-w-[88%] sm:max-w-[85%] rounded-2xl rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap break-words"
-                style={{ background: 'rgba(63,211,255,0.10)', border: '1px solid rgba(63,211,255,0.28)' }}>{m.text}</div>
+                style={{ background: 'rgba(56,208,255,0.10)', border: '1px solid rgba(56,208,255,0.28)' }}>{m.text}</div>
             )
             const streaming = !m.done
             return (
               <div key={i} className="self-start max-w-[92%] sm:max-w-[88%] flex gap-2.5">
                 <img src="/lucy.jpg" alt="Lucy" className="mt-1 h-7 w-7 shrink-0 rounded-full object-cover"
-                  style={{ border: '1px solid rgba(63,211,255,0.45)', animation: streaming ? 'lucy-pulse 1.6s infinite' : undefined }} />
+                  style={{ border: '1px solid rgba(56,208,255,0.45)', animation: streaming ? 'lucy-pulse 1.6s infinite' : undefined }} />
                 <div className="card px-4 py-3 min-w-0 w-full">
                   {/* Badge: tên + model */}
                   <div className="flex items-center gap-2 mb-1.5">
                     <span className="display text-[10px] tracking-[0.2em] text-cyan/80">LUCY</span>
-                    {m.model && <span className="text-[10px] text-inkfaint px-1.5 py-0.5 rounded" style={{ background: 'rgba(63,211,255,0.08)' }}>{m.model}</span>}
+                    {m.model && <span className="text-[10px] text-inkfaint px-1.5 py-0.5 rounded" style={{ background: 'rgba(56,208,255,0.08)' }}>{m.model}</span>}
                   </div>
                   {m.route && <div className="text-[11px] text-inkfaint mb-1.5">{m.route}</div>}
 

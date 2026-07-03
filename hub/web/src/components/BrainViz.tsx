@@ -451,7 +451,7 @@ export default function BrainViz({ visible }: { visible: boolean }) {
           </div>
         ) : (
           <div>
-            <div className="text-cyan tracking-[0.3em] text-sm" style={{ fontFamily: '"Space Grotesk", sans-serif', textShadow: '0 0 12px rgba(63,211,255,.6)' }}>NEURAL CORE</div>
+            <div className="text-cyan tracking-[0.3em] text-sm" style={{ fontFamily: '"Space Grotesk", sans-serif', textShadow: '0 0 12px rgba(56,208,255,.6)' }}>NEURAL CORE</div>
             <div className="text-[11px] mt-1" style={{ color: running.length ? '#7fe6b0' : '#5b7287' }}>
               {info.total} nodes · {info.active} active · {running.length} running{mock ? ' · preview' : ''}
             </div>

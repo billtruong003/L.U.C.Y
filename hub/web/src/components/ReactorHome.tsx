@@ -90,7 +90,7 @@ export default function ReactorHome({ visible, onNavigate }: Props) {
           <div className="arc-reactor grid place-items-center" style={{ width: 168, height: 168 }}>
             <div className="text-center">
               <div className="text-[10px] text-inkfaint uppercase tracking-widest">Chi phí hôm nay</div>
-              <div className="num text-3xl text-gold leading-tight" style={{ textShadow: '0 0 16px rgba(245,181,74,.45)' }}>
+              <div className="num text-3xl text-gold leading-tight" style={{ textShadow: '0 0 16px rgba(255,157,50,.45)' }}>
                 ${costDay.toFixed(2)}
               </div>
               <div className="text-[10px] text-inkdim mt-1">

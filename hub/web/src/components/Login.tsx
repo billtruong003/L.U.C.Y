@@ -22,11 +22,11 @@ export default function Login({ onOk }: { onOk: () => void }) {
     <div className="h-[100dvh] grid place-items-center bg-bg text-ink px-4">
       <div className="card w-full max-w-sm p-8 flex flex-col items-center gap-5">
         <span className="relative inline-flex h-20 w-20 items-center justify-center">
-          <span className="absolute inset-0 rounded-full animate-[lucy-pulse_2.4s_ease-in-out_infinite]" style={{ background: 'radial-gradient(circle, rgba(63,211,255,.5), transparent 70%)' }} />
-          <img src="/lucy.jpg" alt="Lucy" className="relative h-16 w-16 rounded-full object-cover" style={{ border: '2px solid rgba(63,211,255,0.55)', boxShadow: '0 0 22px rgba(63,211,255,.5)' }} />
+          <span className="absolute inset-0 rounded-full animate-[lucy-pulse_2.4s_ease-in-out_infinite]" style={{ background: 'radial-gradient(circle, rgba(56,208,255,.5), transparent 70%)' }} />
+          <img src="/lucy.jpg" alt="Lucy" className="relative h-16 w-16 rounded-full object-cover" style={{ border: '2px solid rgba(56,208,255,0.55)', boxShadow: '0 0 22px rgba(56,208,255,.5)' }} />
         </span>
         <div className="text-center">
-          <div className="display text-3xl tracking-[0.36em] text-cyan" style={{ textShadow: '0 0 16px rgba(63,211,255,.5)' }}>LUCY</div>
+          <div className="display text-3xl tracking-[0.36em] text-cyan" style={{ textShadow: '0 0 16px rgba(56,208,255,.5)' }}>LUCY</div>
           <div className="text-inkfaint text-xs mt-2 tracking-wide">{needCode ? 'nhập mã 2FA từ app Authenticator' : 'personal AI hub · đăng nhập'}</div>
         </div>
         {!needCode ? (
