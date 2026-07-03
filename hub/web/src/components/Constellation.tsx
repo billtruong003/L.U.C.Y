@@ -127,8 +127,8 @@ export default function Constellation({ visible }: { visible: boolean }) {
         )}
         <div className="absolute bottom-4 right-4 z-10 hud-lbl hidden sm:block">cuộn = zoom · kéo = pan</div>
 
-      {/* index panel — overlay góc phải, KHÔNG chiếm layout (constellation center chuẩn) */}
-      <div className="absolute top-14 right-4 z-10 w-48 flex flex-col gap-2.5 pointer-events-none">
+      {/* index panel — overlay góc phải, ẩn trên mobile (nhường chỗ constellation) */}
+      <div className="absolute top-14 right-4 z-10 w-48 hidden sm:flex flex-col gap-2.5 pointer-events-none">
         <div className="card p-3 hud-frame amber pointer-events-auto">
           <div className="hud-lbl">Index</div>
           <div className="num text-2xl text-gold mt-1">{nodes.length}</div>
