@@ -72,6 +72,8 @@ export default function App() {
   const [open, setOpen] = useState(false)   // sidebar drawer (mobile)
   const [hudOpen, setHudOpen] = useState(false)   // S2/E1.5: HUD sheet (mobile/tablet)
   const [paletteOpen, setPaletteOpen] = useState(false)  // T2/U3 Cmd+K
+  const mainRef = useRef<HTMLElement>(null)   // reset scroll khi đổi tab (chat scrollIntoView cuộn ngầm main)
+  const rootRef = useRef<HTMLDivElement>(null)   // scrollIntoView cuộn tận root/body → reset cả đây
 
   // project list for sidebar "note list"
   const [projects, setProjects] = useState<AmProject[]>([])
@@ -87,6 +89,18 @@ export default function App() {
 
   // U2: "xem trong tinh hà" từ tab Bộ não → nhảy sang tab Neural (Galaxy tự ngắm node)
   useEffect(() => onGalaxyFocus(() => { setTab('brain'); setOpen(false) }), [])
+
+  // Reset scroll main khi đổi tab — các panel chat (mount sẵn) gọi scrollIntoView cuộn ngầm <main>
+  // dù overflow-clip; vài lần delayed để bắt scrollIntoView async.
+  useEffect(() => {
+    const reset = () => {
+      for (const el of [mainRef.current, rootRef.current, document.scrollingElement, document.body] as (Element | null)[]) {
+        if (el && el.scrollTop !== 0) el.scrollTop = 0
+      }
+    }
+    reset(); const ids = [0, 60, 200, 500, 900].map((ms) => setTimeout(reset, ms))
+    return () => ids.forEach(clearTimeout)
+  }, [tab])
 
   // T2/U3: Cmd+K (mac) / Ctrl+K (win) mở command palette
   useEffect(() => {
@@ -157,7 +171,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-[100dvh] flex bg-bg text-ink overflow-hidden">
+    <div ref={rootRef} className="h-[100dvh] flex bg-bg text-ink overflow-clip">
       {/* overlay mobile — luôn render, fade in/out bằng opacity */}
       <div className={'fixed inset-0 bg-black/50 z-30 md:hidden transition-opacity duration-200 ' + (open ? 'opacity-100' : 'opacity-0 pointer-events-none')} onClick={() => setOpen(false)} />
 
@@ -294,7 +308,7 @@ export default function App() {
       </nav>
 
       {/* MAIN */}
-      <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-clip">
+      <main ref={mainRef} className="flex-1 min-w-0 min-h-0 flex flex-col overflow-clip">
         <header className="h-14 shrink-0 flex items-center justify-between px-4 sm:px-6 border-b border-line bg-panel/30">
           <div className="flex items-center gap-3 min-w-0">
             <button onClick={() => setOpen(true)} className="btn btn-icon md:hidden !w-11 !h-11 shrink-0" aria-label="Mở menu điều hướng">☰</button>
