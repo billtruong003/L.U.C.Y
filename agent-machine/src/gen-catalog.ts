@@ -3,7 +3,7 @@
 // Chạy: npm run gen:catalog  → ghi config/model-catalog.json
 import fs from 'node:fs'
 import path from 'node:path'
-import { MODEL_CATALOG, PROVIDERS, FALLBACKS } from './llm-lane'
+import { MODEL_CATALOG, PROVIDERS, FALLBACKS, CLAUDE_CHAT_MODELS } from './llm-lane'
 import { ROUTE_TABLE } from './chat-lane'
 
 // __dirname polyfill cho ESM
@@ -16,6 +16,7 @@ export function buildCatalog() {
     version: 1,
     providers: Object.fromEntries(Object.entries(PROVIDERS).map(([id, p]) => [id, { id: p.id, label: p.label, baseUrl: p.baseUrl }])), // KHÔNG xuất envKey (chỉ tên biến, không phải secret, nhưng giữ gọn)
     models: MODEL_CATALOG,
+    claudeModels: CLAUDE_CHAT_MODELS,   // Claude subscription chat models (fallback cho bridge khi coordinator offline)
     fallbacks: FALLBACKS,
     routeTable: ROUTE_TABLE,
   }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { chatStream, chatHistory, newChat, llmModels, listChats, switchChat, renameChat, deleteChat, type LlmModel, type ChatConv } from '../api'
+import { chatStream, chatHistory, newChat, llmModels, listChats, switchChat, renameChat, deleteChat, type LlmModel, type ClaudeModel, type ChatConv } from '../api'
 import Markdown from './Markdown'
 
 type ToolCall = { id?: string; name: string; input: string; result?: string }
@@ -18,10 +18,10 @@ type Msg = {
 const CTX_MAX = 1_000_000  // cửa sổ ctx Claude (1M) — cho badge ctx X%/tok
 function fmtTok(n: number): string { return n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : String(n) }
 
-function modelLabel(key: string, models: LlmModel[]): string {
+function modelLabel(key: string, models: LlmModel[], claude: ClaudeModel[]): string {
   if (key === 'auto') return 'Auto 🧭'
-  if (key === 'claude:sonnet') return 'Claude Sonnet'
-  if (key === 'claude:opus') return 'Claude Opus'
+  const c = claude.find((m) => m.key === key)
+  if (c) return c.label
   return models.find((m) => m.key === key)?.label || key
 }
 
@@ -30,6 +30,7 @@ export default function Chat() {
   const [inp, setInp] = useState('')
   const [model, setModel] = useState('claude:sonnet')
   const [models, setModels] = useState<LlmModel[]>([])
+  const [claudeModels, setClaudeModels] = useState<ClaudeModel[]>([])
   const [busy, setBusy] = useState(false)
   const [queue, setQueue] = useState<string[]>([])
   const [listening, setListening] = useState(false)
@@ -79,7 +80,7 @@ export default function Chat() {
   }
   useEffect(() => {
     syncHistory(); refreshConvs()
-    llmModels().then((d) => { if (d.catalog?.length) setModels(d.catalog) }).catch(() => {})
+    llmModels().then((d) => { if (d.catalog?.length) setModels(d.catalog); if (d.claudeModels?.length) setClaudeModels(d.claudeModels) }).catch(() => {})
     // out web/đóng tab → vào lại: lấy các câu đã chạy xong server-side trong lúc vắng mặt (không mất status).
     const onVis = () => { if (document.visibilityState === 'visible') syncHistory() }
     document.addEventListener('visibilitychange', onVis)
@@ -103,7 +104,7 @@ export default function Chat() {
   }
   // 1 lượt chat thật (stream). Tách riêng để queue gọi tuần tự.
   async function runOne(text: string) {
-    setMsgs((p) => [...p, { role: 'me', text }, { role: 'lucy', text: '', model: modelLabel(model, models), status: 'đang nghĩ', tools: [] }])
+    setMsgs((p) => [...p, { role: 'me', text }, { role: 'lucy', text: '', model: modelLabel(model, models, claudeModels), status: 'đang nghĩ', tools: [] }])
     try {
       await chatStream(text, model, (e) => {
         if (e.type === 'route') patchLucy((m) => ({ ...m, route: e.text }))
@@ -143,9 +144,9 @@ export default function Chat() {
   }
 
   const laneModels = models.filter((m) => !['ds-v4-flash'].includes(m.key))
+  const curClaude = claudeModels.find((m) => m.key === model)
   const curLabel = model === 'auto' ? '🧭 Auto (router tự chọn)'
-    : model === 'claude:sonnet' ? 'Claude Sonnet (nhanh)'
-    : model === 'claude:opus' ? 'Claude Opus (sâu)'
+    : curClaude ? `${curClaude.label}${curClaude.note ? ' — ' + curClaude.note : ''}`
     : (models.find((m) => m.key === model)?.label || model)
 
   return (
@@ -306,8 +307,11 @@ export default function Chat() {
             <select value={model} onChange={(e) => setModel(e.target.value)} title={`Model: ${curLabel}`}
               className="text-xs rounded-lg bg-transparent border border-line px-2 py-1.5 text-inkdim max-w-[46%] sm:max-w-none focus:outline-none">
               <optgroup label="Claude (subscription · có tool)">
-                <option value="claude:sonnet">Claude Sonnet — nhanh</option>
-                <option value="claude:opus">Claude Opus — sâu</option>
+                {(claudeModels.length ? claudeModels : [{ key: 'claude:sonnet', label: 'Claude Sonnet', tier: 'balanced', note: 'nhanh' } as ClaudeModel]).map((m) => (
+                  <option key={m.key} value={m.key}>
+                    {(m.tier === 'fast' ? '⚡ ' : m.tier === 'deep' ? '🧠 ' : '✦ ') + m.label}{m.note ? ' — ' + m.note : ''}
+                  </option>
+                ))}
               </optgroup>
               <optgroup label="Tự động">
                 <option value="auto">🧭 Auto — router tự chọn</option>

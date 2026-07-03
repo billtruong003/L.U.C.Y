@@ -219,8 +219,8 @@ def _window_of(model):
     """Context window THẬT của model (token). Map theo tên model-id từ modelUsage.
     Sonnet 5 / Opus 4.6+ = 1M. Sonnet bật beta 1M = 1,000,000. Còn lại 200k an toàn."""
     m = (model or "").lower()
-    if "sonnet-5" in m:
-        return 1000000                     # Sonnet 5 = 1M context (mặc định)
+    if "sonnet-5" in m or "fable-5" in m:
+        return 1000000                     # Sonnet 5 / Fable 5 = 1M context
     if "sonnet" in m and "1m" in m:
         return 1000000
     return 200000  # mặc định an toàn cho mọi model Claude hiện hành
@@ -479,6 +479,32 @@ def _catalog_keys():
     except Exception:
         return []
 
+# Claude subscription chat models — cache TTL 60s (đọc mỗi turn qua _resolve_model, đừng hammer coordinator).
+_CLAUDE_MODELS_CACHE = {"at": 0.0, "data": []}
+def _claude_models():
+    """Danh sách Claude chat model (subscription): {key,label,model,tier,note,default}. NGUỒN = /llm/models (TS CLAUDE_CHAT_MODELS),
+    offline → JSON gen, cùng đường → tối thiểu. Thêm model mới CHỈ sửa llm-lane.ts, bridge tự hiện."""
+    now = time.time()
+    if _CLAUDE_MODELS_CACHE["data"] and now - _CLAUDE_MODELS_CACHE["at"] < 60:
+        return _CLAUDE_MODELS_CACHE["data"]
+    data = []
+    d = _coord("/llm/models")
+    data = d.get("claudeModels") or []
+    if not data:
+        try:
+            with open(CATALOG_FILE, encoding="utf-8") as f:
+                data = json.load(f).get("claudeModels") or []
+        except Exception:
+            data = []
+    if not data:
+        data = [{"key": "claude:sonnet", "label": "Claude Sonnet", "model": "claude-sonnet-5", "tier": "balanced", "default": True},
+                {"key": "claude:opus", "label": "Claude Opus", "model": "claude-opus-4-8", "tier": "deep"}]
+    _CLAUDE_MODELS_CACHE["at"] = now; _CLAUDE_MODELS_CACHE["data"] = data
+    return data
+
+def _claude_keys():
+    return [m.get("key") for m in _claude_models() if m.get("key")]
+
 
 def resolve_persona_text(pid):
     """systemPrompt của persona từ config JSON (cho cả claude-path lẫn lane). None nếu không có."""
@@ -584,6 +610,54 @@ def edit(chat_id, mid, text):
                       json={"chat_id": chat_id, "message_id": mid, "text": text}, timeout=30, proxies=_TG_PROXIES)
     except Exception:
         pass
+
+
+def send_kb(chat_id, text, keyboard, mid=None):
+    """Gửi (hoặc edit khi có mid) message kèm inline keyboard. keyboard = list các hàng, mỗi nút = (label, callback_data)."""
+    markup = {"inline_keyboard": [[{"text": t, "callback_data": d} for (t, d) in row] for row in keyboard]}
+    try:
+        if mid:
+            requests.post(f"{API}/editMessageText",
+                          json={"chat_id": chat_id, "message_id": mid, "text": text, "reply_markup": markup},
+                          timeout=30, proxies=_TG_PROXIES)
+        else:
+            requests.post(f"{API}/sendMessage",
+                          json={"chat_id": chat_id, "text": text, "reply_markup": markup},
+                          timeout=30, proxies=_TG_PROXIES)
+    except Exception as e:
+        print("send_kb err:", _scrub_tok(e))
+
+def answer_cb(cb_id, text=None):
+    """Trả lời callback_query (tắt spinner trên nút; text hiện toast nhẹ)."""
+    try:
+        payload = {"callback_query_id": cb_id}
+        if text:
+            payload["text"] = text
+        requests.post(f"{API}/answerCallbackQuery", json=payload, timeout=15, proxies=_TG_PROXIES)
+    except Exception:
+        pass
+
+
+_TIER_IC = {"fast": "⚡", "balanced": "✦", "deep": "🧠"}
+def _model_kb(cur_key, lane=False):
+    """Bàn phím inline chọn model. lane=True → submenu model lane (chat thuần). callback_data = 'md:<key>'."""
+    rows = []
+    if lane:
+        row = []
+        for k in _catalog_keys()[:12]:
+            row.append(((("• " if k == cur_key else "") + k), f"md:{k}"))
+            if len(row) == 2:
+                rows.append(row); row = []
+        if row:
+            rows.append(row)
+        rows.append([("‹ quay lại", "md:back")])
+        return rows
+    for cm in _claude_models():
+        k = cm.get("key"); ic = _TIER_IC.get(cm.get("tier"), "✦")
+        lbl = ("✅ " if k == cur_key else "") + f"{ic} {cm.get('label')}"
+        rows.append([(lbl, f"md:{k}")])
+    rows.append([(("✅ " if cur_key == "auto" else "") + "🧭 Auto", "md:auto"), ("🆓 Lane…", "md:lane")])
+    return rows
 
 
 def _heartbeat(chat_id, mid, stop, model):
@@ -1089,11 +1163,13 @@ _ENGINE = os.environ.get("LUCY_BRIDGE_ENGINE", "sdk").lower()
 _USE_SDK = _HAS_SDK and _ENGINE != "spawn"
 
 def _resolve_model(model):
-    """Alias ngắn → full model-id chuẩn. 'sonnet' → 'claude-sonnet-5' (mới nhất, ra 30/06/2026).
-    Giữ nguyên 'opus', lane-key, hoặc full-id đã cho. 1 choke point cho MỌI path (chat/fan/auto/orch)."""
+    """Alias/key Claude → model-id thật, từ danh sách tập trung CLAUDE_CHAT_MODELS (Fable/Sonnet/Opus/Haiku).
+    Giữ nguyên lane-key / full-id lạ. 1 choke point cho MỌI path (chat/fan/auto/orch)."""
     m = (model or "").strip()
-    if m in ("sonnet", "claude:sonnet"):
-        return "claude-sonnet-5"
+    key = m if m.startswith("claude:") else (f"claude:{m}" if m in ("sonnet", "opus", "fable", "haiku") else m)
+    for cm in _claude_models():
+        if cm.get("key") == key:
+            return cm.get("model") or m
     return m
 
 def run_claude(prompt, session_id, model="sonnet", persona_text=None, thinking_sink=None):
@@ -1362,20 +1438,17 @@ def handle(msg, sessions):
     cur = prefs.get(str(chat_id), {})
     if text.startswith("/model"):
         arg = text[6:].strip()
+        now = cur.get("model", "claude:sonnet")
         if not arg:
-            keys = _catalog_keys()
-            now = cur.get("model", "claude:sonnet")
-            send(chat_id,
-                 f"🧬 Model hiện tại: *{now}*\n\nĐổi: `/model <key>`\n"
-                 "• `claude:sonnet` / `claude:opus` — não thật (tool+vault), mặc định\n"
-                 "• `auto` — smart-router tự chọn model theo task\n"
-                 "• lane (có tool web+file+bash + history, đổi model = reset context): " + (", ".join(keys) if keys else "(coordinator chưa sẵn)"))
+            # Nút bấm inline — chạm để đổi, khỏi nhớ key (callback xử lý ở poll loop).
+            send_kb(chat_id, f"🧬 Model đang dùng: {now}\nChạm để đổi:", _model_kb(now))
             return
-        if arg not in (["auto", "claude:sonnet", "claude:opus", "sonnet", "opus"] + _catalog_keys()):
-            send(chat_id, f"❌ Key lạ: `{arg}`. Gõ `/model` để xem danh sách.")
+        # Vẫn cho gõ tay: alias ngắn (/model fable) + claude:* + auto + lane-key.
+        aliases = {"sonnet": "claude:sonnet", "opus": "claude:opus", "fable": "claude:fable", "haiku": "claude:haiku"}
+        arg = aliases.get(arg, arg)
+        if arg not in (["auto"] + _claude_keys() + _catalog_keys()):
+            send(chat_id, f"❌ Key lạ: `{arg}`. Gõ `/model` để bấm chọn.")
             return
-        if arg in ("sonnet", "opus"):
-            arg = "claude:" + arg
         cur["model"] = arg
         prefs[str(chat_id)] = cur; _save_prefs(prefs)
         note = "có tool+vault (não thật)" if arg.startswith("claude") else ("smart-router chọn" if arg == "auto" else "chat thuần, KHÔNG sửa file/đọc vault")
@@ -1547,6 +1620,39 @@ def _clear_queue(chat_id):
             pass
     return n
 
+def _handle_callback(cq):
+    """Xử lý nút bấm inline (đổi model). data = 'md:<key>' | 'md:lane' | 'md:back'."""
+    cq_id = cq.get("id")
+    uid = str(cq.get("from", {}).get("id", ""))
+    msg = cq.get("message", {})
+    ccid = msg.get("chat", {}).get("id")
+    cmid = msg.get("message_id")
+    data = cq.get("data", "") or ""
+    if ALLOWED and uid != ALLOWED:
+        answer_cb(cq_id); return
+    if not data.startswith("md:"):
+        answer_cb(cq_id); return
+    val = data[3:]
+    prefs = _load_prefs(); pc = prefs.get(str(ccid), {})
+    now = pc.get("model", "claude:sonnet")
+    if val == "lane":
+        answer_cb(cq_id)
+        send_kb(ccid, "🆓 Model lane (chat thuần, KHÔNG tool/vault — đổi = reset context):", _model_kb(now, lane=True), mid=cmid)
+        return
+    if val == "back":
+        answer_cb(cq_id)
+        send_kb(ccid, f"🧬 Model đang dùng: {now}\nChạm để đổi:", _model_kb(now), mid=cmid)
+        return
+    # còn lại = chọn model thật
+    valid = ["auto"] + _claude_keys() + _catalog_keys()
+    if val not in valid:
+        answer_cb(cq_id, "key lạ"); return
+    pc["model"] = val; prefs[str(ccid)] = pc; _save_prefs(prefs)
+    note = "não thật (tool+vault)" if val.startswith("claude") else ("router tự chọn" if val == "auto" else "chat thuần, không tool")
+    answer_cb(cq_id, f"✅ {val}")
+    send_kb(ccid, f"✅ Đã đổi model → {val}\n({note})", _model_kb(val), mid=cmid)
+
+
 def main():
     sessions = _load()
     offset = _load_offset()   # khôi phục offset → KHÔNG xử lại backlog cũ sau restart (tránh loop /restart)
@@ -1558,6 +1664,13 @@ def main():
             for upd in r.json().get("result", []):
                 offset = upd["update_id"] + 1
                 _save_offset(offset)   # xác nhận đã nuốt update này → restart KHÔNG xử lại (chống loop /restart)
+                # ── Nút bấm inline (đổi model) — callback_query, không phải message ──
+                if "callback_query" in upd:
+                    try:
+                        _handle_callback(upd["callback_query"])
+                    except Exception as e:
+                        print("cb err:", _scrub_tok(e))
+                    continue
                 if "message" not in upd:
                     continue
                 m = upd["message"]

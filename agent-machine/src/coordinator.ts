@@ -14,7 +14,7 @@ import { recordEvidence, hasManualEvidenceToday } from './evidence'
 import { buildMetrics, buildSeries } from './metrics'
 import { vnDay } from './tz'
 import { buildErrorStats } from './error-stats'
-import { getDynamicCatalog, providerStatus, refreshOpenRouterCatalog } from './llm-lane'
+import { getDynamicCatalog, providerStatus, refreshOpenRouterCatalog, CLAUDE_CHAT_MODELS } from './llm-lane'
 import { chatLane, routeTask, routerModel, ROUTE_TABLE } from './chat-lane'
 import { appendOutcome, readOutcomes, groupByModel, type RoutingOutcome } from './routing-outcome'
 import { guardSnapshot } from './rate-guard'
@@ -146,7 +146,7 @@ export function startCoordinator(engine: Engine, store: Store, port: number, opt
       }
       if (url === '/token-guard') { return send(200, engine.tokenGuardStatus()) }
       // ── LÁT API (lane model-rẻ): catalog cho dropdown + trạng thái key (KHÔNG lộ key) ──
-      if (req.method === 'GET' && url === '/llm/models') return send(200, { catalog: getDynamicCatalog(), providers: providerStatus(), routeTable: ROUTE_TABLE, router: routerModel() })
+      if (req.method === 'GET' && url === '/llm/models') return send(200, { catalog: getDynamicCatalog(), claudeModels: CLAUDE_CHAT_MODELS, providers: providerStatus(), routeTable: ROUTE_TABLE, router: routerModel() })
       // B1/B3: trạng thái rate-guard (provider đang bị limit) + quota free-tier còn lại
       if (req.method === 'POST' && url === '/llm/catalog-refresh') {
         try { return send(200, await refreshOpenRouterCatalog()) }

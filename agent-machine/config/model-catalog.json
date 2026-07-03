@@ -112,6 +112,26 @@
       "note": "free + tool-calling"
     },
     {
+      "key": "mimo-v2.5-free",
+      "label": "MiMo V2.5 Free",
+      "provider": "opencode-zen",
+      "model": "mimo-v2.5-free",
+      "role": "executor",
+      "free": true,
+      "ctx": "256k",
+      "note": "vision+code, xiaomi/mimo-v2.5 — OpenCode Zen free (live OK 2026-06-19)"
+    },
+    {
+      "key": "minimax-m3-free",
+      "label": "MiniMax M3 Free",
+      "provider": "opencode-zen",
+      "model": "minimax-m3-free",
+      "role": "executor",
+      "free": false,
+      "ctx": "1M",
+      "note": "⛔ 401 \"Free promotion ended\" (verify live 2026-06-19, cần OpenCode Go) → ĐỪNG route; ABF fallback ds-v4-flash-free"
+    },
+    {
       "key": "ds-v4-pro",
       "label": "DeepSeek V4 Pro",
       "provider": "openrouter",
@@ -184,6 +204,15 @@
       "note": "orchestrator: Claude xịn + streaming, rẻ hơn claude -p"
     },
     {
+      "key": "nous-opus",
+      "label": "Claude Opus 4.8 (Nous)",
+      "provider": "nous",
+      "model": "anthropic/claude-opus-4.8",
+      "role": "reasoning",
+      "free": false,
+      "note": "Opus mạnh nhất, không fast"
+    },
+    {
       "key": "nous-sonnet",
       "label": "Claude Sonnet 4.6 (Nous)",
       "provider": "nous",
@@ -191,6 +220,24 @@
       "role": "reasoning",
       "free": false,
       "note": "chat nhanh"
+    },
+    {
+      "key": "nous-fable",
+      "label": "Claude Fable 5 (Nous)",
+      "provider": "nous",
+      "model": "anthropic/claude-fable-5",
+      "role": "reasoning",
+      "free": false,
+      "note": "model \"5\" mạnh nhất — đắt ($10/$50), chưa verify Nous phục vụ"
+    },
+    {
+      "key": "nous-haiku",
+      "label": "Claude Haiku 4.5 (Nous)",
+      "provider": "nous",
+      "model": "anthropic/claude-haiku-4.5",
+      "role": "fast",
+      "free": false,
+      "note": "nhanh/rẻ cho task đơn giản"
     },
     {
       "key": "nous-nemotron-ultra",
@@ -248,8 +295,40 @@
       "free": false
     }
   ],
+  "claudeModels": [
+    {
+      "key": "claude:sonnet",
+      "label": "Claude Sonnet",
+      "model": "claude-sonnet-5",
+      "tier": "balanced",
+      "note": "nhanh, cân bằng — mặc định",
+      "default": true
+    },
+    {
+      "key": "claude:fable",
+      "label": "Claude Fable 5",
+      "model": "claude-fable-5",
+      "tier": "deep",
+      "note": "thế hệ 5 — thông minh nhất (verify sống 2026-07-03)"
+    },
+    {
+      "key": "claude:opus",
+      "label": "Claude Opus",
+      "model": "claude-opus-4-8",
+      "tier": "deep",
+      "note": "sâu, chậm/đắt"
+    },
+    {
+      "key": "claude:haiku",
+      "label": "Claude Haiku",
+      "model": "claude-haiku-4-5-20251001",
+      "tier": "fast",
+      "note": "nhẹ/rẻ, việc đơn giản"
+    }
+  ],
   "fallbacks": {
     "executor": [
+      "mimo-v2.5-free",
       "ds-v4-flash-free",
       "or-nemotron-super",
       "devstral-med",

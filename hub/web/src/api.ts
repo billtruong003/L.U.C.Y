@@ -270,7 +270,8 @@ export async function brainPin(prefId: string, pinned: boolean): Promise<{ ok?: 
 
 // ---- Phase D: model picker + rate-guard panel + chat streaming ----
 export type LlmModel = { key: string; label: string; provider: string; free: boolean; role: string; note?: string; ctx?: string }
-export async function llmModels(): Promise<{ configured: boolean; offline?: boolean; catalog: LlmModel[]; router: string; routeTable: Record<string, string[]> }> {
+export type ClaudeModel = { key: string; label: string; model: string; tier: 'fast' | 'balanced' | 'deep'; note?: string; default?: boolean }
+export async function llmModels(): Promise<{ configured: boolean; offline?: boolean; catalog: LlmModel[]; claudeModels?: ClaudeModel[]; router: string; routeTable: Record<string, string[]> }> {
   const r = await fetch('/api/llm/models'); return r.json()
 }
 export type GuardData = {

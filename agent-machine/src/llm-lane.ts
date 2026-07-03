@@ -79,6 +79,23 @@ export const MODEL_CATALOG: ModelEntry[] = [
   { key: 'nous-gpt-oss-120b', label: 'GPT-OSS 120B (Nous)',     provider: 'nous',         model: 'openai/gpt-oss-120b',        role: 'fast', free: false },
 ]
 
+// ── Claude SUBSCRIPTION chat models (đường claude-path: bridge SDK + hub Chat) ──
+// NGUỒN DUY NHẤT cho model Claude "não thật" (tool+vault). Thêm model mới của Anthropic = THÊM 1 DÒNG Ở ĐÂY,
+// bridge /model + hub picker tự hiện (đừng hardcode claude:sonnet/opus rải rác nữa). model-id = id gửi cho `claude --model`.
+// tier: fast=nhẹ/rẻ · balanced=mặc định · deep=sâu/đắt. default=true → model mặc định khi chưa chọn.
+export interface ClaudeChatModel { key: string; label: string; model: string; tier: 'fast' | 'balanced' | 'deep'; note?: string; default?: boolean }
+export const CLAUDE_CHAT_MODELS: ClaudeChatModel[] = [
+  { key: 'claude:sonnet', label: 'Claude Sonnet', model: 'claude-sonnet-5',            tier: 'balanced', note: 'nhanh, cân bằng — mặc định', default: true },
+  { key: 'claude:fable',  label: 'Claude Fable 5', model: 'claude-fable-5',            tier: 'deep',     note: 'thế hệ 5 — thông minh nhất (verify sống 2026-07-03)' },
+  { key: 'claude:opus',   label: 'Claude Opus',   model: 'claude-opus-4-8',            tier: 'deep',     note: 'sâu, chậm/đắt' },
+  { key: 'claude:haiku',  label: 'Claude Haiku',  model: 'claude-haiku-4-5-20251001', tier: 'fast',     note: 'nhẹ/rẻ, việc đơn giản' },
+]
+export function claudeModelId(key: string): string | undefined {
+  const bare = key.startsWith('claude:') ? key : `claude:${key}`
+  return CLAUDE_CHAT_MODELS.find((m) => m.key === bare)?.model
+}
+export function defaultClaudeKey(): string { return (CLAUDE_CHAT_MODELS.find((m) => m.default) || CLAUDE_CHAT_MODELS[0]).key }
+
 // Chuỗi fallback theo role (chạy lần lượt tới khi 1 cái ra content). Chỉ model đã verify.
 export const FALLBACKS: Record<Role, string[]> = {
   executor:  ['mimo-v2.5-free', 'ds-v4-flash-free', 'or-nemotron-super', 'devstral-med', 'or-gptoss-120b', 'ds-v4-flash', 'codestral'],
