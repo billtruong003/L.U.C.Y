@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { amSkills, type SkillInfo } from '../api'
+import PageShell from './ui/PageShell'
+import { EmptyState, Skeleton } from './ui'
 
 // T6 — tab "Kỹ năng": liệt kê skill active (INDEX.md) + proposed (_proposed, M3.3 self-improve).
 // READ-ONLY: proposed CHƯA active (chưa vào INDEX → loader không nạp). Duyệt = move thủ công, không toggle ở UI.
@@ -40,8 +42,7 @@ export default function Skills() {
   )
 
   return (
-    <div className="h-full overflow-auto px-6 py-5">
-      <div className="max-w-5xl mx-auto">
+    <PageShell width="wide">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="chip num">{active.length} active</span>
@@ -54,8 +55,8 @@ export default function Skills() {
           <button onClick={() => { setLoading(true); load() }} className="btn">↻ Tải lại</button>
         </div>
 
-        {loading && <div className="text-inkfaint text-sm">Đang tải…</div>}
-        {!loading && !configured && <div className="text-inkfaint text-sm">Agent-Machine chưa cấu hình (AM_COORD_URL).</div>}
+        {loading && <div className="grid gap-2">{[0, 1, 2].map((i) => <Skeleton key={i} h="3rem" />)}</div>}
+        {!loading && !configured && <EmptyState title="Agent-Machine chưa cấu hình" hint="Thiếu AM_COORD_URL — coordinator chưa kết nối." />}
 
         {/* Đề xuất tự sinh (M3.3) — nổi bật, chờ duyệt */}
         {proposed.length > 0 && (
@@ -100,8 +101,7 @@ export default function Skills() {
             </div>
           </div>
         )}
-        {!loading && filtered.length === 0 && <div className="text-inkfaint text-sm">Không có skill khớp “{q}”.</div>}
-      </div>
-    </div>
+        {!loading && configured && filtered.length === 0 && <EmptyState title={`Không có skill khớp “${q}”`} hint="Thử từ khoá khác hoặc xoá bộ lọc." />}
+    </PageShell>
   )
 }
