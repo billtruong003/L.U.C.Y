@@ -43,6 +43,8 @@ export default function Chat() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const queueRef = useRef<string[]>([])
   const drainingRef = useRef(false)
+  const abortRef = useRef<AbortController | null>(null)   // D1: hủy stream đang chạy (Stop)
+  const [pickerOpen, setPickerOpen] = useState(false)     // D1: popover model picker
 
   function refreshConvs() { listChats().then((d) => { setConvs(d.chats || []); setCurId(d.currentId || '') }).catch(() => {}) }
   async function openChat(id: string) {
@@ -105,6 +107,7 @@ export default function Chat() {
   // 1 lượt chat thật (stream). Tách riêng để queue gọi tuần tự.
   async function runOne(text: string) {
     setMsgs((p) => [...p, { role: 'me', text }, { role: 'lucy', text: '', model: modelLabel(model, models, claudeModels), status: 'đang nghĩ', tools: [] }])
+    const ac = new AbortController(); abortRef.current = ac
     try {
       await chatStream(text, model, (e) => {
         if (e.type === 'route') patchLucy((m) => ({ ...m, route: e.text }))
@@ -115,13 +118,24 @@ export default function Chat() {
         else if (e.type === 'delta') patchLucy((m) => ({ ...m, status: undefined, text: m.text + (e.text || '') }))
         else if (e.type === 'final') patchLucy((m) => ({ ...m, status: undefined, text: e.text || m.text }))
         else if (e.type === 'error') patchLucy((m) => ({ ...m, status: undefined, text: (m.text || '') + '\n❌ ' + (e.text || 'lỗi') }))
-      })
+      }, ac.signal)
     } catch (e) {
-      // D6: SSE đứt (đóng tab / mạng) KHÔNG phải lỗi thật — server vẫn chạy + lưu xong. Báo nhẹ rồi đồng bộ lại.
-      patchLucy((m) => ({ ...m, status: undefined, text: m.text || '⏳ kết nối gián đoạn — em vẫn xử lý, đang đồng bộ lại…' }))
-      setTimeout(syncHistory, 2500)   // drain() tự quản drainingRef; guard trong syncHistory chống đè khi còn đang chạy
+      if (ac.signal.aborted) {
+        // D1: user bấm Stop → giữ partial, đánh dấu đã dừng (server vẫn lưu xong bản đầy đủ).
+        patchLucy((m) => ({ ...m, status: undefined, text: (m.text || '') + '\n\n⏹ _đã dừng_' }))
+      } else {
+        // D6: SSE đứt (đóng tab / mạng) KHÔNG phải lỗi thật — server vẫn chạy + lưu xong. Báo nhẹ rồi đồng bộ lại.
+        patchLucy((m) => ({ ...m, status: undefined, text: m.text || '⏳ kết nối gián đoạn — em vẫn xử lý, đang đồng bộ lại…' }))
+        setTimeout(syncHistory, 2500)
+      }
     }
+    abortRef.current = null
     patchLucy((m) => ({ ...m, status: undefined, done: true }))
+  }
+  // D1: Stop — hủy stream hiện tại + xoá hàng đợi còn lại
+  function stopAll() {
+    abortRef.current?.abort()
+    queueRef.current = []; setQueue([])
   }
   // rút hàng đợi: chạy tuần tự cho tới khi queue rỗng (giống Hermes — nhắn nhiều tin 1 lần không mất)
   async function drain() {
@@ -189,8 +203,10 @@ export default function Chat() {
           {msgs.map((m, i) => {
             if (m.role === 'sys') return <div key={i} className="self-center chip text-inkfaint">{m.text}</div>
             if (m.role === 'me') return (
-              <div key={i} className="self-end max-w-[88%] sm:max-w-[85%] rounded-2xl rounded-br-sm px-4 py-2.5 text-sm whitespace-pre-wrap break-words"
-                style={{ background: 'rgba(56,208,255,0.10)', border: '1px solid rgba(56,208,255,0.28)' }}>{m.text}</div>
+              <div key={i} className="self-end max-w-[88%] sm:max-w-[82%] px-4 py-2.5 text-sm whitespace-pre-wrap break-words relative"
+                style={{ background: 'rgba(56,208,255,0.08)', border: '1px solid rgba(56,208,255,0.32)',
+                  clipPath: 'polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 9px 100%, 0 calc(100% - 9px))' }}>
+                <span className="hud-lbl block mb-1 text-cyan/70" style={{ fontSize: '8.5px' }}>CHỦ NHÂN</span>{m.text}</div>
             )
             const streaming = !m.done
             return (
@@ -304,29 +320,46 @@ export default function Chat() {
           />
           <div className="flex flex-wrap items-center gap-2 mt-2 pt-2 border-t border-line">
             <button onClick={startMic} title="Nhập bằng giọng nói" className={'btn btn-icon ' + (listening ? 'text-pink border-pink/60' : '')} style={listening ? { animation: 'lucy-pulse 1s infinite' } : undefined}>🎤</button>
-            <select value={model} onChange={(e) => setModel(e.target.value)} title={`Model: ${curLabel}`}
-              className="text-xs rounded-lg bg-transparent border border-line px-2 py-1.5 text-inkdim max-w-[46%] sm:max-w-none focus:outline-none">
-              <optgroup label="Claude (subscription · có tool)">
-                {(claudeModels.length ? claudeModels : [{ key: 'claude:sonnet', label: 'Claude Sonnet', tier: 'balanced', note: 'nhanh' } as ClaudeModel]).map((m) => (
-                  <option key={m.key} value={m.key}>
-                    {(m.tier === 'fast' ? '⚡ ' : m.tier === 'deep' ? '🧠 ' : '✦ ') + m.label}{m.note ? ' — ' + m.note : ''}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Tự động">
-                <option value="auto">🧭 Auto — router tự chọn</option>
-              </optgroup>
-              {models.length > 0 && (
-                <optgroup label="Lane (chat thuần · không tool)">
-                  {laneModels.map((m) => (
-                    <option key={m.key} value={m.key}>{m.label}{m.free ? ' · free' : ''}</option>
-                  ))}
-                </optgroup>
+            {/* D1: model picker HUD popover thay <select> thô */}
+            <div className="relative">
+              <button onClick={() => setPickerOpen((v) => !v)} title={`Model: ${curLabel}`}
+                className="btn !py-1.5 !px-3 text-xs inline-flex items-center gap-1.5 max-w-[52vw] sm:max-w-none">
+                <span className="text-cyan">{model === 'auto' ? '🧭' : curClaude?.tier === 'fast' ? '⚡' : curClaude?.tier === 'deep' ? '🧠' : '✦'}</span>
+                <span className="truncate">{curClaude?.label || (model === 'auto' ? 'Auto' : models.find((m) => m.key === model)?.label || model)}</span>
+                <span className="text-inkfaint">▾</span>
+              </button>
+              {pickerOpen && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setPickerOpen(false)} />
+                  <div className="absolute bottom-full left-0 mb-2 z-40 w-72 max-w-[80vw] card !bg-surface4 p-1.5 max-h-[60vh] overflow-auto shadow-elev-lg">
+                    <div className="hud-lbl px-2 py-1.5">Claude · có tool + vault</div>
+                    {(claudeModels.length ? claudeModels : [{ key: 'claude:sonnet', label: 'Claude Sonnet', tier: 'balanced', note: 'nhanh' } as ClaudeModel]).map((m) => (
+                      <button key={m.key} onClick={() => { setModel(m.key); setPickerOpen(false) }}
+                        className={'w-full text-left px-2.5 py-2 rounded flex items-center gap-2 hover:bg-cyan/10 transition-colors ' + (model === m.key ? 'bg-cyan/10' : '')}>
+                        <span className={model === m.key ? 'text-cyan' : 'text-inkfaint'}>{m.tier === 'fast' ? '⚡' : m.tier === 'deep' ? '🧠' : '✦'}</span>
+                        <span className="flex-1 min-w-0"><span className={'block text-[13px] truncate ' + (model === m.key ? 'text-cyan' : 'text-ink')}>{m.label}</span>{m.note && <span className="block text-[10px] text-inkfaint truncate">{m.note}</span>}</span>
+                      </button>
+                    ))}
+                    <button onClick={() => { setModel('auto'); setPickerOpen(false) }}
+                      className={'w-full text-left px-2.5 py-2 mt-1 rounded flex items-center gap-2 hover:bg-cyan/10 ' + (model === 'auto' ? 'bg-cyan/10' : '')}>
+                      <span className="text-cyan">🧭</span><span className="text-[13px] text-ink">Auto — router tự chọn</span>
+                    </button>
+                    {models.length > 0 && <div className="hud-lbl px-2 py-1.5 mt-1 border-t border-line">Lane · chat thuần</div>}
+                    {laneModels.map((m) => (
+                      <button key={m.key} onClick={() => { setModel(m.key); setPickerOpen(false) }}
+                        className={'w-full text-left px-2.5 py-1.5 rounded text-[12px] hover:bg-cyan/10 ' + (model === m.key ? 'bg-cyan/10 text-cyan' : 'text-inkdim')}>
+                        {m.label}{m.free ? ' · free' : ''}
+                      </button>
+                    ))}
+                  </div>
+                </>
               )}
-            </select>
+            </div>
             <button onClick={startNew} className="btn !py-1.5 !px-2.5 text-xs" title="Hội thoại mới">✨ mới</button>
             <div className="flex-1" />
-            <button onClick={() => go()} className="btn btn-primary px-5 sm:px-6">{busy ? '+ XẾP' : 'GỬI'}</button>
+            {busy
+              ? <button onClick={stopAll} className="btn !border-rose/50 !text-rose hover:!bg-rose/10 px-5 inline-flex items-center gap-1.5" title="Dừng">■ Dừng</button>
+              : <button onClick={() => go()} className="btn btn-primary px-5 sm:px-6">GỬI</button>}
           </div>
         </div>
       </div>

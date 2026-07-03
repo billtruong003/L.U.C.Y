@@ -329,11 +329,12 @@ export async function promptArchEdit(sessionId: number, edit: string): Promise<{
 
 export type StreamEv = { type: 'delta' | 'thinking' | 'route' | 'final' | 'done' | 'error' | 'tool_use' | 'tool_result' | 'usage'; text?: string; model?: string; name?: string; input?: string; id?: string; inTok?: number; cacheTok?: number; outTok?: number }
 // Phase D (D1): chat streaming — POST /api/chat/stream, đọc SSE qua fetch ReadableStream → onEvent mỗi chunk.
-export async function chatStream(prompt: string, model: string, onEvent: (e: StreamEv) => void): Promise<void> {
-  const res = await fetch('/api/chat/stream', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt, model }) })
+export async function chatStream(prompt: string, model: string, onEvent: (e: StreamEv) => void, signal?: AbortSignal): Promise<void> {
+  const res = await fetch('/api/chat/stream', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt, model }), signal })
   if (!res.ok || !res.body) { onEvent({ type: 'error', text: 'HTTP ' + res.status }); return }
   const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = ''
   for (;;) {
+    if (signal?.aborted) { try { await reader.cancel() } catch { /* */ } break }
     const { done, value } = await reader.read(); if (done) break
     buf += dec.decode(value, { stream: true })
     let idx: number
