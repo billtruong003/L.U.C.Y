@@ -2,87 +2,94 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── :root tokens ──────────────────────────────────────────────────────── */
+/* ══ DESIGN SYSTEM — "Lucy Cockpit v2" (2026-07-03) ══════════════════════════
+   NGUỒN DUY NHẤT của token. 3 tầng: PRIMITIVE → SEMANTIC → (legacy alias).
+   tailwind.config.js trỏ vào CÙNG các biến này (hết fork). Component chỉ nên
+   dùng SEMANTIC (surface / text / accent / border), primitive KHÔNG dùng trực tiếp. */
 :root {
-  /* Core backgrounds */
-  --bg: #05070e;
-  --panel: #0b1322;
-  --panel2: #111c30;
-  --surface-card-hi: rgba(17,28,48,0.9);
-  --surface-card-lo: rgba(11,19,34,0.9);
-  --surface-tabs: rgba(11,19,34,0.5);
-  --surface-input: rgba(3,7,16,0.7);
-  --code-bg: #02040c;
+  /* ═══ TIER 1 — PRIMITIVES (raw, đừng dùng thẳng ở component) ═══ */
+  /* neutral blue-black ramp (hue ~217) — thang độ sáng cho elevation */
+  --blue-950:#070b13; --blue-900:#0e1626; --blue-850:#152134;
+  --blue-800:#1d2c45; --blue-750:#283a56; --blue-700:#33486a;
+  /* accent channels — "R G B" (space) cho Tailwind rgb(var/<alpha>); + comma cho CSS rgba() */
+  --cyan-ch:63 211 255;    --cyan-rgb:63, 211, 255;
+  --gold-ch:245 181 74;    --gold-rgb:245, 181, 74;
+  --grn-ch:95 227 154;     --grn-rgb:95, 227, 154;
+  --rose-ch:251 113 133;   --rose-rgb:251, 113, 133;
+  --amber-ch:255 180 84;
+  --violet-ch:183 140 255;
+  --orange-ch:255 157 92;
+  --sky-ch:95 168 255;
+  --teal-ch:53 212 192;
+  /* text ramp */
+  --ink-ch:233 239 248;    /* #e9eff8 primary */
+  --ink2-ch:174 191 212;   /* #aebfd4 secondary */
+  --ink3-ch:126 144 167;   /* #7e90a7 muted (min chữ đọc) */
+  --ink4-ch:81 96 116;     /* #516074 disabled */
+  --white-rgb:255, 255, 255;
 
-  /* Border — W2.A calm (merge 2026-06-09): 0.14→0.22 để Kanban/card tách ra dễ quét */
-  --line: rgba(127,179,214,0.22);
+  /* ═══ TIER 2 — SEMANTICS (component DÙNG mấy cái này) ═══ */
+  /* surface ladder — elevation = độ sáng, không phải shadow */
+  --surface-canvas: var(--blue-950);   /* nền app */
+  --surface-1: var(--blue-900);        /* sidebar/header/tab bar */
+  --surface-2: var(--blue-850);        /* card/panel nội dung — 1 card DUY NHẤT */
+  --surface-3: var(--blue-800);        /* input/nested/hover/popover */
+  --surface-4: var(--blue-750);        /* overlay: modal/drawer/palette/toast */
+  --border-subtle: rgb(140 180 220 / 0.08);   /* divider trong 1 surface */
+  --border-default: rgb(140 180 220 / 0.16);  /* viền card mặc định */
+  --border-strong: rgb(140 180 220 / 0.28);   /* viền active/focus */
+  --text-primary: rgb(var(--ink-ch));
+  --text-secondary: rgb(var(--ink2-ch));
+  --text-muted: rgb(var(--ink3-ch));
+  --text-disabled: rgb(var(--ink4-ch));
+  --accent: rgb(var(--cyan-ch));       /* tương tác: stroke/ring/link/CTA */
+  --accent-hover:#5fe6ff;
+  --on-accent:#061018;                 /* chữ tối trên nền cyan đặc */
+  --value: rgb(var(--gold-ch));        /* tiền/live/giá trị — semantic, không decor */
+  --success: rgb(var(--grn-ch));
+  --warning: rgb(var(--amber-ch));
+  --danger: rgb(var(--rose-ch));       /* 1 danger DUY NHẤT */
+  /* data-viz palette (gom hex sprawl về đây) */
+  --viz-1:#3fd3ff; --viz-2:#5fe39a; --viz-3:#f5b54a; --viz-4:#ff9d5c;
+  --viz-5:#b78cff; --viz-6:#fb7185; --viz-7:#5fa8ff; --viz-8:#35d4c0;
+  /* glow — decor CÓ KỶ LUẬT, chỉ CTA/hero/focus */
+  --glow-accent: 0 0 20px rgb(var(--cyan-ch) / 0.25);
+  --glow-value: 0 0 20px rgb(var(--gold-ch) / 0.22);
+  /* elevation shadow (dark-tuned) */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+  --shadow-md: 0 6px 20px rgba(0,0,0,.45);
+  --shadow-lg: 0 16px 48px rgba(0,0,0,.55);
+  /* radius scale */
+  --radius-sm:8px; --radius-md:12px; --radius-lg:16px; --radius-xl:20px;
+  /* spacing (base 4px — Tailwind spacing đã map) */
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-6:24px; --space-8:32px;
+  /* z-index: sidebar < overlay < modal < toast */
+  --z-sidebar:100; --z-overlay:200; --z-modal:300; --z-toast:400;
 
-  /* Accent: cyan — base + rgb channel for alpha variants */
-  --cyan: #3fd3ff;
-  --cyan-rgb: 63, 211, 255;
-  --cyan-light: #7fe3ff;
-  --cyan-code: #9fe7ff;
-  --cyan-hi: #5fe6ff;
-  --cyan-lo: #2bb6e6;
-  --cyan-hover-hi: #74ecff;
-  --cyan-hover-lo: #38c2ef;
-
-  /* Accent: green */
-  --grn: #5fe39a;
-  --grn-rgb: 95, 227, 154;
-
-  /* Accent: gold/amber — T1/U0 Jarvis warm (live · thị trường · tiền) */
-  --gold: #f5b54a;
-  --gold-rgb: 245, 181, 74;
-  --gold-hi: #ffca6b;
-  --gold-lo: #e09a2c;
-
-  /* Accent: danger/pink */
-  --pink: #ff5d9e;
-  --rose: #fb7185;
-  --rose-rgb: 251, 113, 133;
-  --red: #ff6b6b;
-  --red-light: #ff8a8a;
-  --red-rgb: 255, 107, 107;
-
-  /* Glass — T1/U0: nền glass-minimalism (backdrop-blur + viền mảnh) */
-  --glass-bg: rgba(13, 22, 38, 0.55);
-  --glass-bg-hi: rgba(17, 28, 48, 0.62);
-  --glass-border: rgba(120, 200, 255, 0.12);
-  --glass-blur: 14px;
-  /* S1/E0.3: nền đặc thay glass khi reduced-transparency / reduce-fx (đảm bảo ≥4.5:1) */
-  --glass-solid: #0c1626;
-  --glass-solid-hi: #111d31;
-
-  /* S1/E0.1: thang spacing — base 4px (tham chiếu token, Tailwind spacing đã map) */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-6: 24px;
-  --space-8: 32px;
-
-  /* Text */
-  --ink: #e7f1fb;
-  --ink-subtle: #cfe0ef;
-  --inkdim: #9fb4c9;
-  --inkfaint: #5e748b;
-  --ink-em: #a9c2dd;
-  --ink-bright: #eafaff;
-  --ink-white: #ffffff;
-  --ink-dark: #061018;
-
-  /* White channel for alpha variants */
-  --white-rgb: 255, 255, 255;
-
-  /* Shadow */
+  /* ═══ LEGACY ALIASES — tên cũ → semantic mới. Giữ app chạy trong lúc migrate.
+        (Phase sau sẽ codemod dần về semantic rồi bỏ mấy alias này.) ═══ */
+  --bg: var(--surface-canvas);
+  --panel: var(--surface-1);
+  --panel2: var(--surface-2);
+  --surface-card-hi: var(--surface-2);
+  --surface-card-lo: var(--surface-2);
+  --surface-tabs: var(--surface-1);
+  --surface-input: var(--surface-3);
+  --code-bg: var(--blue-950);
+  --line: var(--border-default);
+  --cyan: var(--accent);
+  --cyan-light:#7fe3ff; --cyan-code:#9fe7ff; --cyan-hi:#5fe6ff; --cyan-lo:#2bb6e6;
+  --cyan-hover-hi:#74ecff; --cyan-hover-lo:#38c2ef;
+  --grn: var(--success);
+  --gold: var(--value); --gold-hi:#ffca6b; --gold-lo:#e09a2c;
+  --pink:#ff5d9e; --rose: var(--danger); --red: var(--danger); --red-light:#ff8a8a; --red-rgb:var(--rose-rgb);
+  --glass-bg: rgb(21 33 52 / 0.55); --glass-bg-hi: rgb(29 44 69 / 0.62);
+  --glass-border: rgb(140 180 220 / 0.12); --glass-blur:14px;
+  --glass-solid: var(--surface-2); --glass-solid-hi: var(--surface-3);
+  --ink: var(--text-primary); --ink-subtle: var(--text-secondary); --inkdim: var(--text-secondary);
+  --inkfaint: var(--text-muted); --ink-em: var(--text-secondary);
+  --ink-bright:#eafaff; --ink-white:#ffffff; --ink-dark: var(--on-accent);
   --shadow-card: rgba(0,0,0,0.40);
-
-  /* Z-index scale: sidebar < overlay < modal < toast */
-  --z-sidebar: 100;
-  --z-overlay: 200;
-  --z-modal: 300;
-  --z-toast: 400;
 }
 
 /* ── Reset ─────────────────────────────────────────────────────────────── */

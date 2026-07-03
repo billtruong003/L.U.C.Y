@@ -292,7 +292,7 @@ export default function App() {
       </nav>
 
       {/* MAIN */}
-      <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+      <main className="flex-1 min-w-0 min-h-0 flex flex-col overflow-clip">
         <header className="h-14 shrink-0 flex items-center justify-between px-4 sm:px-6 border-b border-line bg-panel/30">
           <div className="flex items-center gap-3 min-w-0">
             <button onClick={() => setOpen(true)} className="btn btn-icon md:hidden !w-11 !h-11 shrink-0" aria-label="Mở menu điều hướng">☰</button>
