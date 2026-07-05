@@ -29,7 +29,7 @@ export default function Schedule() {
   const run = (s: Sched) => fetch('/api/schedules/' + s.id + '/run', { method: 'POST' }).then(() => setTimeout(load, 1500))
 
   return (
-    <div className="h-full overflow-auto px-6 py-5">
+    <div className="h-full overflow-auto px-4 sm:px-6 py-5">
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">

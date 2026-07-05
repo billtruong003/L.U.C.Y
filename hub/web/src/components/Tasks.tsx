@@ -99,7 +99,7 @@ export default function Tasks() {
   )
 
   return (
-    <div className="h-full overflow-auto px-6 py-5">
+    <div className="h-full overflow-auto px-4 sm:px-6 py-5">
       <div className="max-w-5xl mx-auto">
         <div className="flex items-center gap-2 mb-4 text-sm text-inkdim">
           <span className="chip"><span className={'h-1.5 w-1.5 rounded-full ' + (running.length ? 'bg-grn' : 'bg-inkfaint')} /> {running.length} đang chạy</span>

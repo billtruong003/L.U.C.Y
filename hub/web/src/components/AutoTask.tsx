@@ -52,19 +52,19 @@ function ProjectCard({ p, onClick }: { p: ATProject; onClick: () => void }) {
       <div className="px-4 pb-3 grid grid-cols-4 gap-2">
         <div className="text-center">
           <div className="num text-[15px] text-lime font-bold">{p.sprint_count}</div>
-          <div className="text-[9px] text-inkfaint uppercase tracking-wide">sprints</div>
+          <div className="hud-lbl">sprints</div>
         </div>
         <div className="text-center">
           <div className="num text-[15px] text-ink font-bold">{p.done}</div>
-          <div className="text-[9px] text-inkfaint uppercase tracking-wide">done</div>
+          <div className="hud-lbl">done</div>
         </div>
         <div className="text-center">
           <div className="num text-[15px] text-inkdim font-bold">{p.queued}</div>
-          <div className="text-[9px] text-inkfaint uppercase tracking-wide">queue</div>
+          <div className="hud-lbl">queue</div>
         </div>
         <div className="text-center">
           <div className="num text-[15px] text-gold font-bold">${p.total_usd.toFixed(3)}</div>
-          <div className="text-[9px] text-inkfaint uppercase tracking-wide">cost</div>
+          <div className="hud-lbl">cost</div>
         </div>
       </div>
       {p.latest_research_date && (
@@ -117,17 +117,17 @@ function DetailView({ slug, onBack }: { slug: string; onBack: () => void }) {
         ].map(([lbl, val, cls]) => (
           <div key={lbl as string} className="text-center min-w-[52px]">
             <div className={`num text-[18px] font-bold ${cls}`}>{val}</div>
-            <div className="text-[9px] text-inkfaint uppercase tracking-wide">{lbl}</div>
+            <div className="hud-lbl">{lbl}</div>
           </div>
         ))}
         <div className="text-center min-w-[70px]">
           <div className="num text-[18px] font-bold text-gold">${(state.total_usd ?? 0).toFixed(4)}</div>
-          <div className="text-[9px] text-inkfaint uppercase tracking-wide">total $</div>
+          <div className="hud-lbl">total $</div>
         </div>
         {state.last_run && (
           <div className="text-center min-w-[70px]">
             <div className="num text-[11px] text-inkdim pt-1">{state.last_run.slice(0, 10)}</div>
-            <div className="text-[9px] text-inkfaint uppercase tracking-wide">last run</div>
+            <div className="hud-lbl">last run</div>
           </div>
         )}
       </div>

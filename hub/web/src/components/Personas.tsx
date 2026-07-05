@@ -68,7 +68,7 @@ export default function Personas() {
   const matched = route?.personaId ? list.find((p) => p.id === route!.personaId) : null
 
   return (
-    <div className="h-full overflow-auto px-6 py-5">
+    <div className="h-full overflow-auto px-4 sm:px-6 py-5">
       <div className="max-w-5xl mx-auto">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <div className="flex items-center gap-2">

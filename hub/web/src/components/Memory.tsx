@@ -227,12 +227,12 @@ export default function Memory({ visible }: { visible: boolean }) {
 
 function Stat({ icon, value, label, sub }: { icon: ReactNode; value: ReactNode; label: string; sub?: string }) {
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-line bg-panel/40 px-2.5 py-1.5">
+    <div className="card hud-frame flex items-center gap-2 px-3 py-1.5">
       <span className="text-cyan/80 shrink-0">{icon}</span>
       <div className="leading-none">
-        <span className="text-[15px] font-semibold text-ink">{value}</span>
-        <span className="text-[10px] text-inkfaint ml-1.5">{label}</span>
-        {sub && <span className="text-[10px] text-grn ml-1">{sub}</span>}
+        <span className="num text-[15px] font-bold text-cyan">{value}</span>
+        <span className="hud-lbl ml-1.5">{label}</span>
+        {sub && <span className="num text-[10px] text-grn ml-1">{sub}</span>}
       </div>
     </div>
   )
@@ -241,7 +241,7 @@ function Stat({ icon, value, label, sub }: { icon: ReactNode; value: ReactNode; 
 function Section({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return (
     <div className="mb-4">
-      <div className="flex items-center gap-1.5 text-[10px] text-inkfaint uppercase tracking-widest px-2 mb-1.5">{icon}<span>{title}</span></div>
+      <div className="hud-lbl flex items-center gap-1.5 px-2 mb-1.5">{icon}<span>{title}</span></div>
       {children}
     </div>
   )

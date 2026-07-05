@@ -79,14 +79,14 @@ export default function Settings() {
   const fmtTime = (d: Date) => d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
 
   return (
-    <div className="h-full overflow-auto px-6 py-5">
+    <div className="h-full overflow-auto px-4 sm:px-6 py-5">
       <div className="max-w-2xl mx-auto flex flex-col gap-4">
 
         {/* ── S1/U0: Hiệu ứng & a11y ── */}
         <div className="card p-5">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-lg">✨</span>
-            <h3 className="display text-sm tracking-wide">HIỆU ỨNG & TRỢ NĂNG</h3>
+            <h3 className="hud-lbl !text-[12px]">HIỆU ỨNG & TRỢ NĂNG</h3>
             <span className={'chip ml-auto ' + (reduceFx ? 'text-grn border-grn/40' : 'text-inkfaint')}>
               {reduceFx ? 'GỌN NHẸ' : 'ĐẦY ĐỦ'}
             </span>
@@ -125,7 +125,7 @@ export default function Settings() {
         <div className="card p-5">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-lg">🔐</span>
-            <h3 className="display text-sm tracking-wide">XÁC THỰC 2 LỚP (2FA)</h3>
+            <h3 className="hud-lbl !text-[12px]">XÁC THỰC 2 LỚP (2FA)</h3>
             <span className={'chip ml-auto ' + (enabled ? 'text-grn border-grn/40' : 'text-inkfaint')}>
               {enabled === null ? '…' : enabled ? 'ĐANG BẬT' : 'TẮT'}
             </span>
@@ -160,7 +160,7 @@ export default function Settings() {
         <div className="card p-5">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-lg">🔌</span>
-            <h3 className="display text-sm tracking-wide">NGUỒN API</h3>
+            <h3 className="hud-lbl !text-[12px]">NGUỒN API</h3>
             <span className={'chip ' + (llm ? (aliveCount > 0 ? 'text-grn border-grn/40' : 'text-pink border-pink/40') : 'text-inkfaint')}>
               {llm ? `${aliveCount}/${llm.providers.length} alive` : '…'}
             </span>
@@ -222,7 +222,7 @@ export default function Settings() {
           <div className="card p-5">
             <div className="flex items-center gap-2 mb-4">
               <span className="text-lg">📋</span>
-              <h3 className="display text-sm tracking-wide">MODEL CATALOG</h3>
+              <h3 className="hud-lbl !text-[12px]">MODEL CATALOG</h3>
               <span className="chip ml-auto text-inkfaint">{llm.catalog.length} model</span>
             </div>
 
@@ -279,7 +279,7 @@ export default function Settings() {
           <div className="card p-5">
             <div className="flex items-center gap-2 mb-1">
               <span className="text-lg">⚡</span>
-              <h3 className="display text-sm tracking-wide">EXECUTOR MẶC ĐỊNH</h3>
+              <h3 className="hud-lbl !text-[12px]">EXECUTOR MẶC ĐỊNH</h3>
             </div>
             <p className="text-[12px] text-inkdim mb-4">
               Model chạy card nặng / bulk. Lưu vào localStorage — mỗi browser nhớ riêng.

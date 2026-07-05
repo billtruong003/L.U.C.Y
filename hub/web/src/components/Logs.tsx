@@ -15,7 +15,7 @@ export default function Logs() {
   const time = (t: number) => new Date(t).toLocaleTimeString('vi-VN', { hour12: false })
 
   return (
-    <div className="h-full flex flex-col px-6 py-5">
+    <div className="h-full flex flex-col px-4 sm:px-6 py-5">
       <div className="max-w-3xl w-full mx-auto flex flex-col min-h-0 flex-1">
         <div className="flex items-center gap-2 mb-3 flex-wrap">
           <button onClick={() => setFilter('')} className={'chip ' + (!filter ? 'text-cyan border-cyan/40' : '')}>tất cả ({logs.length})</button>
