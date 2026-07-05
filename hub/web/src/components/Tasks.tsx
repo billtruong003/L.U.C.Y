@@ -1,3 +1,4 @@
+import { EmptyState } from './ui'
 import { useEffect, useState } from 'react'
 import { jobs, poll, send, type JobRow } from '../api'
 import { showToast } from '../toast'
@@ -106,10 +107,7 @@ export default function Tasks() {
           <span className="chip">{rows.length} gần đây</span>
         </div>
         {rows.length === 0 ? (
-          <div className="card p-8 text-center text-inkfaint text-sm">
-            <div className="text-2xl mb-2">⚙️</div>
-            Chưa có task nào. Gửi tin ở tab <span className="text-cyan">Chat</span> → hiện ở đây.
-          </div>
+          <EmptyState title="Chưa có task nào" hint="Gửi tin ở tab Chat → task hiện ở đây." />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
             <Column title="Đang chạy" dot="bg-grn" items={running} empty="không có task đang chạy" />

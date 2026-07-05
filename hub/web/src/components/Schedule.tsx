@@ -1,3 +1,4 @@
+import { EmptyState, ErrorState } from './ui'
 import { useEffect, useState } from 'react'
 
 type Sched = { id: string; name: string; prompt: string; model: string; times: string[]; enabled: boolean; lastRun: number | null; lastStatus: string; lastResult: string }
@@ -57,7 +58,7 @@ export default function Schedule() {
         )}
 
         {list.length === 0 && !open && (
-          <div className="card p-8 text-center text-inkfaint text-sm"><div className="text-2xl mb-2">🗓️</div>Chưa có lịch. Tạo để Lucy tự chạy research/brief theo giờ.</div>
+          <EmptyState title="Chưa có lịch" hint="Tạo để Lucy tự chạy research/brief theo giờ." />
         )}
 
         <div className="flex flex-col gap-2">

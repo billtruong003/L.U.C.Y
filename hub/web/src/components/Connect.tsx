@@ -1,3 +1,4 @@
+import { EmptyState, ErrorState } from './ui'
 import { useEffect, useState } from 'react'
 import { amMcp, type McpServerInfo, type McpUiState } from '../api'
 
@@ -114,7 +115,7 @@ export default function Connect() {
           </div>
         )}
         {!loading && configured && servers.length === 0 && (
-          <div className="card p-8 text-center text-inkfaint text-sm"><div className="text-2xl mb-2">🔌</div>Chưa có MCP server nào.</div>
+          <EmptyState title="Chưa có MCP server nào" />
         )}
       </div>
     </div>

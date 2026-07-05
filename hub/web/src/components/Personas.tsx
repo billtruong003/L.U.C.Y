@@ -1,3 +1,4 @@
+import { EmptyState, ErrorState } from './ui'
 import { useEffect, useState } from 'react'
 import { amPersonas, amSavePersona, amDeletePersona, amPersonaRoute, type AmPersona, type PersonaRouteReply } from '../api'
 import { showToast } from '../toast'
@@ -102,7 +103,7 @@ export default function Personas() {
         )}
 
         {!configured && (
-          <div className="card p-8 text-center text-inkfaint text-sm"><div className="text-2xl mb-2">🧩</div>Agent-Machine chưa cấu hình (AM_COORD_URL).</div>
+          <ErrorState message="Agent-Machine chưa cấu hình (AM_COORD_URL)." />
         )}
 
         {editing && (
@@ -143,7 +144,7 @@ export default function Personas() {
         )}
 
         {configured && list.length === 0 && !editing && (
-          <div className="card p-8 text-center text-inkfaint text-sm"><div className="text-2xl mb-2">🧩</div>Chưa có expert. Tạo để Lucy hỏi ý kiến chuyên sâu.</div>
+          <EmptyState title="Chưa có expert" hint="Tạo để Lucy hỏi ý kiến chuyên sâu." />
         )}
 
         {/* RPG hero roster grid */}
