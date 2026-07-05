@@ -1,3 +1,4 @@
+import { EmptyState } from './ui'
 import { useEffect, useState } from 'react'
 import { tree, readFile, type Entry } from '../api'
 import Markdown from './Markdown'
@@ -47,7 +48,7 @@ export default function Projects() {
         <div className="flex items-center gap-1 text-xs text-inkfaint mb-3 mono flex-wrap">
           {crumbs.map((c, i) => <span key={i}>{i > 0 && <span className="opacity-50"> / </span>}{c}</span>)}
         </div>
-        {!file && <div className="card p-8 text-center text-inkfaint text-sm"><div className="text-2xl mb-2">📁</div>Chọn file để xem.</div>}
+        {!file && <EmptyState title="Chọn file để xem" hint="Duyệt cây mã nguồn bên trái." />}
         {file?.binary && <div className="card p-4 text-inkfaint text-sm">🖼️ {file.name} — binary ({Math.round((file.size || 0) / 1024)} KB), không hiển thị.</div>}
         {file?.tooBig && <div className="card p-4 text-inkfaint text-sm">{file.name} — quá lớn ({Math.round((file.size || 0) / 1024)} KB).</div>}
         {file && !file.binary && !file.tooBig && file.content != null && (

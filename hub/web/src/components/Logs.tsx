@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { EmptyState } from './ui'
 
 type Ev = { t: number; level: 'info' | 'warn' | 'error'; type: string; msg: string }
-const COL: Record<string, string> = { info: 'text-cyan', warn: 'text-yellow-300', error: 'text-pink' }
-const DOT: Record<string, string> = { info: 'bg-cyan', warn: 'bg-yellow-300', error: 'bg-pink' }
+const COL: Record<string, string> = { info: 'text-cyan', warn: 'text-warning', error: 'text-danger' }
+const DOT: Record<string, string> = { info: 'bg-cyan', warn: 'bg-warning', error: 'bg-danger' }
 
 export default function Logs() {
   const [logs, setLogs] = useState<Ev[]>([])
@@ -18,13 +19,13 @@ export default function Logs() {
     <div className="h-full flex flex-col px-4 sm:px-6 py-5">
       <div className="max-w-3xl w-full mx-auto flex flex-col min-h-0 flex-1">
         <div className="flex items-center gap-2 mb-3 flex-wrap">
-          <button onClick={() => setFilter('')} className={'chip ' + (!filter ? 'text-cyan border-cyan/40' : '')}>tất cả ({logs.length})</button>
-          {types.map((ty) => <button key={ty} onClick={() => setFilter(ty)} className={'chip ' + (filter === ty ? 'text-cyan border-cyan/40' : '')}>{ty}</button>)}
+          <button onClick={() => setFilter('')} className={'chip cursor-pointer ' + (!filter ? 'chip-accent' : '')}>tất cả ({logs.length})</button>
+          {types.map((ty) => <button key={ty} onClick={() => setFilter(ty)} className={'chip cursor-pointer ' + (filter === ty ? 'chip-accent' : '')}>{ty}</button>)}
           <div className="flex-1" />
           <button onClick={() => (paused.current = !paused.current)} className="btn !py-1 !px-2 text-xs" title="Tạm dừng auto-refresh">⏸ pause</button>
         </div>
         <div className="card flex-1 min-h-0 overflow-auto p-2 mono text-[12px]">
-          {shown.length === 0 && <div className="text-inkfaint text-center py-8">Chưa có log.</div>}
+          {shown.length === 0 && <EmptyState title="Chưa có log" />}
           {shown.map((e, i) => (
             <div key={i} className="flex items-start gap-2 px-2 py-1 hover:bg-white/[0.03] rounded">
               <span className={'mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ' + (DOT[e.level] || 'bg-inkdim')} />

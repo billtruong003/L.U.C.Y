@@ -46,7 +46,7 @@ export default function Skills() {
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="chip num">{active.length} active</span>
-            <span className={'chip num ' + (proposed.length ? 'text-gold border-gold/40' : 'text-inkfaint border-ink/30')}>{proposed.length} đề xuất</span>
+            <span className={'chip num ' + (proposed.length ? 'chip-value' : '')}>{proposed.length} đề xuất</span>
             <span className={'chip num ' + (learnOn ? 'text-grn border-grn/40' : 'text-inkfaint border-ink/30')}>
               {learnOn ? 'LUCY_SKILL_LEARN on' : 'tự-học tắt (dry-run)'}
             </span>
@@ -61,9 +61,7 @@ export default function Skills() {
         {/* Đề xuất tự sinh (M3.3) — nổi bật, chờ duyệt */}
         {proposed.length > 0 && (
           <div className="mb-5">
-            <div className="text-[12px] text-gold mb-2 flex items-center gap-2">
-              <span>🌱 Lucy đề xuất (M3.3 self-improve) — CHƯA active, chờ chủ nhân/dream duyệt</span>
-            </div>
+            <div className="hud-lbl text-gold mb-2">🌱 Lucy đề xuất (self-improve) — chờ duyệt</div>
             <div className="card p-3 mb-3 text-[11px] text-inkdim">
               Skill đề xuất nằm ở <code className="num text-cyan">skills/_proposed/</code> — KHÔNG vào INDEX nên loader KHÔNG nạp.
               Duyệt = move sang thư viện chính + thêm dòng INDEX.md.
@@ -76,17 +74,13 @@ export default function Skills() {
 
         {/* Search active */}
         <div className="mb-3">
-          <input
-            value={q} onChange={(e) => setQ(e.target.value)}
-            placeholder="Tìm kỹ năng…"
-            className="w-full bg-transparent border border-ink/30 rounded-lg px-3 py-2 text-sm outline-none focus:border-cyan/50"
-          />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm kỹ năng…" className="input" />
         </div>
 
         {/* Lucy nội bộ trước */}
         {lucy.length > 0 && (
           <div className="mb-4">
-            <div className="text-[12px] text-cyan mb-2">🎯 Skill nội bộ Lucy ({lucy.length})</div>
+            <div className="hud-lbl text-cyan mb-2">🎯 Skill nội bộ Lucy ({lucy.length})</div>
             <div className="grid gap-3 md:grid-cols-2">
               {lucy.map((s) => <Card key={s.path} s={s} tone="border-cyan/20" />)}
             </div>
@@ -95,7 +89,7 @@ export default function Skills() {
 
         {rest.length > 0 && (
           <div>
-            <div className="text-[12px] text-inkdim mb-2">Thư viện ({rest.length})</div>
+            <div className="hud-lbl mb-2">Thư viện ({rest.length})</div>
             <div className="grid gap-3 md:grid-cols-2">
               {rest.map((s) => <Card key={s.path} s={s} />)}
             </div>

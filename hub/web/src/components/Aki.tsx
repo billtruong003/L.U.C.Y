@@ -47,14 +47,14 @@ export default function Aki() {
         {configured && (
           <>
             <div className="card p-4 flex flex-col gap-3">
-              <div className="flex items-center gap-2 text-cyan text-sm font-semibold">📣 Đẩy báo cáo vào kênh</div>
+              <div className="hud-lbl text-cyan flex items-center gap-1.5">📣 Đẩy báo cáo vào kênh</div>
               <input className="input" placeholder="kênh (tên hoặc ID, vd: truong-lao)" value={channel} onChange={(e) => setChannel(e.target.value)} />
               <textarea className="input resize-none" rows={5} placeholder="Nội dung báo cáo Aki sẽ post lên Discord…" value={text} onChange={(e) => setText(e.target.value)} />
               <div className="flex justify-end"><button onClick={sendReport} disabled={busy} className="btn btn-primary">Đẩy qua Aki</button></div>
             </div>
 
             <div className="card p-4 flex flex-col gap-3">
-              <div className="flex items-center gap-2 text-cyan text-sm font-semibold">➕ Tạo kênh / thread</div>
+              <div className="hud-lbl text-cyan flex items-center gap-1.5">➕ Tạo kênh / thread</div>
               <div className="flex gap-2 flex-wrap">
                 <input className="input flex-1 min-w-[160px]" placeholder="tên kênh/thread" value={name} onChange={(e) => setName(e.target.value)} />
                 <select className="btn !py-2" value={ctype} onChange={(e) => setCtype(e.target.value as 'text' | 'thread')}>
